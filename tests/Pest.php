@@ -18,6 +18,12 @@ pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
     ->in('Feature');
 
+// Tenancy tests provision real per-tenant PostgreSQL databases. CREATE DATABASE
+// cannot run inside a transaction, so these tests can't use transactional
+// RefreshDatabase — they manage the central schema and tenant DBs explicitly.
+pest()->extend(TestCase::class)
+    ->in('Tenancy');
+
 /*
 |--------------------------------------------------------------------------
 | Expectations
