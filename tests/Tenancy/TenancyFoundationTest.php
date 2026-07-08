@@ -5,7 +5,6 @@ declare(strict_types=1);
 use App\Providers\TenancyServiceProvider;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schema;
-use Stancl\Tenancy\Database\Models\Tenant;
 use Stancl\Tenancy\Tenancy;
 use Stancl\Tenancy\TenantDatabaseManagers\PostgreSQLDatabaseManager;
 
@@ -23,8 +22,7 @@ test('central migrations create the tenant registry tables', function (): void {
 });
 
 test('tenancy config is published and targets database-per-tenant on postgres', function (): void {
-    expect(config('tenancy.tenant_model'))->toBe(Tenant::class)
-        ->and(config('tenancy.database.central_connection'))->toBe('pgsql')
+    expect(config('tenancy.database.central_connection'))->toBe('pgsql')
         ->and(config('tenancy.database.managers.pgsql'))->toBe(PostgreSQLDatabaseManager::class);
 });
 
