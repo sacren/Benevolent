@@ -30,7 +30,7 @@ test('creating a tenant provisions its own database without error', function ():
     // L-1 regression guard: the base package model is not TenantWithDatabase, so
     // Tenant::create() used to throw in the CreateDatabase pipeline. Full
     // provisioning coverage (command, migrate, delete) lands in Step 5.
-    $tenant = Tenant::create();
+    $tenant = Tenant::create(['name' => 'Regression Guard', 'slug' => 'regression-guard']);
 
     expect($tenant->database()->getName())->toBe('tenant'.$tenant->id);
 });
