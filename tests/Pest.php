@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\RunsInCampaignContext;
 use Tests\TestCase;
 
 /*
@@ -23,6 +24,24 @@ pest()->extend(TestCase::class)
 // RefreshDatabase — they manage the central schema and tenant DBs explicitly.
 pest()->extend(TestCase::class)
     ->in('Tenancy');
+
+// Feature tests served in campaign context. Operators exist only in a campaign's
+// own database, so anything exercising authentication — or any other route served
+// to a campaign — belongs here rather than in tests/Feature, whose tests run
+// centrally. The trait provisions one campaign per file and wraps each test in a
+// transaction on its connection.
+//
+// Note that a directory can only be configured once, so campaign tests cannot be
+// nested inside tests/Tenancy while that folder is configured above.
+pest()->extend(TestCase::class)
+    ->use(RunsInCampaignContext::class)
+    ->beforeEach(function (): void {
+        $this->enterCampaignContext();
+    })
+    ->afterEach(function (): void {
+        $this->leaveCampaignContext();
+    })
+    ->in('Campaign');
 
 /*
 |--------------------------------------------------------------------------

@@ -14,6 +14,16 @@
         <testsuite name="Tenancy">
             <directory>tests/Tenancy</directory>
         </testsuite>
+        <!--
+            Feature tests served in campaign context, as opposed to the Tenancy
+            suite's tests of the tenancy machinery itself. They sit outside the
+            Feature suite because they provision real databases and so cannot use
+            transactional RefreshDatabase, and they get their own suite to keep a
+            sub-second feedback loop separate from the slower Tenancy suite.
+        -->
+        <testsuite name="Campaign">
+            <directory>tests/Campaign</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>
