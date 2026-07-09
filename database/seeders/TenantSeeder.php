@@ -36,6 +36,9 @@ class TenantSeeder extends Seeder
             'slug' => $slug,
         ]);
 
-        $tenant->createDomain(['domain' => 'demo-campaign.localhost']);
+        // Campaign hostnames use the reserved .test TLD, which local dev resolves
+        // via a dnsmasq wildcard (D-2's local-dev realization). Central stays
+        // laravel.local.
+        $tenant->createDomain(['domain' => 'demo-campaign.test']);
     }
 }

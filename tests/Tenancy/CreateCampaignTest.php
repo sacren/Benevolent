@@ -22,7 +22,7 @@ afterEach(function (): void {
 test('the command provisions a working campaign with its own migrated database', function (): void {
     $exitCode = Artisan::call('campaign:create', [
         'name' => 'Grassroots Drive',
-        'domain' => 'grassroots.localhost',
+        'domain' => 'grassroots.test',
     ]);
 
     expect($exitCode)->toBe(0);
@@ -33,7 +33,7 @@ test('the command provisions a working campaign with its own migrated database',
     // The optional domain argument created a registry row for resolution (Step 5).
     expect(DB::connection('pgsql')->table('domains')
         ->where('tenant_id', $tenant->id)
-        ->where('domain', 'grassroots.localhost')
+        ->where('domain', 'grassroots.test')
         ->exists())->toBeTrue();
 
     // The tenant's own database was provisioned and migrated: initializing tenancy
@@ -80,6 +80,6 @@ test('the tenant seeder provisions the demo campaign', function (): void {
         ->and($tenant->database()->manager()->databaseExists($tenant->database()->getName()))->toBeTrue()
         ->and(DB::connection('pgsql')->table('domains')
             ->where('tenant_id', $tenant->id)
-            ->where('domain', 'demo-campaign.localhost')
+            ->where('domain', 'demo-campaign.test')
             ->exists())->toBeTrue();
 });

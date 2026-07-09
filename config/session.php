@@ -71,9 +71,16 @@ return [
     | connection that should be used to manage these sessions. This should
     | correspond to a connection in your database configuration options.
     |
+    | Pinned to the central connection rather than left null. Sessions are
+    | shared web infrastructure, not per-campaign data, and the `sessions`
+    | table lives in the central database only. A null value would resolve to
+    | the *default* connection, which tenancy switches onto the campaign's own
+    | database before the session starts — so every tenant route would fail on
+    | a missing `sessions` table.
+    |
     */
 
-    'connection' => env('SESSION_CONNECTION'),
+    'connection' => env('SESSION_CONNECTION', env('DB_CONNECTION', 'pgsql')),
 
     /*
     |--------------------------------------------------------------------------

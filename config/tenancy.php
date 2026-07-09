@@ -23,11 +23,24 @@ return [
      * The list of domains hosting your central app.
      *
      * Only relevant if you're using the domain or subdomain identification middleware.
+     *
+     * Derived from APP_URL rather than hardcoded, so the central host is correct in
+     * every environment without editing this file: laravel.local in development, the
+     * real public host in production. The fallback mirrors config/app.php's, so the two
+     * can never disagree about which host is ours. Any port is ignored — campaign
+     * identification matches on host alone.
+     *
+     * Set TENANCY_CENTRAL_DOMAINS (comma-separated) when more than one host actually
+     * reaches the central app, such as an apex alongside its www alias. Loopback hosts
+     * stay central so container health checks are never mistaken for a campaign.
+     *
+     * Inspect the resolved list with `artisan config:show tenancy.central_domains`.
      */
-    'central_domains' => [
-        '127.0.0.1',
-        'localhost',
-    ],
+    'central_domains' => array_values(array_unique(array_filter(array_merge(
+        [parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST)],
+        array_map('trim', explode(',', (string) env('TENANCY_CENTRAL_DOMAINS', ''))),
+        ['127.0.0.1', 'localhost'],
+    )))),
 
     /**
      * Tenancy bootstrappers are executed when tenancy is initialized.
