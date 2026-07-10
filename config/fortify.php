@@ -99,9 +99,16 @@ return [
     | that it registers with the application. If necessary, you may change
     | these middleware but typically this provided default is preferred.
     |
+    | This is the `tenant` group rather than `web` because operators exist only
+    | in their own campaign's database. Signing in has to happen with that
+    | database connected, which means the campaign must be resolved from the
+    | request before any of these routes run. Pointing this key at the group is
+    | all it takes -- Fortify registers its routes with whatever it finds here,
+    | so none of them have to be re-registered by hand.
+    |
     */
 
-    'middleware' => ['web'],
+    'middleware' => ['tenant'],
 
     /*
     |--------------------------------------------------------------------------

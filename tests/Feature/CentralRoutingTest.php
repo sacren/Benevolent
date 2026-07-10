@@ -29,3 +29,22 @@ test('a central domain cannot reach a tenant route', function (): void {
 
     expect(tenancy()->initialized)->toBeFalse();
 });
+
+test('signing in is campaign-only and no longer served centrally', function (string $path): void {
+    // The observable half of moving authentication into campaign context: these
+    // paths used to be served on the central host, because a route with no
+    // domain constraint matches any host. They now carry the tenant group, so a
+    // central host is turned away before tenancy is ever initialized.
+    //
+    // Without this, the relocated auth tests would pass whether the routes had
+    // been moved or not -- they exercise a campaign host either way.
+    $this->get($path)->assertNotFound();
+
+    expect(tenancy()->initialized)->toBeFalse();
+})->with([
+    'login' => '/login',
+    'register' => '/register',
+    'dashboard' => '/dashboard',
+    'password reset request' => '/forgot-password',
+    'profile settings' => '/settings/profile',
+]);
