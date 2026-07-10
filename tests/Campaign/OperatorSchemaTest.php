@@ -65,9 +65,7 @@ test('a request to the campaign host keeps the test transaction alive', function
     // arranged before making the request.
     $operator = User::factory()->create();
 
-    $this->get($this->campaignUrl('/campaign'))
-        ->assertOk()
-        ->assertJsonPath('database', $this->campaign->database()->getName());
+    $this->get($this->campaignUrl('/login'))->assertOk();
 
     expect(User::query()->whereKey($operator->getKey())->exists())->toBeTrue();
 });

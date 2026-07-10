@@ -22,22 +22,17 @@ test('a request to a central domain stays central and the home route still resol
     expect(tenancy()->initialized)->toBeFalse();
 });
 
-test('a central domain cannot reach a tenant route', function (): void {
-    // PreventAccessFromCentralDomains runs ahead of the `web` group and 404s
-    // the request before tenancy is ever initialized.
-    $this->get('/campaign')->assertNotFound();
-
-    expect(tenancy()->initialized)->toBeFalse();
-});
-
-test('signing in is campaign-only and no longer served centrally', function (string $path): void {
-    // The observable half of moving authentication into campaign context: these
-    // paths used to be served on the central host, because a route with no
-    // domain constraint matches any host. They now carry the tenant group, so a
-    // central host is turned away before tenancy is ever initialized.
+test('a central host cannot reach campaign routes', function (string $path): void {
+    // PreventAccessFromCentralDomains runs ahead of the web group and turns the
+    // request away before tenancy is ever initialized. Without this, moving the
+    // routes into campaign context and forgetting to move them would look
+    // identical, because the relocated tests exercise a campaign host either
+    // way.
     //
-    // Without this, the relocated auth tests would pass whether the routes had
-    // been moved or not -- they exercise a campaign host either way.
+    // Every path below is an authentication or settings route, for the plain
+    // reason that those are currently the only campaign routes there are. The
+    // guard is not specific to them: any campaign route added later is covered
+    // by the same middleware and belongs in this list.
     $this->get($path)->assertNotFound();
 
     expect(tenancy()->initialized)->toBeFalse();

@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Models\Tenant;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -33,21 +31,6 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::middleware('tenant')->group(function (): void {
-    /*
-     * Resolution probe (thin — not product UI). Proves the request identified
-     * its campaign and switched onto that campaign's own database. Replaced by
-     * the real tenant landing page once the tenant app has one.
-     */
-    Route::get('/campaign', function (): array {
-        /** @var Tenant $campaign */
-        $campaign = tenant();
-
-        return [
-            'campaign' => $campaign->only(['id', 'name', 'slug']),
-            'database' => DB::connection()->getDatabaseName(),
-        ];
-    })->name('campaign.home');
-
     Route::middleware(['auth', 'verified'])->group(function (): void {
         Route::inertia('dashboard', 'Dashboard')->name('dashboard');
     });
