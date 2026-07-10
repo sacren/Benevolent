@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use App\Models\Tenant;
 use App\Models\User;
-use App\Tenancy\UrlTenancyBootstrapper;
+use App\Tenancy\CampaignHostTenancyBootstrapper;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Support\Facades\Artisan;
 use Tests\Support\Url;
@@ -84,7 +84,7 @@ test('the port comes from APP_URL rather than being hardcoded', function (): voi
     // request from APP_URL, so the scheme is never this class's to decide.
     config(['app.url' => 'https://nucleus.example']);
 
-    (new UrlTenancyBootstrapper)->bootstrap(urlProbeCampaign());
+    (new CampaignHostTenancyBootstrapper)->bootstrap(urlProbeCampaign());
 
     expect(Url::host(url('/')))->toBe('harbor-cleanup.test')
         ->and(Url::port(url('/')))->toBeNull();
@@ -95,11 +95,11 @@ test('a campaign with no hostname leaves URL generation central', function (): v
 
     $campaign = Tenant::create(['name' => 'No Domain Yet', 'slug' => 'no-domain-yet']);
 
-    (new UrlTenancyBootstrapper)->bootstrap($campaign);
+    (new CampaignHostTenancyBootstrapper)->bootstrap($campaign);
 
     expect(Url::host(url('/')))->toBe($centralHost);
 });
 
 test('the bootstrapper is registered so tenancy applies it automatically', function (): void {
-    expect(config('tenancy.bootstrappers'))->toContain(UrlTenancyBootstrapper::class);
+    expect(config('tenancy.bootstrappers'))->toContain(CampaignHostTenancyBootstrapper::class);
 });
