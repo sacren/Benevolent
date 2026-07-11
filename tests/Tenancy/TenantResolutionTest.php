@@ -5,7 +5,6 @@ declare(strict_types=1);
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Support\Facades\Artisan;
-use Stancl\Tenancy\Exceptions\TenantCouldNotBeIdentifiedOnDomainException;
 
 beforeEach(function (): void {
     // Rebuild the central schema without a wrapping transaction (see the Tenancy
@@ -90,11 +89,16 @@ test('a campaign route works under the database session driver', function (): vo
 });
 
 test('an unregistered host cannot reach a campaign route', function (): void {
-    $this->withoutExceptionHandling();
-
     // No `domains` row exists for this host, so identification fails and the
     // request never reaches the route.
-    expect(fn () => $this->get('http://not-a-campaign.test/login'))
-        ->toThrow(TenantCouldNotBeIdentifiedOnDomainException::class)
-        ->and(tenancy()->initialized)->toBeFalse();
+    //
+    // This asserted that TenantCouldNotBeIdentifiedOnDomainException was thrown
+    // until InitializeTenancyByDomain::$onFail was set. The refusal is the same
+    // one; what changed is how it is reported. Local dev points every `*.test`
+    // name at this server through one wildcard record, so a mistyped campaign
+    // hostname is an ordinary occurrence rather than a fault, and answering it
+    // with a 500 and an exception report misfiles it as ours.
+    $this->get('http://not-a-campaign.test/login')->assertNotFound();
+
+    expect(tenancy()->initialized)->toBeFalse();
 });

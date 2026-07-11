@@ -13,6 +13,9 @@ createInertiaApp({
         switch (true) {
             case name === 'Welcome':
                 return null;
+            // Served centrally rather than in campaign context, but it is a page
+            // about signing in and wears the same card as the real thing.
+            case name === 'CampaignSignIn':
             case name.startsWith('auth/'):
                 return AuthLayout;
             case name.startsWith('settings/'):
