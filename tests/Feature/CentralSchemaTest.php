@@ -16,19 +16,17 @@ test('the central database carries the platform infrastructure tables', function
         ->and(Schema::hasTable('jobs'))->toBeTrue();
 });
 
-test('the central database does not carry passkeys or two-factor credentials', function (): void {
-    // Passkeys and two-factor secrets are operator credentials, so they belong
-    // in the campaign database alongside the operator they authenticate. The
-    // passkeys foreign key could not have spanned two databases in any case.
+test('the central database does not carry operator identity or credentials', function (): void {
+    // The endpoint of D-1, stated as schema: an operator exists only inside a
+    // campaign. There is no central `users` table for one to live in, and that
+    // absence subsumes the narrower claims -- no central password reset tokens,
+    // no central passkeys, and no two-factor columns, because there is no table
+    // left to hang them on.
     //
-    // These were duplicated into both migration sets on purpose while auth moved
-    // into campaign context, so that nothing was ever red. This asserts the
-    // duplication has been undone on the central side. `users` itself is still
-    // here for one more commit, and its own absence is asserted then.
-    expect(Schema::hasTable('passkeys'))->toBeFalse()
-        ->and(Schema::hasColumns('users', [
-            'two_factor_secret',
-            'two_factor_recovery_codes',
-            'two_factor_confirmed_at',
-        ]))->toBeFalse();
+    // All of these were duplicated into both migration sets on purpose while
+    // authentication moved into campaign context, so that no commit was ever
+    // red. This asserts the duplication is now fully undone on the central side.
+    expect(Schema::hasTable('users'))->toBeFalse()
+        ->and(Schema::hasTable('password_reset_tokens'))->toBeFalse()
+        ->and(Schema::hasTable('passkeys'))->toBeFalse();
 });

@@ -32,14 +32,14 @@ test('an operator created in campaign context lands in the campaign database, no
 
     $this->assertDatabaseHas('users', ['email' => 'operator@example.test'], 'tenant');
 
-    // The central database still has a `users` table at this point, so this is a
-    // real check that the write followed the connection into the campaign rather
-    // than a table-missing error dressed up as a pass.
-    $this->assertDatabaseMissing(
-        'users',
-        ['email' => 'operator@example.test'],
-        (string) config('tenancy.database.central_connection'),
-    );
+    // This used to assert the row was absent from the central `users` table,
+    // leaning on that table's existence as a control: proof the write had
+    // followed the connection into the campaign, rather than a table-missing
+    // error dressed up as a pass. The control is gone now, and its absence is
+    // the stronger statement -- there is no central `users` table for an
+    // operator to land in at all.
+    expect(Schema::connection((string) config('tenancy.database.central_connection'))->hasTable('users'))
+        ->toBeFalse();
 });
 
 test('a test sees an empty operator table even though the previous test filled it', function (): void {
