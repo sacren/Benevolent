@@ -35,9 +35,32 @@ return [
             'driver' => 'sync',
         ],
 
+        /*
+        | The queue's own tables are pinned to the central connection rather
+        | than left null, for the same reason `session.connection` is. Queued
+        | work is shared platform infrastructure, not per-campaign data, so
+        | `jobs` and `job_batches` live in the central database only. A null
+        | value resolves to the *default* connection, which tenancy has already
+        | switched onto the campaign's own database by the time anything is
+        | dispatched from a campaign route — so the insert would look for a
+        | `jobs` table the campaign database does not have.
+        |
+        | Pinning is also what makes the behavior deterministic. A resolved
+        | queue connection is cached for the life of the process and keeps
+        | whichever database connection was default when it was built, so left
+        | unpinned, *which* database a job row lands in depends on when in the
+        | process the queue was first resolved.
+        |
+        | Campaign context is not lost by keeping the row central: it travels in
+        | the job payload as `tenant_id`, which QueueTenancyBootstrapper stamps
+        | on dispatch and reads back before the job runs. Note the separate
+        | per-connection `central` key that bootstrapper also honors — it means
+        | "jobs here are not campaign-aware", the opposite of this pin, and
+        | setting it would strip that context.
+        */
         'database' => [
             'driver' => 'database',
-            'connection' => env('DB_QUEUE_CONNECTION'),
+            'connection' => env('DB_QUEUE_CONNECTION', env('DB_CONNECTION', 'pgsql')),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
             'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
