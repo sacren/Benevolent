@@ -45,4 +45,33 @@ enum OperatorRole: string
     {
         return self::Staff;
     }
+
+    /**
+     * Everything this role may do.
+     *
+     * Listed in full per role rather than by inheriting a lesser role's set. A
+     * hierarchy reads well right up to the first permission that belongs to a
+     * middle role and not the top one, and by then it has to be unwound; an
+     * explicit list never does. It also reads directly as the answer to "what
+     * may Staff do", which is the question this file exists to answer.
+     *
+     * @return list<Permission>
+     */
+    public function permissions(): array
+    {
+        return match ($this) {
+            self::Owner => [
+                Permission::ManageOperators,
+            ],
+            self::Staff => [],
+        };
+    }
+
+    /**
+     * Whether this role carries the given permission.
+     */
+    public function allows(Permission $permission): bool
+    {
+        return in_array($permission, $this->permissions(), strict: true);
+    }
 }
