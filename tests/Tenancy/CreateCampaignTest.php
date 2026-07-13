@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Authorization\OperatorRole;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Support\Facades\Artisan;
@@ -104,6 +105,45 @@ test('the seeded demo operator can sign in on the demo campaign host', function 
 
     $this->assertAuthenticated();
     $response->assertRedirect(route('dashboard', absolute: false));
+});
+
+test('the seeded demo operator owns the demo campaign', function (): void {
+    // The demo campaign exists to be signed into during development, so its one
+    // account has to be able to exercise everything -- an operator who cannot
+    // reach an Owner-only screen makes the seed useless for checking one.
+    Artisan::call('db:seed', ['--class' => 'TenantSeeder']);
+
+    $campaign = Tenant::query()->where('slug', 'demo-campaign')->firstOrFail();
+
+    $role = $campaign->run(
+        fn () => User::query()->where('email', 'operator@demo-campaign.test')->sole()->role,
+    );
+
+    expect($role)->toBe(OperatorRole::Owner);
+});
+
+test('the seeder promotes a demo operator that predates roles', function (): void {
+    // The state every demo campaign seeded before this step is in: the operator
+    // already exists, and the role migration gave it the column default, Staff.
+    // A seeder that only creates the account would return early and leave it
+    // there, so it ensures the role instead.
+    Artisan::call('db:seed', ['--class' => 'TenantSeeder']);
+
+    $campaign = Tenant::query()->where('slug', 'demo-campaign')->firstOrFail();
+
+    $campaign->run(function (): void {
+        $operator = User::query()->where('email', 'operator@demo-campaign.test')->sole();
+        $operator->role = OperatorRole::Staff;
+        $operator->save();
+    });
+
+    Artisan::call('db:seed', ['--class' => 'TenantSeeder']);
+
+    $role = $campaign->run(
+        fn () => User::query()->where('email', 'operator@demo-campaign.test')->sole()->role,
+    );
+
+    expect($role)->toBe(OperatorRole::Owner);
 });
 
 test('the tenant seeder can be run twice without complaint', function (): void {

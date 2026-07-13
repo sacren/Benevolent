@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Authorization\OperatorRole;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Database\Seeder;
@@ -61,18 +62,29 @@ class TenantSeeder extends Seeder
         }
 
         $campaign->run(function (): void {
-            if (User::query()->where('email', self::OPERATOR_EMAIL)->exists()) {
+            $operator = User::query()->where('email', self::OPERATOR_EMAIL)->first();
+
+            if ($operator === null) {
+                // Verified on creation: the dashboard is behind the `verified`
+                // middleware, and the point of seeding an operator is to reach it
+                // without registering and clicking through a mail client first.
+                User::factory()->owner()->create([
+                    'name' => 'Demo Operator',
+                    'email' => self::OPERATOR_EMAIL,
+                    'password' => self::OPERATOR_PASSWORD,
+                ]);
+
                 return;
             }
 
-            // Verified on creation: the dashboard is behind the `verified`
-            // middleware, and the point of seeding an operator is to reach it
-            // without registering and clicking through a mail client first.
-            User::factory()->create([
-                'name' => 'Demo Operator',
-                'email' => self::OPERATOR_EMAIL,
-                'password' => self::OPERATOR_PASSWORD,
-            ]);
+            // The operator already exists, which is the case on any demo
+            // campaign seeded before roles did. Returning early here would leave
+            // it as whatever the role column defaulted to when the migration
+            // added it -- Staff -- and the demo campaign's only account would be
+            // unable to exercise anything an Owner may do. So the seeder ensures
+            // the role rather than only creating the account.
+            $operator->role = OperatorRole::Owner;
+            $operator->save();
         });
 
         $this->command->info(sprintf(
