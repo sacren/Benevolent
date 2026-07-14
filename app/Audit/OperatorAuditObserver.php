@@ -41,6 +41,41 @@ class OperatorAuditObserver
     }
 
     /**
+     * An operator's authority within this campaign changed.
+     *
+     * Every save on an operator arrives here -- a rename, an email edit, a new
+     * password, a two-factor enrolment, a verification timestamp -- and all but
+     * one are none of the trail's business. So the filter is on the attribute
+     * rather than on the event: unless the role itself moved, nothing is
+     * written. That single line is what separates this from a recorder that
+     * logs everything an operator ever does, and a test pairs it against a
+     * rename to keep it that way.
+     *
+     * No screen produces a role change yet; the permission that would govern
+     * one has no consumer. Recording it anyway costs a method and means the
+     * first screen to offer promotion arrives already audited, rather than
+     * shipping the surface and the record of it separately.
+     */
+    public function updated(User $operator): void
+    {
+        if (! $operator->wasChanged('role')) {
+            return;
+        }
+
+        $this->record($operator, AuditEvent::OperatorRoleChanged, [
+            // The raw original rather than the cast one: this reads the value as
+            // it was stored, which is what the entry records and what any later
+            // reader of the trail will be matching on. It is still available at
+            // this point because Eloquent re-syncs originals after firing the
+            // updated event, not before it.
+            'role' => [
+                'from' => $operator->getRawOriginal('role'),
+                'to' => $this->roleOf($operator)->value,
+            ],
+        ]);
+    }
+
+    /**
      * An operator ceased to exist inside this campaign.
      */
     public function deleted(User $operator): void
