@@ -72,7 +72,7 @@ test('an audit entry outlives the operator it describes', function (): void {
     // and both answers destroy the record of the thing worth recording.
     $operator = User::factory()->create(['email' => 'leaving@example.test']);
 
-    AuditEntry::create([
+    $written = AuditEntry::create([
         'event' => AuditEvent::OperatorRemoved,
         'subject_type' => User::class,
         'subject_id' => $operator->getKey(),
@@ -81,7 +81,11 @@ test('an audit entry outlives the operator it describes', function (): void {
 
     $operator->delete();
 
-    $entry = AuditEntry::query()->sole();
+    // Scoped to the entry this test wrote. The roster observer records the same
+    // operator arriving and leaving, so the table holds its entries too -- this
+    // test is about what the schema permits, not about what the observer does,
+    // and it should not start failing the next time the observer records more.
+    $entry = AuditEntry::query()->whereKey($written->getKey())->sole();
 
     expect(User::query()->whereKey($entry->subject_id)->exists())->toBeFalse()
         ->and($entry->subject_label)->toBe('leaving@example.test');

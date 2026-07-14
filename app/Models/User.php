@@ -3,10 +3,12 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Audit\OperatorAuditObserver;
 use App\Authorization\OperatorRole;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -29,6 +31,13 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
+// Named here rather than discovered by convention, so that the wiring is a line
+// someone can read, grep for, and delete to watch the audit tests go red. An
+// observer that is written but never attached records nothing at all, and every
+// test asserting a change was *not* recorded passes perfectly against it -- so
+// the attachment is the kind of thing that has to be visible and asserted
+// rather than assumed.
+#[ObservedBy(OperatorAuditObserver::class)]
 #[Fillable(['name', 'email', 'password'])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable implements PasskeyUser
