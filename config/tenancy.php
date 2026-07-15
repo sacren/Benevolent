@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Models\Tenant;
 use App\Tenancy\CampaignHostTenancyBootstrapper;
+use App\Tenancy\CampaignPasswordBrokerTenancyBootstrapper;
 use Stancl\Tenancy\Bootstrappers\CacheTenancyBootstrapper;
 use Stancl\Tenancy\Bootstrappers\DatabaseTenancyBootstrapper;
 use Stancl\Tenancy\Bootstrappers\FilesystemTenancyBootstrapper;
@@ -55,6 +56,7 @@ return [
         FilesystemTenancyBootstrapper::class,
         QueueTenancyBootstrapper::class,
         CampaignHostTenancyBootstrapper::class,
+        CampaignPasswordBrokerTenancyBootstrapper::class,
         // Stancl\Tenancy\Bootstrappers\RedisTenancyBootstrapper::class, // Note: phpredis is needed
     ],
 
