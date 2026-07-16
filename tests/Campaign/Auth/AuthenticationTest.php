@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\User;
-use Illuminate\Support\Facades\RateLimiter;
 use Laravel\Fortify\Features;
 
 test('login screen can be rendered', function () {
@@ -66,12 +65,30 @@ test('users can logout', function () {
 test('users are rate limited', function () {
     $user = User::factory()->create();
 
-    RateLimiter::increment(md5('login'.implode('|', [$user->email, '127.0.0.1'])), amount: 5);
+    // Spends the budget by actually failing to sign in, rather than seeding a
+    // counter under a hand-computed key. The scaffold's version restated the
+    // framework's key formula — md5('login'.email.'|'.ip) — back at it, so it
+    // reported "rate limiting works" only while this application keyed its
+    // limiter exactly the way Fortify shipped it, and went red the moment the
+    // key legitimately changed. What is worth asserting is that six wrong
+    // passwords are refused, whatever the key happens to be.
+    foreach (range(1, 5) as $ignored) {
+        $this->post(route('login.store'), [
+            'email' => $user->email,
+            'password' => 'wrong-password',
+        ]);
+    }
 
     $response = $this->post(route('login.store'), [
         'email' => $user->email,
         'password' => 'wrong-password',
     ]);
 
-    $response->assertTooManyRequests();
+    // Deliberately not assertTooManyRequests(). When this assertion fails the
+    // response is a redirect carrying validation errors, and Laravel's failure
+    // formatter reads that session bag in a way that fatals on it — so the
+    // idiomatic assertion reports "Call to a member function all() on array"
+    // instead of the status it actually got. Measured by raising the limit and
+    // watching it break. Comparing the code directly keeps the red legible.
+    expect($response->getStatusCode())->toBe(429);
 });
