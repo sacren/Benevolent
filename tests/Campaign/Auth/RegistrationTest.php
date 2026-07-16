@@ -67,6 +67,34 @@ test('every operator registering after the first joins as staff', function () {
         ->toBe(OperatorRole::Owner);
 });
 
+test('registering is metered', function () {
+    // Fortify offers no limiter hook for registration, so this endpoint took
+    // unauthenticated POSTs without any budget at all until a limiter was
+    // listed on Fortify's middleware key.
+    //
+    // Every attempt below omits the password confirmation and is rejected, so
+    // no operator is created and no session is authenticated -- the throttle
+    // sits ahead of the controller and counts the attempt either way. Spending
+    // the budget with *valid* registrations would sign the first one in and
+    // send the rest through the guest redirect instead, measuring nothing.
+    foreach (range(1, 5) as $attempt) {
+        $this->post(route('register.store'), [
+            'name' => 'Flood '.$attempt,
+            'email' => 'flood'.$attempt.'@example.test',
+            'password' => 'password',
+        ]);
+    }
+
+    $response = $this->post(route('register.store'), [
+        'name' => 'Flood 6',
+        'email' => 'flood6@example.test',
+        'password' => 'password',
+    ]);
+
+    expect($response->getStatusCode())->toBe(429)
+        ->and(User::query()->count())->toBe(0);
+});
+
 test('a registration cannot claim ownership by posting a role', function () {
     // The escalation path this whole design is arranged to close, exercised
     // through the real endpoint rather than the model: the request names a

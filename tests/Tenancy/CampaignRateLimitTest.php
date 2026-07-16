@@ -118,6 +118,28 @@ test('one caller cannot buy a fresh address budget by moving to another campaign
     expect($refused->getStatusCode())->toBe(429);
 });
 
+test('a campaign cannot spend another campaign password-reset budget', function (): void {
+    $this->skipUnlessFortifyHas(Features::resetPasswords());
+
+    // The same address again, belonging to two different people. Requesting a
+    // reset link is the only unauthenticated endpoint that makes the platform
+    // send mail, so a campaign-less budget here would let anyone stop an
+    // operator recovering their account by spending that address's allowance
+    // on a campaign the operator has never heard of.
+    enrolIn('harbor-cleanup', 'ada@example.com');
+    enrolIn('ridge-restoration', 'ada@example.com');
+
+    foreach (range(1, 3) as $ignored) {
+        $this->post('http://harbor-cleanup.test/forgot-password', ['email' => 'ada@example.com']);
+    }
+
+    $refused = $this->post('http://harbor-cleanup.test/forgot-password', ['email' => 'ada@example.com']);
+    $accepted = $this->post('http://ridge-restoration.test/forgot-password', ['email' => 'ada@example.com']);
+
+    expect($refused->getStatusCode())->toBe(429)
+        ->and($accepted->getStatusCode())->not->toBe(429);
+});
+
 test('a campaign cannot spend another campaign two-factor challenge budget', function (): void {
     $this->skipUnlessFortifyHas(Features::twoFactorAuthentication());
 

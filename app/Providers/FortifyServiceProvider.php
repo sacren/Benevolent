@@ -137,17 +137,66 @@ class FortifyServiceProvider extends ServiceProvider
             // this key is meaningless without the campaign attached to it.
             return [
                 Limit::perMinute(5)->by($this->withinCampaign('two-factor:'.$request->session()->get('login.id'))),
-                Limit::perMinute(30)->by($this->callerAddress($request)),
+                Limit::perMinute(30)->by($this->callerAddress($request, 'two-factor')),
             ];
         });
 
         RateLimiter::for('login', function (Request $request) {
-            $operator = Str::transliterate(Str::lower((string) $request->input(Fortify::username())));
-
             return [
-                Limit::perMinute(5)->by($this->withinCampaign('login:'.$operator)),
-                Limit::perMinute(30)->by($this->callerAddress($request)),
+                Limit::perMinute(5)->by($this->withinCampaign('login:'.$this->submittedUsername($request))),
+                Limit::perMinute(30)->by($this->callerAddress($request, 'login')),
             ];
+        });
+
+        // The endpoints Fortify itself gives no limiter hook for. `limiters`
+        // below reaches login, the two-factor challenge, passkeys and email
+        // verification; registration and both halves of the password-reset flow
+        // accept unauthenticated POSTs and were entirely unmetered. This limiter
+        // is listed on Fortify's `middleware` key, so it sees every route
+        // Fortify registers and declines -- explicitly, by returning no limit at
+        // all -- to touch the ones already covered above.
+        RateLimiter::for('auth-writes', function (Request $request) {
+            return match ($request->route()?->getName()) {
+                // Registration has no prior identity to key on: the address
+                // being registered is by definition one nobody has claimed yet.
+                // So the caller is all there is to meter, and that key is
+                // deliberately platform-wide.
+                //
+                // A campaign-wide registration budget was considered and left
+                // out. It would cap a campaign's registrations however many
+                // callers they came from, which sounds stricter and is worse:
+                // one caller could then spend a campaign's whole budget and
+                // block every legitimate operator from joining it. Open
+                // registration's real answer is onboarding by invitation, which
+                // is a recorded deferral rather than something throttling fixes
+                // -- metering slows a hostname-guesser without changing who
+                // wins the race to claim a fresh campaign as Owner.
+                'register.store' => Limit::perMinute(5)->by($this->callerAddress($request, 'register')),
+
+                // Requesting a link is the tightest budget in this application,
+                // because it is the only unauthenticated endpoint that makes the
+                // platform *send*. Unmetered it is a way to have a campaign mail
+                // somebody over and over at the platform's sending reputation's
+                // expense, and it writes a reset-token row carrying that address
+                // every time.
+                'password.email' => [
+                    Limit::perMinute(3)->by($this->withinCampaign('password-reset-request:'.$this->submittedUsername($request))),
+                    Limit::perMinute(10)->by($this->callerAddress($request, 'password-reset-request')),
+                ],
+
+                // Submitting a reset is deliberately a *separate* budget from
+                // requesting one, rather than the same bucket seen twice. An
+                // operator who asked for two links and then used one would
+                // otherwise be spending a third of their allowance on the step
+                // that finally succeeds, and be refused for having followed the
+                // instructions carefully.
+                'password.update' => [
+                    Limit::perMinute(5)->by($this->withinCampaign('password-reset-submit:'.$this->submittedUsername($request))),
+                    Limit::perMinute(10)->by($this->callerAddress($request, 'password-reset-submit')),
+                ],
+
+                default => Limit::none(),
+            };
         });
 
         RateLimiter::for('passkeys', function (Request $request) {
@@ -159,7 +208,7 @@ class FortifyServiceProvider extends ServiceProvider
 
             return [
                 Limit::perMinute(10)->by($this->withinCampaign('passkeys:'.$credential)),
-                Limit::perMinute(60)->by($this->callerAddress($request)),
+                Limit::perMinute(60)->by($this->callerAddress($request, 'passkeys')),
             ];
         });
     }
@@ -187,14 +236,34 @@ class FortifyServiceProvider extends ServiceProvider
     }
 
     /**
-     * The caller's network address, or a shared bucket when there is none.
+     * The caller's network address within one family of endpoints.
      *
-     * Returning an empty key for an address-less request would put it in the
-     * same bucket as every other keyless limit, which is a stricter answer than
-     * no limit at all and therefore the safe direction to fail in.
+     * The scope is not decoration. Laravel keys a throttled request by the
+     * limiter's *name* plus the key, so two limits in two differently-named
+     * limiters cannot collide — but `auth-writes` covers three endpoint families
+     * under one name, and registration allows a different number of attempts per
+     * minute than a password-reset request does. Without the scope those three
+     * would share a single counter measured against whichever ceiling the
+     * current route happens to carry, which is not a limit anyone chose.
+     *
+     * A request with no address at all falls into a shared bucket rather than
+     * getting an empty key, which is stricter than no limit and therefore the
+     * safe direction to fail in.
      */
-    private function callerAddress(Request $request): string
+    private function callerAddress(Request $request, string $scope): string
     {
-        return 'address:'.($request->ip() ?? 'unknown');
+        return $scope.':address:'.($request->ip() ?? 'unknown');
+    }
+
+    /**
+     * The operator address a request is submitting, normalized for keying.
+     *
+     * Transliterated and lowercased so that two spellings of one address cannot
+     * be handed two budgets, which is the normalization Fortify applies to its
+     * own throttle key and the reason this repeats it rather than inventing one.
+     */
+    private function submittedUsername(Request $request): string
+    {
+        return Str::transliterate(Str::lower((string) $request->input(Fortify::username())));
     }
 }
