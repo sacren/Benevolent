@@ -4,11 +4,10 @@ declare(strict_types=1);
 
 use App\Models\Tenant;
 use App\Models\User;
-use Illuminate\Queue\Worker;
-use Illuminate\Queue\WorkerOptions;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\EnrolOperator;
+use Tests\Support\QueueWorker;
 
 beforeEach(function (): void {
     // Rebuild the central schema without a wrapping transaction (see the Tenancy
@@ -21,36 +20,6 @@ afterEach(function (): void {
 
     Tenant::all()->each(fn (Tenant $tenant) => $tenant->delete());
 });
-
-/**
- * Processes exactly one queued job, the way a worker would.
- *
- * Deliberately not `queue:work`: the worker runs here, in this process, for one
- * job, against the testing database. Running the real command would put a
- * long-lived process outside the test's control, and dispatching into the
- * developer's own queue is not this suite's business.
- *
- * It has to be the worker rather than calling the job's handle() directly,
- * because the campaign context is restored by a listener on the JobProcessing
- * event — which only the worker fires. Calling handle() would prove nothing
- * about propagation.
- */
-function processOneQueuedJob(): void
-{
-    // Resolved by its container alias rather than its class name: the worker
-    // takes a maintenance-mode callable the container cannot autowire, and the
-    // alias is the binding `queue:work` itself uses.
-    $worker = app('queue.worker');
-
-    expect($worker)->toBeInstanceOf(Worker::class);
-
-    // maxTries is set explicitly because WorkerOptions defaults it to 0, which
-    // means "retry forever". One try mirrors `queue:work --tries=1` and is the
-    // only setting under which the failed_jobs assertion below can mean
-    // anything. The decisive assertion in this file is the operator row and the
-    // campaign id it carries, not the queue counts.
-    $worker->runNextJob('database', 'default', new WorkerOptions(maxTries: 1));
-}
 
 test('a job dispatched in campaign context runs against that campaign database', function (): void {
     Artisan::call('campaign:create', ['name' => 'Doorknock Drive', 'domain' => 'doorknock-drive.test']);
@@ -73,14 +42,24 @@ test('a job dispatched in campaign context runs against that campaign database',
 
     expect(tenancy()->initialized)->toBeFalse();
 
-    processOneQueuedJob();
+    QueueWorker::runNextJob();
 
     $central = (string) config('tenancy.database.central_connection');
 
-    // A job the worker could not run is recorded rather than thrown, so assert
-    // the queue is genuinely empty rather than merely unprocessed.
-    expect(DB::connection($central)->table('failed_jobs')->count())->toBe(0)
-        ->and(DB::connection($central)->table('jobs')->count())->toBe(0);
+    // The queue is genuinely empty rather than merely unprocessed: a job the
+    // worker gave up on is deleted from `jobs` as well, so an empty table here
+    // says the job was taken and finished with rather than left behind or
+    // released for another pass.
+    //
+    // There was a second assertion here, that `failed_jobs` was empty, and it
+    // could not have failed for the reason it named. Nothing in this process
+    // writes that table: the row is inserted by a JobFailed listener that the
+    // `queue:work` command registers as it starts, not by the worker underneath
+    // it — so under runNextJob() a job that throws leaves no trace at all, and
+    // an empty failed_jobs table was true of every possible outcome.
+    // CampaignFailedJobTest registers that listener and is where a failure is
+    // actually asserted.
+    expect(DB::connection($central)->table('jobs')->count())->toBe(0);
 
     // The worker put central context back when the job finished, so nothing
     // after it silently inherits the campaign (see L-13).
