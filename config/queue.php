@@ -125,6 +125,28 @@ return [
     |
     */
 
+    /*
+    | Both of the keys below name a connection for the same reason the queue's
+    | own does: `job_batches` and `failed_jobs` are central tables, and a null
+    | here would mean "whatever connection is currently default", which tenancy
+    | has repointed at a campaign's database whenever campaign work is involved.
+    |
+    | Neither is ours -- the framework already names the central connection here
+    | -- so this is a note rather than a change, and the invariant is asserted in
+    | tests/Tenancy/CampaignFailedJobTest.php so an upgrade or an environment
+    | cannot quietly loosen it. What that test also measured is where the fault
+    | would actually appear, which is not where it reads as though it would:
+    | recording a failure survives an unpinned key, because the queue
+    | bootstrapper reverts tenancy before the failure is written, while
+    | `queue:retry` enters the campaign to re-queue the job and then cannot find
+    | the failed row it is finishing with.
+    |
+    | A failed job keeps its campaign the same way a queued one does, in the
+    | payload's `tenant_id`, so nothing is lost by these rows being central --
+    | but note that the row itself has no campaign column, so "which campaign's
+    | work is failing" is a question about payloads rather than one `queue:failed`
+    | can answer.
+    */
     'batching' => [
         'database' => env('DB_CONNECTION', 'sqlite'),
         'table' => 'job_batches',
