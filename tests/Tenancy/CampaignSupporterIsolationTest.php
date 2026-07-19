@@ -17,11 +17,27 @@ use Illuminate\Support\Facades\DB;
  * a reader would most obviously assume is platform-wide. Nothing enforces it
  * separately: it falls out of `App\Models\Supporter` naming no connection, so
  * the model follows the default one tenancy has switched onto the campaign
- * serving the request. A test is what keeps it falling out, because the mistake
- * that undoes it is a single word added to a model.
+ * serving the request.
  *
- * Two campaigns, never one (L-21): with one, "the campaign's list" and "the
- * list" are indistinguishable and every form of this defect passes.
+ * **What this file is worth was measured, and the first answer given for it was
+ * wrong.** It was justified as the guard against one word added to a model, and
+ * it is not: removing this file and rebuilding that defect the way someone who
+ * believed supporters were platform data would actually ship it — the model
+ * naming the central connection, with the migration filed into the central set
+ * so there is a table for it to reach — leaves **seven other tests** red. This
+ * is not the last line of defence against a pooled list and should not be read
+ * as one.
+ *
+ * Three things it does carry alone. Only the second test below states that
+ * supporter identity is **campaign-local**; a platform-wide account would be a
+ * design error rather than a crash, so all seven of those stay green against
+ * it. This is the only place in the suite where **two campaigns hold
+ * supporters at once**, and with one campaign a leak is invisible by
+ * construction (L-21) — the shape that catches a connection cached across
+ * campaigns, which this project has met three times. And it reports the fault
+ * *as a leak*, naming the campaign that read another's supporter, where the
+ * others report a missing relation: the difference between debugging a
+ * migration and seeing a disclosure.
  *
  * These tests provision their own campaigns rather than using the campaign
  * harness, which keeps one campaign per file inside a transaction that a switch
