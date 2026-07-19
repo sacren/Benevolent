@@ -53,3 +53,19 @@ test('the central database does not carry an audit trail', function (): void {
     // instructions lands the table here.
     expect(Schema::hasTable('audit_entries'))->toBeFalse();
 });
+
+test('the central database does not carry a supporter list', function (): void {
+    // The same claim as the trail's above, for the first product data this
+    // platform holds -- and the version of the mistake with the most at stake,
+    // because a supporter is a member of the public rather than someone who
+    // works here. A central supporters table would pool every campaign's people
+    // into one place, and would look exactly like a working list from inside any
+    // single campaign right up until someone read another campaign's out of it.
+    //
+    // It lives in this suite for the reason the trail's does: the campaign suite
+    // rebuilds the central schema only when it is missing, so the same line
+    // there would hold whether or not it were true. This suite migrates central
+    // per test, so a migration written into database/migrations/ instead of
+    // database/migrations/tenant/ turns this red.
+    expect(Schema::hasTable('supporters'))->toBeFalse();
+});
