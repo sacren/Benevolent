@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Supporters\SubscriptionStatus;
+use App\Supporters\SupporterPolicy;
 use Database\Factories\SupporterFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\UsePolicy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
@@ -45,6 +47,12 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
+// Named here rather than discovered by convention, the same way the audit
+// observer is attached to User. A policy filed at App\Policies\SupporterPolicy
+// would be found by path guessing whether or not this line existed, which would
+// make it impossible to prove the wiring does anything; with the policy beside
+// its module, deleting this line turns the allow tests red.
+#[UsePolicy(SupporterPolicy::class)]
 #[Fillable(['name', 'given_name', 'family_name', 'email', 'postcode', 'subscription_status'])]
 class Supporter extends Model
 {
