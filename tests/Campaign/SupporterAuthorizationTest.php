@@ -43,6 +43,11 @@ use Illuminate\Support\Facades\Route;
  * And they are the only supporter tests that survive the policy being deleted
  * or bypassed, which matters because the permissions are the security posture
  * while the policy is one consumer of it.
+ *
+ * Two further properties of the policy are asserted in
+ * tests/Unit/SupporterPolicyWiringTest.php rather than here, because neither
+ * changes any answer this file checks: that the policy reads permissions and
+ * never the role, and that nothing occupies the path the gate would guess.
  */
 
 test('either role may see and edit the campaign supporters', function (): void {
