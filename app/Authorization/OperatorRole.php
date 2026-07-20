@@ -62,8 +62,14 @@ enum OperatorRole: string
         return match ($this) {
             self::Owner => [
                 Permission::ManageOperators,
+                Permission::ViewSupporters,
+                Permission::EditSupporters,
+                Permission::DeleteSupporters,
             ],
-            self::Staff => [],
+            self::Staff => [
+                Permission::ViewSupporters,
+                Permission::EditSupporters,
+            ],
         };
     }
 
