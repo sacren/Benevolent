@@ -45,6 +45,7 @@ Route::middleware('tenant')->group(function (): void {
         Route::post('supporters', [SupporterController::class, 'store'])->name('supporters.store');
         Route::get('supporters/{supporter}/edit', [SupporterController::class, 'edit'])->name('supporters.edit');
         Route::patch('supporters/{supporter}', [SupporterController::class, 'update'])->name('supporters.update');
+        Route::delete('supporters/{supporter}', [SupporterController::class, 'destroy'])->name('supporters.destroy');
     });
 
     require __DIR__.'/settings.php';

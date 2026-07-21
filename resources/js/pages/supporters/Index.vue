@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { Head, Link } from '@inertiajs/vue3';
+import { Form, Head, Link } from '@inertiajs/vue3';
+import SupporterController from '@/actions/App/Http/Controllers/SupporterController';
 import Heading from '@/components/Heading.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { usePermissions } from '@/composables/usePermissions';
 import { create, edit, index } from '@/routes/supporters';
 import type { Supporter } from '@/types';
 
 defineProps<{
     supporters: Supporter[];
 }>();
+
+const { can } = usePermissions();
 
 defineOptions({
     layout: {
@@ -125,11 +129,44 @@ defineOptions({
                             </Badge>
                         </td>
                         <td class="px-4 py-3 text-right">
-                            <Link
-                                :href="edit(supporter.id)"
-                                class="text-sm underline underline-offset-4"
-                                >Edit</Link
+                            <div
+                                class="flex items-center justify-end gap-3 text-sm"
                             >
+                                <Link
+                                    :href="edit(supporter.id)"
+                                    class="underline underline-offset-4"
+                                    >Edit</Link
+                                >
+
+                                <!--
+                                    Hidden from an operator who may not remove
+                                    anyone, and hidden by asking what they may
+                                    *do* rather than what they are called. The
+                                    policy refuses the request regardless, so
+                                    this is a courtesy rather than the guard:
+                                    getting it wrong costs a button or a 403,
+                                    never access.
+                                -->
+                                <Form
+                                    v-if="can('delete-supporters')"
+                                    v-bind="
+                                        SupporterController.destroy.form(
+                                            supporter.id,
+                                        )
+                                    "
+                                    v-slot="{ processing }"
+                                    :options="{ preserveScroll: true }"
+                                >
+                                    <button
+                                        type="submit"
+                                        :disabled="processing"
+                                        class="text-destructive underline underline-offset-4 disabled:opacity-50"
+                                        :data-test="`remove-supporter-${supporter.id}`"
+                                    >
+                                        Remove
+                                    </button>
+                                </Form>
+                            </div>
                         </td>
                     </tr>
                 </tbody>

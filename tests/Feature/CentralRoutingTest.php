@@ -49,7 +49,30 @@ test('a central host asking for a campaign route is signposted, not refused', fu
     'dashboard' => '/dashboard',
     'password reset request' => '/forgot-password',
     'profile settings' => '/settings/profile',
+    'supporter list' => '/supporters',
+    'add a supporter' => '/supporters/create',
 ]);
+
+test('a central page is told nothing about authority rather than something wrong', function (): void {
+    // Deferral 8's shared permissions, asserted where there is deliberately no
+    // operator to have any. Central pages carry the same Inertia middleware as
+    // campaign ones, so the prop is computed here too -- and an empty list is
+    // what makes every `can` check on such a page false rather than undefined,
+    // which is the branch that would throw if this were left unguarded.
+    //
+    // It lives in this file rather than beside the campaign tests for L-18's
+    // reason: the claim is about a request with no operator, and the campaign
+    // suite has one signed in and a campaign initialized, so the honest place
+    // to make it is the run that actually produces the condition.
+    $this->get(route('campaign-sign-in'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('auth.permissions', [])
+            ->where('auth.user', null)
+        );
+
+    expect(tenancy()->initialized)->toBeFalse();
+});
 
 test('the signpost is served centrally, so the redirect cannot loop', function (): void {
     // The page the redirect points at is a plain central route: it carries the

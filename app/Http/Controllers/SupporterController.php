@@ -131,4 +131,25 @@ class SupporterController extends Controller
 
         return to_route('supporters.index');
     }
+
+    /**
+     * Remove a supporter from the campaign permanently.
+     *
+     * The one ability the two roles disagree about, and the only control on
+     * this module's pages that has to be hidden from somebody. There is no soft
+     * delete and nothing to restore from, which is exactly why it is withheld
+     * from Staff: the ordinary way to stop contacting somebody is to
+     * unsubscribe them, a status kept precisely so a later import cannot put
+     * them back.
+     */
+    public function destroy(Supporter $supporter): RedirectResponse
+    {
+        $this->authorize('delete', $supporter);
+
+        $supporter->delete();
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Supporter removed.')]);
+
+        return to_route('supporters.index');
+    }
 }

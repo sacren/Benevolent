@@ -12,6 +12,20 @@ export type User = {
 
 export type Auth = {
     user: User;
+
+    /**
+     * What this operator may do, as App\Authorization\Permission's backing
+     * strings — resolved on the server through the same gates the policies
+     * consult.
+     *
+     * Components branch on these and never on a role. A role comparison in a
+     * component is a second copy of the role-to-permission map with no test
+     * over it, silently wrong the day a third role exists or a grant moves;
+     * `role` is deliberately absent from User above so that branch cannot be
+     * written by accident. Empty on central pages, which have no campaign and
+     * so no operator.
+     */
+    permissions: string[];
 };
 
 /* @chisel-passkeys */

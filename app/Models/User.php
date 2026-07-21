@@ -39,7 +39,15 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
 // rather than assumed.
 #[ObservedBy(OperatorAuditObserver::class)]
 #[Fillable(['name', 'email', 'password'])]
-#[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
+// `role` is hidden alongside the credentials, and for a different reason worth
+// stating. It is not a secret -- an operator may perfectly well be told what
+// they are -- but every consumer that can read it is one that can branch on it,
+// and branching on a role rather than on a resolved permission is the mistake
+// this application has refused three times over now (the policy, the gate
+// registry, and the shared props beside it). Withholding it makes
+// `$page.props.auth.user.role` undefined rather than merely inadvisable, which
+// is the difference between a convention and a constraint.
+#[Hidden(['password', 'role', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable implements PasskeyUser
 {
     /** @use HasFactory<UserFactory> */
