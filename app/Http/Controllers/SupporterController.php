@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\Supporters\StoreSupporterRequest;
+use App\Http\Requests\Supporters\UpdateSupporterRequest;
 use App\Models\Supporter;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -67,5 +70,65 @@ class SupporterController extends Controller
                 ->orderByDesc('id')
                 ->get(),
         ]);
+    }
+
+    /**
+     * Show the form for adding a supporter by hand.
+     */
+    public function create(): Response
+    {
+        $this->authorize('create', Supporter::class);
+
+        return Inertia::render('supporters/Create');
+    }
+
+    /**
+     * Add a supporter to the campaign's list.
+     */
+    public function store(StoreSupporterRequest $request): RedirectResponse
+    {
+        $this->authorize('create', Supporter::class);
+
+        Supporter::query()->create($request->validated());
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Supporter added.')]);
+
+        return to_route('supporters.index');
+    }
+
+    /**
+     * Show the form for correcting a supporter already on the list.
+     *
+     * Governed by `update` rather than by a `view` ability, and that is a
+     * decision rather than an oversight. This module ships no read-only page
+     * for one supporter -- the only reason to open one is to change them -- so
+     * adding `view` to the policy would create an ability nothing checks. It
+     * matters because the policy answers exactly the abilities it has methods
+     * for and denies every other one silently, indistinguishably from a
+     * considered refusal: the day a read-only page arrives, `view` and its
+     * allow test have to be added in the same edit or the 403 will look
+     * deliberate.
+     */
+    public function edit(Supporter $supporter): Response
+    {
+        $this->authorize('update', $supporter);
+
+        return Inertia::render('supporters/Edit', [
+            'supporter' => $supporter,
+        ]);
+    }
+
+    /**
+     * Correct a supporter already on the list.
+     */
+    public function update(UpdateSupporterRequest $request, Supporter $supporter): RedirectResponse
+    {
+        $this->authorize('update', $supporter);
+
+        $supporter->update($request->validated());
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Supporter updated.')]);
+
+        return to_route('supporters.index');
     }
 }

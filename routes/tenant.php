@@ -41,6 +41,10 @@ Route::middleware('tenant')->group(function (): void {
         // drift apart -- and so the mapping from ability to permission stays
         // in the one class that owns it.
         Route::get('supporters', [SupporterController::class, 'index'])->name('supporters.index');
+        Route::get('supporters/create', [SupporterController::class, 'create'])->name('supporters.create');
+        Route::post('supporters', [SupporterController::class, 'store'])->name('supporters.store');
+        Route::get('supporters/{supporter}/edit', [SupporterController::class, 'edit'])->name('supporters.edit');
+        Route::patch('supporters/{supporter}', [SupporterController::class, 'update'])->name('supporters.update');
     });
 
     require __DIR__.'/settings.php';

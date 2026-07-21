@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { Head } from '@inertiajs/vue3';
+import { Head, Link } from '@inertiajs/vue3';
 import Heading from '@/components/Heading.vue';
 import { Badge } from '@/components/ui/badge';
-import { index } from '@/routes/supporters';
+import { Button } from '@/components/ui/button';
+import { create, edit, index } from '@/routes/supporters';
 import type { Supporter } from '@/types';
 
 defineProps<{
@@ -25,14 +26,20 @@ defineOptions({
     <Head title="Supporters" />
 
     <div class="flex h-full flex-1 flex-col gap-6 p-4">
-        <Heading
-            title="Supporters"
-            :description="
-                supporters.length === 1
-                    ? '1 person on this campaign’s list'
-                    : `${supporters.length} people on this campaign’s list`
-            "
-        />
+        <div class="flex flex-wrap items-start justify-between gap-4">
+            <Heading
+                title="Supporters"
+                :description="
+                    supporters.length === 1
+                        ? '1 person on this campaign’s list'
+                        : `${supporters.length} people on this campaign’s list`
+                "
+            />
+
+            <Button as-child>
+                <Link :href="create()">Add supporter</Link>
+            </Button>
+        </div>
 
         <div
             v-if="supporters.length === 0"
@@ -62,6 +69,9 @@ defineOptions({
                         </th>
                         <th scope="col" class="px-4 py-3 font-medium">
                             Status
+                        </th>
+                        <th scope="col" class="px-4 py-3">
+                            <span class="sr-only">Actions</span>
                         </th>
                     </tr>
                 </thead>
@@ -113,6 +123,13 @@ defineOptions({
                                         : 'Unsubscribed'
                                 }}
                             </Badge>
+                        </td>
+                        <td class="px-4 py-3 text-right">
+                            <Link
+                                :href="edit(supporter.id)"
+                                class="text-sm underline underline-offset-4"
+                                >Edit</Link
+                            >
                         </td>
                     </tr>
                 </tbody>
