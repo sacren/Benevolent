@@ -149,6 +149,31 @@ test('a campaign holds one supporter per address, whatever its casing', function
         ->toContain('supporters_email_unique');
 });
 
+test('a supporter is found by their address whatever its casing, and not by a plain comparison', function (): void {
+    // The lookup half of D-8, and the reason it needs a scope rather than a
+    // habit. The unique index is on lower(email), so the database considers
+    // these one person -- but a query comparing the column directly does not,
+    // and reports that a supporter already on the list is absent. The damage
+    // lands one step later: whatever the caller does on the strength of that
+    // answer runs into the index and is refused with 23505, which is a 500
+    // rather than an answer.
+    Supporter::factory()->create(['email' => 'Jean.Sacren@Example.test']);
+
+    expect(Supporter::query()->whereEmailMatches('jean.sacren@example.test')->exists())->toBeTrue()
+        ->and(Supporter::query()->whereEmailMatches('JEAN.SACREN@EXAMPLE.TEST')->exists())->toBeTrue()
+        ->and(Supporter::query()->whereEmailMatches('Jean.Sacren@Example.test')->exists())->toBeTrue();
+
+    // Paired with the mistake it exists to prevent, made in the same run: this
+    // is what the obvious query answers, and it is why the scope is not
+    // ceremony. Without this half the assertions above are satisfied by a scope
+    // that does nothing at all, since the exact-case lookup would pass anyway.
+    expect(Supporter::query()->where('email', 'jean.sacren@example.test')->exists())->toBeFalse();
+
+    // And the negative, so the scope cannot be a function that matches
+    // everything -- which would also satisfy every assertion above.
+    expect(Supporter::query()->whereEmailMatches('someone.else@example.test')->exists())->toBeFalse();
+});
+
 test('the column defaults to a contactable supporter for a row that names no status', function (): void {
     // Written straight to the table, bypassing Eloquent and the factory, so the
     // value under test can only have come from the database.

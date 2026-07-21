@@ -8,7 +8,9 @@ use App\Supporters\SubscriptionStatus;
 use App\Supporters\SupporterPolicy;
 use Database\Factories\SupporterFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Attributes\UsePolicy;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
@@ -58,6 +60,38 @@ class Supporter extends Model
 {
     /** @use HasFactory<SupporterFactory> */
     use HasFactory;
+
+    /**
+     * Find a supporter by the address, the way the campaign's index matches it.
+     *
+     * **A plain `where('email', ...)` does not find a case variant, and that is
+     * measured rather than feared.** D-8 made the address the identity and put
+     * the uniqueness constraint on `lower(email)`, so `Jean@Example.test` and
+     * `jean@example.test` are one supporter to the database and two to any
+     * query that compares the column directly. A lookup written the obvious way
+     * therefore reports "not on the list" about somebody who is, and the
+     * consequence lands one step later: the insert that follows is refused by
+     * the index with SQLSTATE 23505, which reaches an operator as a 500 rather
+     * than as an answer.
+     *
+     * Step 1 deliberately did not write this scope, because a scope with no
+     * consumer is a guess at how someone will want to query. Its first consumer
+     * is the demo seeder, deciding whether it has already added a supporter,
+     * and the create and edit forms will be its second -- so it exists to give
+     * that knowledge one home rather than leave copies of a raw fragment free
+     * to drift apart.
+     *
+     * Both sides are folded, not just the column: the address arrives from a
+     * form or a file exactly as somebody typed it, so folding the column alone
+     * would still miss the variant this exists to catch.
+     *
+     * @param  Builder<Supporter>  $query
+     */
+    #[Scope]
+    protected function whereEmailMatches(Builder $query, string $email): void
+    {
+        $query->whereRaw('lower(email) = lower(?)', [$email]);
+    }
 
     /**
      * Get the attributes that should be cast.

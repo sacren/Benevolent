@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\SupporterController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -33,6 +34,13 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('tenant')->group(function (): void {
     Route::middleware(['auth', 'verified'])->group(function (): void {
         Route::inertia('dashboard', 'Dashboard')->name('dashboard');
+
+        // The supporter list. Authority is settled by SupporterPolicy inside
+        // the controller rather than by a `can:` middleware here, so that the
+        // ability a route checks and the ability its action performs cannot
+        // drift apart -- and so the mapping from ability to permission stays
+        // in the one class that owns it.
+        Route::get('supporters', [SupporterController::class, 'index'])->name('supporters.index');
     });
 
     require __DIR__.'/settings.php';
