@@ -6,6 +6,11 @@
 /public/hot
 /public/storage
 /storage/*.key
+# Each campaign gets its own storage tree, holding whatever it has had imported
+# into it -- so these are a campaign's uploaded supporter lists, never anything
+# authored here. They appear the moment anyone imports a list locally, and the
+# test suite makes one per campaign it provisions.
+/storage/tenant*
 /storage/pail
 /resources/js/actions
 /resources/js/routes
