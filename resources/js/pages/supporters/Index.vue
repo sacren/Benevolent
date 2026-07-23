@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { usePermissions } from '@/composables/usePermissions';
 import { create, edit, index } from '@/routes/supporters';
+import { create as importList } from '@/routes/supporters/imports';
 import type { Supporter } from '@/types';
 
 defineProps<{
@@ -40,9 +41,15 @@ defineOptions({
                 "
             />
 
-            <Button as-child>
-                <Link :href="create()">Add supporter</Link>
-            </Button>
+            <div class="flex items-center gap-3">
+                <Button as-child variant="outline">
+                    <Link :href="importList()">Import a list</Link>
+                </Button>
+
+                <Button as-child>
+                    <Link :href="create()">Add supporter</Link>
+                </Button>
+            </div>
         </div>
 
         <div

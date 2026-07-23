@@ -8,6 +8,7 @@ use App\Supporters\ColumnMapping;
 use App\Supporters\ImportStatus;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 use InvalidArgumentException;
 
@@ -22,10 +23,8 @@ use InvalidArgumentException;
  *
  * There is no policy on this model and that is deliberate. Authority over an
  * import is authority over the supporters it writes, so it is SupporterPolicy's
- * question to answer; a policy here would be a second answer to one question,
- * free to disagree with the first. Nothing asks it yet -- this commit ships the
- * reading and the record, and the surface an operator reaches them through
- * arrives with the ability that governs it.
+ * question to answer through its `import` ability; a policy here would be a
+ * second answer to one question, free to disagree with the first.
  *
  * @property int $id
  * @property int|null $operator_id
@@ -46,6 +45,19 @@ use InvalidArgumentException;
 #[Fillable(['operator_id', 'original_filename', 'stored_path', 'headers'])]
 class SupporterImport extends Model
 {
+    /**
+     * The operator who uploaded the file, if they are still here.
+     *
+     * Nullable by the column's own design: the record of what happened to the
+     * campaign's list outlives whoever started it.
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function operator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'operator_id');
+    }
+
     /**
      * What the operator said their file's columns mean, or nothing if they have
      * not said yet.

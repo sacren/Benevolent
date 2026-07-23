@@ -126,6 +126,26 @@ test('a supporter is governed by a policy at all', function (): void {
         ->and(Gate::forUser($staff)->allows('update', $supporter))->toBeTrue();
 });
 
+test('either role may import a list, through the policy', function (): void {
+    // `import` refuses nobody today, exactly as `viewAny` and `create` refuse
+    // nobody, and it is stated for the same reason: an allow cannot pass
+    // against an authorization layer that is missing, so it guards where a deny
+    // could not. There is deliberately no deny half here, because there is no
+    // role to write one from -- both roles hold EditSupporters, and inventing a
+    // third to make the pairing look symmetrical would be fabricating a split
+    // the product has not asked for.
+    //
+    // What it does say beyond the permission-level test above is that the
+    // policy routes `import` onto EditSupporters rather than onto some other
+    // permission. A policy answering it from DeleteSupporters would pass every
+    // permission-level assertion in this file and fail this one for Staff.
+    $owner = User::factory()->owner()->create();
+    $staff = User::factory()->create();
+
+    expect(Gate::forUser($owner)->allows('import', Supporter::class))->toBeTrue()
+        ->and(Gate::forUser($staff)->allows('import', Supporter::class))->toBeTrue();
+});
+
 test('an owner may delete a supporter through the policy', function (): void {
     // Distinct from the permission-level allow above it: that one says an Owner
     // holds DeleteSupporters, this one says the policy routes the `delete`

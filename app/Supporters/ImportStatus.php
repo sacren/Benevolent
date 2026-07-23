@@ -73,4 +73,16 @@ enum ImportStatus: string
     {
         return self::AwaitingMapping;
     }
+
+    /**
+     * Whether this import has reached a state it will not leave on its own.
+     *
+     * The question the page asks to decide whether to keep polling, answered
+     * here rather than by each surface listing the terminal cases -- a surface
+     * that listed them would be one new case away from polling forever.
+     */
+    public function isFinished(): bool
+    {
+        return $this === self::Completed || $this === self::Failed;
+    }
 }

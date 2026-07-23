@@ -51,6 +51,11 @@ test('a central host asking for a campaign route is signposted, not refused', fu
     'profile settings' => '/settings/profile',
     'supporter list' => '/supporters',
     'add a supporter' => '/supporters/create',
+    'import a list' => '/supporters/import',
+    // A route with a model binding, deliberately: the middleware turns the
+    // request away before the binding is ever resolved, so this would 404
+    // rather than redirect if the guard moved out from in front of it.
+    'an import in progress' => '/supporters/imports/1',
 ]);
 
 test('a central page is told nothing about authority rather than something wrong', function (): void {

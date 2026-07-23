@@ -76,6 +76,27 @@ class SupporterPolicy
     }
 
     /**
+     * Bring a whole list into the campaign at once.
+     *
+     * Its own ability rather than a reuse of create(), even though both answer
+     * from EditSupporters today and so cannot be told apart by any test. Two
+     * reasons, and neither is tidiness. An import is not "create" -- it adds
+     * people *and* corrects people already on the list, so authorizing it as
+     * creation describes half of what it does. And it is the one ability here
+     * whose answer is most likely to move: taking a campaign's whole list in
+     * one action is exactly the sort of thing a director might reserve, and the
+     * day that happens the change is one line here rather than an untangling of
+     * two meanings sharing one method.
+     *
+     * The Supporter is not an argument because there is no supporter yet -- the
+     * file names people the campaign may never have heard of.
+     */
+    public function import(User $operator): bool
+    {
+        return $operator->can(Permission::EditSupporters->value);
+    }
+
+    /**
      * Remove a supporter from the campaign permanently.
      *
      * The one ability here the two roles disagree about. The supporter is

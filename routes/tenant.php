@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\SupporterController;
+use App\Http\Controllers\SupporterImportController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -46,6 +47,21 @@ Route::middleware('tenant')->group(function (): void {
         Route::get('supporters/{supporter}/edit', [SupporterController::class, 'edit'])->name('supporters.edit');
         Route::patch('supporters/{supporter}', [SupporterController::class, 'update'])->name('supporters.update');
         Route::delete('supporters/{supporter}', [SupporterController::class, 'destroy'])->name('supporters.destroy');
+
+        // Bringing an existing list in. Two steps rather than one: the upload
+        // arrives first so the file's own headers can be read, and only then is
+        // the operator asked what those headers mean -- which is what keeps the
+        // importer from ever guessing at a column. Authority is settled by
+        // SupporterPolicy's `import` ability inside the controller, for the same
+        // reason the routes above carry no `can:` middleware.
+        //
+        // `supporters/import` is a literal path and cannot be mistaken for a
+        // supporter: there is no `GET supporters/{supporter}` route to collide
+        // with, only `supporters/{supporter}/edit`.
+        Route::get('supporters/import', [SupporterImportController::class, 'create'])->name('supporters.imports.create');
+        Route::post('supporters/import', [SupporterImportController::class, 'store'])->name('supporters.imports.store');
+        Route::get('supporters/imports/{import}', [SupporterImportController::class, 'show'])->name('supporters.imports.show');
+        Route::post('supporters/imports/{import}', [SupporterImportController::class, 'start'])->name('supporters.imports.start');
     });
 
     require __DIR__.'/settings.php';
