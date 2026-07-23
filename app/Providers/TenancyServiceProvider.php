@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Tenancy\DeleteCampaignStorage;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Event;
@@ -49,6 +50,12 @@ class TenancyServiceProvider extends ServiceProvider
             Events\TenantDeleted::class => [
                 JobPipeline::make([
                     Jobs\DeleteDatabase::class,
+
+                    // A campaign owns a directory as well as a database. Its
+                    // uploaded supporter lists live there, so without this a
+                    // deleted campaign's people would outlive it on disk
+                    // indefinitely -- see App\Tenancy\DeleteCampaignStorage.
+                    DeleteCampaignStorage::class,
                 ])->send(function (Events\TenantDeleted $event) {
                     return $event->tenant;
                 })->shouldBeQueued(false), // `false` by default, but you probably want to make this `true` for production.
