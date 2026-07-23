@@ -10,6 +10,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Database\Query\Expression as ExpressionContract;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Query\Expression;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
@@ -176,12 +177,14 @@ final class ImportSupporters implements ShouldQueue
         // corrected 3,100" and the reverse are very different things to have
         // done to a list, and an operator deciding whether the import did what
         // they meant is reading exactly that difference.
-        $existing = Supporter::query()
+        // Guarded like the write below it, and for the same reason rather than
+        // out of caution: its bindings *are* the addresses.
+        $existing = $this->withoutNamingAnybody(fn (): array => Supporter::query()
             ->whereRaw('lower(email) in ('.implode(',', array_fill(0, count($candidates), '?')).')',
                 array_keys($candidates))
             ->pluck('email')
             ->map(fn (string $email): string => mb_strtolower($email))
-            ->all();
+            ->all());
 
         $updated = count(array_intersect(array_keys($candidates), $existing));
 
@@ -196,16 +199,58 @@ final class ImportSupporters implements ShouldQueue
             array_values($candidates),
         );
 
-        Supporter::query()->upsert(
+        $this->withoutNamingAnybody(fn () => Supporter::query()->upsert(
             $values,
             // The constraint as the index actually expresses it (D-8). A plain
             // `email` here would name no unique index at all and PostgreSQL
             // would refuse the statement.
             [new Expression('lower(email)')],
             $this->updateList(),
-        );
+        ));
 
         return ['added' => count($candidates) - $updated, 'updated' => $updated];
+    }
+
+    /**
+     * Run a statement whose bindings are people, so that its failure cannot
+     * repeat them.
+     *
+     * **A database error carries the rows that caused it, and those rows are
+     * people.** Measured against the real central `failed_jobs` table: a
+     * QueryException's message inlines every binding into the SQL it prints, so
+     * one row the database refused sent a supporter's name and email address
+     * out of the campaign and into a central table in the clear -- while the
+     * payload beside it stayed clean, which is what made this easy to miss. The
+     * job was built to carry an identifier rather than rows precisely to keep
+     * personal data out of there, and this was the second door.
+     *
+     * Both of this class's statements go through here, not just the write. The
+     * select that counts who is already on the list binds the addresses too,
+     * and a fix covering only the obvious statement would have left the
+     * question open one line above it.
+     *
+     * Rethrown *without* chaining, deliberately: attaching the original as
+     * `previous` would put its message straight back into the string the
+     * failure is recorded as, which is the whole of what this prevents. What
+     * survives is what anybody actually debugs from -- the driver's own
+     * complaint, naming the SQLSTATE and the constraint or column at fault,
+     * with no values in it.
+     *
+     * @template TResult
+     *
+     * @param  callable(): TResult  $statement
+     * @return TResult
+     */
+    private function withoutNamingAnybody(callable $statement): mixed
+    {
+        try {
+            return $statement();
+        } catch (QueryException $exception) {
+            throw new RuntimeException(sprintf(
+                'The list could not be written: %s',
+                $exception->getPrevious()?->getMessage() ?? 'the database refused the write.',
+            ));
+        }
     }
 
     /**

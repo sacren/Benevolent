@@ -12,6 +12,7 @@ use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Tests\Support\QueueWorker;
 use Tests\Support\StagedImport;
@@ -183,4 +184,116 @@ test('an import that fails writes why onto its own campaign\'s record', function
     expect($failed)->toHaveCount(1)
         ->and(json_decode((string) $failed->first()->payload, true)['tenant_id'] ?? null)
         ->toBe((string) $ridge->getTenantKey());
+});
+
+test('a database error does not carry the campaign\'s people into the central failure record', function (): void {
+    // The second door out of the campaign, and the one the payload design does
+    // not close. Measured before this was handled: a QueryException inlines
+    // every binding into the SQL it prints, so one bad row put a supporter's
+    // name *and* email address into central `failed_jobs.exception` in the
+    // clear -- outside the campaign, on a table no campaign surface reads, and
+    // absent from Step 11's personal-data inventory. The payload beside it was
+    // clean, which is exactly what made it easy to miss.
+    //
+    // What must survive is the part anybody debugs from: the driver's own
+    // complaint, naming the SQLSTATE and the column at fault.
+    Artisan::call('campaign:create', ['name' => 'Harbor Cleanup', 'domain' => 'harbor-cleanup.test']);
+
+    Event::listen(JobFailed::class, function (JobFailed $event): void {
+        app('queue.failer')->log(
+            $event->connectionName,
+            $event->job->getQueue(),
+            $event->job->getRawBody(),
+            $event->exception
+        );
+    });
+
+    $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
+
+    tenancy()->initialize($harbor);
+
+    // Longer than the column takes, so the write is refused by the database
+    // rather than by anything of ours -- which is the case that carries the row
+    // into the exception.
+    $name = str_repeat('x', 300);
+
+    $import = StagedImport::of(
+        "First,Last,Email\n{$name},Person,very.private.person@example.test\n",
+        StagedImport::splitMapping(),
+    );
+
+    ImportSupporters::dispatch($import);
+
+    tenancy()->end();
+
+    QueueWorker::runNextJob();
+
+    $failed = DB::connection(config('tenancy.database.central_connection'))
+        ->table('failed_jobs')
+        ->sole();
+
+    expect($failed->exception)->not->toContain('very.private.person@example.test')
+        ->and($failed->exception)->not->toContain($name)
+        ->and($failed->payload)->not->toContain('very.private.person@example.test')
+        // The half that keeps this from being satisfied by an empty string: the
+        // reason is still there, and it is still the database's own.
+        ->and($failed->exception)->toContain('22001');
+
+    // And the campaign's own record says what happened, where an operator can
+    // read it -- with the same detail and no more.
+    tenancy()->initialize($harbor);
+
+    expect($import->fresh()->status)->toBe(ImportStatus::Failed)
+        ->and($import->fresh()->failure_reason)->toContain('could not be written')
+        ->and($import->fresh()->failure_reason)->not->toContain('very.private.person@example.test');
+});
+
+test('the lookup that counts who is already listed cannot name them either', function (): void {
+    // The same door, one line further up, and the reason this test exists is
+    // that the first version of the fix did not close it. The job runs two
+    // statements against the campaign's supporters: the write, and a select
+    // counting which addresses are already there so the report can say how many
+    // were added versus corrected. Both bind the addresses. Guarding only the
+    // write -- the obvious one -- left a QueryException from the select free to
+    // carry the whole chunk's addresses into central failed_jobs.
+    //
+    // Forced by removing the table the select reads, which is the cheapest way
+    // to make that specific statement fail while the file itself is perfectly
+    // readable.
+    Artisan::call('campaign:create', ['name' => 'Harbor Cleanup', 'domain' => 'harbor-cleanup.test']);
+
+    Event::listen(JobFailed::class, function (JobFailed $event): void {
+        app('queue.failer')->log(
+            $event->connectionName,
+            $event->job->getQueue(),
+            $event->job->getRawBody(),
+            $event->exception
+        );
+    });
+
+    $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
+
+    tenancy()->initialize($harbor);
+
+    $import = StagedImport::of(
+        "Email\nlooked.up.person@example.test\n",
+        StagedImport::addressOnlyMapping(),
+    );
+
+    ImportSupporters::dispatch($import);
+
+    Schema::connection('tenant')->drop('supporters');
+
+    tenancy()->end();
+
+    QueueWorker::runNextJob();
+
+    $failed = DB::connection(config('tenancy.database.central_connection'))
+        ->table('failed_jobs')
+        ->sole();
+
+    expect($failed->exception)->not->toContain('looked.up.person@example.test')
+        // Still says what went wrong, in the database's own words, so this is
+        // not satisfied by an exception that says nothing at all.
+        ->and($failed->exception)->toContain('supporters');
 });
