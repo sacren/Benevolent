@@ -33,7 +33,8 @@ enum Permission: string
      * The reason the Owner/Staff distinction exists at all — a campaign needs
      * someone who can decide its roster without every operator being able to.
      * It was the *only* thing separating the two roles until the supporter
-     * module arrived; DeleteSupporters below is now the second.
+     * module arrived; ExportSupporters and DeleteSupporters below are now the
+     * second and third.
      */
     case ManageOperators = 'manage-operators';
 
@@ -66,10 +67,35 @@ enum Permission: string
     case EditSupporters = 'edit-supporters';
 
     /**
+     * Take the campaign's whole list out of the campaign, as one file.
+     *
+     * Owner-only, and the second supporter ability the two roles disagree
+     * about. **The weaker claim is the true one, and it is worth writing down
+     * before somebody reads more into this than it says:** Staff already see
+     * every supporter on the list page — name, address, postcode, status, the
+     * whole table, unpaginated — so this does not keep the list confidential
+     * from them and could not. What it withholds is the *single action* that
+     * turns the list into a portable artifact with a filename, ready to hand to
+     * anybody. Copying the page by hand produces something ragged and takes as
+     * long as the list is long; a download does not.
+     *
+     * That is the same shape as DeleteSupporters below, which is withheld even
+     * though Staff may overwrite every column, and it is settled the same way:
+     * regret asymmetry. Withholding this and granting it later costs a campaign
+     * nothing; granting it now and revoking it later is a change its staff
+     * would feel.
+     *
+     * Trigger to revisit: the first campaign where an Owner is the bottleneck
+     * for routine list work — reporting to a coalition partner, say — or a
+     * third role for whom taking the list out *is* the job.
+     */
+    case ExportSupporters = 'export-supporters';
+
+    /**
      * Remove a supporter from the campaign permanently.
      *
-     * The one supporter ability the two roles disagree about, and the reason is
-     * leverage rather than reachability. A supporter row carries no soft delete
+     * The other supporter ability the two roles disagree about, and the reason
+     * is leverage rather than reachability. A supporter row carries no soft delete
      * and nothing to recover it from, and the ordinary way to stop contacting
      * somebody is SubscriptionStatus::Unsubscribed -- a status kept precisely so
      * that a later import cannot put them back on the list. Removal is
@@ -83,8 +109,8 @@ enum Permission: string
      * revoking it later is a change campaigns would feel.
      *
      * Trigger to revisit: the first campaign where an Owner is the bottleneck
-     * for routine list cleanup, or an import at Step 4 producing rows that need
-     * removing in bulk.
+     * for routine list cleanup, or an import producing rows that need removing
+     * in bulk.
      */
     case DeleteSupporters = 'delete-supporters';
 }

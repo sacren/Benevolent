@@ -5,7 +5,7 @@ import Heading from '@/components/Heading.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { usePermissions } from '@/composables/usePermissions';
-import { create, edit, index } from '@/routes/supporters';
+import { create, edit, exportMethod, index } from '@/routes/supporters';
 import { create as importList } from '@/routes/supporters/imports';
 import type { Supporter } from '@/types';
 
@@ -42,6 +42,30 @@ defineOptions({
             />
 
             <div class="flex items-center gap-3">
+                <!--
+                    A plain anchor, not a <Link>, and not by oversight: an
+                    Inertia visit is an XHR expecting a JSON page object, and
+                    this route answers with a file. It has to be an ordinary
+                    navigation for the browser to hand it to the operator.
+
+                    Hidden from anyone who may not export, the same courtesy the
+                    Remove control gets below and with the same standing: the
+                    policy refuses the request regardless, so getting this wrong
+                    costs a button or a 403, never the list.
+
+                    `exportMethod` rather than `export`: Wayfinder renames the
+                    generated helper because `export` is a reserved word in
+                    JavaScript and cannot be a binding name. The route is still
+                    `supporters.export`.
+                -->
+                <Button
+                    v-if="can('export-supporters')"
+                    as-child
+                    variant="outline"
+                >
+                    <a :href="exportMethod.url()">Export the list</a>
+                </Button>
+
                 <Button as-child variant="outline">
                     <Link :href="importList()">Import a list</Link>
                 </Button>

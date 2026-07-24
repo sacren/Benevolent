@@ -19,21 +19,25 @@ use Illuminate\Support\Facades\Route;
  * Separate from AuthorizationTest, which is the spine's own file -- the sweep
  * proving every permission is registered, and the roster permission the spine
  * was built around. This file answers a module's question instead, and it needs
- * no edit to that one: the sweep iterates Permission::cases(), so the three
- * cases added here are covered by it for free, and a case left unregistered
- * goes red there rather than being missed here.
+ * no edit to that one: the sweep iterates Permission::cases(), so every
+ * supporter case is covered by it for free -- the three this file arrived with
+ * and ExportSupporters after them -- and a case left unregistered goes red
+ * there rather than being missed here.
  *
- * Recorded because the step this file arrived with was framed as the first real
- * test of whether the Owner/Staff split is the right one, and it is a thinner
- * test than that sounds: of the three supporter permissions, both roles hold
- * two. Only removal separates them. The abilities a campaign director would
- * actually withhold from a junior organiser are removal and *export*, and
- * export does not exist yet -- so the split's second real test is Step 5's,
- * not this one's.
+ * **The split's second real test arrived, and it went the way the paragraph
+ * this replaces predicted.** When this file was written there were three
+ * supporter permissions, both roles held two, and only removal separated them;
+ * the note here said the other ability a campaign director would actually
+ * withhold is *export*, which did not exist yet. Step 5 built it and reached
+ * the same answer independently -- ExportSupporters is Owner-only -- so the
+ * module now has six abilities and two that discriminate, rather than five and
+ * one. The split is exercised by this module twice; it does not rest on
+ * operator management alone.
  *
  * The two halves were measured against each other rather than assumed to be
- * complementary, by deleting the permission-level four and rebuilding the role
- * defects they exist for. **Both defects are still caught without them** -- an
+ * complementary, by deleting the four permission-level tests that existed then
+ * (the export pair below arrived later) and rebuilding the role defects they
+ * exist for. **Both defects are still caught without them** -- an
  * escalation reddens three policy tests, a withdrawn grant reddens one -- so
  * they are not the last line of defence for anything, and a docblock claiming
  * they were would be believed without being checked. What they do carry is
@@ -144,6 +148,37 @@ test('either role may import a list, through the policy', function (): void {
 
     expect(Gate::forUser($owner)->allows('import', Supporter::class))->toBeTrue()
         ->and(Gate::forUser($staff)->allows('import', Supporter::class))->toBeTrue();
+});
+
+test('the roles disagree about exporting the list, and both directions are pinned', function (): void {
+    // **One test where removal has three, and that is a deliberate improvement
+    // rather than a corner cut.** The trio above states an allow, a deny, and
+    // then a third assertion that the two differ -- and the third is needed
+    // there precisely because `->not->toBe()` is satisfied by *either*
+    // direction, so on its own it would pass against a policy that let Staff
+    // export and refused the Owner. Asserting both directions inside one test
+    // pins each of them and cannot be half-dropped, because there is no other
+    // half to leave behind: delete either line and what remains is a test named
+    // for a disagreement that no longer checks one.
+    $owner = User::factory()->owner()->create();
+    $staff = User::factory()->create();
+
+    expect(Gate::forUser($owner)->allows(Permission::ExportSupporters->value))->toBeTrue()
+        ->and(Gate::forUser($staff)->denies(Permission::ExportSupporters->value))->toBeTrue();
+});
+
+test('an owner may export the list, through the policy', function (): void {
+    // Distinct from the permission-level test above in the way the delete pair
+    // is: that one says an Owner holds ExportSupporters, this one says the
+    // policy routes the `export` ability onto that permission and not onto
+    // another. A policy answering `export` from ViewSupporters -- the tempting
+    // reuse, since Staff already read every row on the page -- passes the test
+    // above and fails this one's second line.
+    $owner = User::factory()->owner()->create();
+    $staff = User::factory()->create();
+
+    expect(Gate::forUser($owner)->allows('export', Supporter::class))->toBeTrue()
+        ->and(Gate::forUser($staff)->denies('export', Supporter::class))->toBeTrue();
 });
 
 test('an owner may delete a supporter through the policy', function (): void {

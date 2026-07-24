@@ -48,6 +48,15 @@ Route::middleware('tenant')->group(function (): void {
         Route::patch('supporters/{supporter}', [SupporterController::class, 'update'])->name('supporters.update');
         Route::delete('supporters/{supporter}', [SupporterController::class, 'destroy'])->name('supporters.destroy');
 
+        // Taking the list back out, as one file. A literal path beside
+        // `supporters/import` and safe for the same reason: there is no
+        // `GET supporters/{supporter}` route for it to be mistaken for.
+        //
+        // Deliberately a GET with no state to change, so the browser can follow
+        // it as an ordinary navigation -- which is what a file response needs.
+        // An Inertia visit would ask for a JSON page object and get a CSV.
+        Route::get('supporters/export', [SupporterController::class, 'export'])->name('supporters.export');
+
         // Bringing an existing list in. Two steps rather than one: the upload
         // arrives first so the file's own headers can be read, and only then is
         // the operator asked what those headers mean -- which is what keeps the

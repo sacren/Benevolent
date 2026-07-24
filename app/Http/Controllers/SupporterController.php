@@ -7,10 +7,13 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Supporters\StoreSupporterRequest;
 use App\Http\Requests\Supporters\UpdateSupporterRequest;
 use App\Models\Supporter;
+use App\Supporters\SupporterExport;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
+use RuntimeException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * The campaign's supporter list, and the operator's work on it.
@@ -133,11 +136,70 @@ class SupporterController extends Controller
     }
 
     /**
+     * Send the campaign's whole list back to the operator as a file.
+     *
+     * **The one action on this controller that returns something other than an
+     * Inertia page, and it cannot be one.** An Inertia visit is an XHR that
+     * expects a JSON page object; a file has to arrive as an ordinary
+     * navigation, which is why the control for this on the list page is a plain
+     * anchor rather than a <Link>.
+     *
+     * **Streamed, not queued, and nothing is written to disk.** The rows go
+     * into the response as they are read from the database. The alternative --
+     * a job that writes a file somewhere and hands back a link -- would put a
+     * complete second copy of the campaign's list on the campaign's own disk,
+     * where it would need a retention window of its own, a download route of
+     * its own, and authorization on that route; and until it was collected it
+     * would be a copy of every supporter sitting in a directory that no
+     * deletion path reaches. That is the problem this step was opened to bound,
+     * so producing another instance of it to solve half of it would be a poor
+     * trade.
+     *
+     * The cost is that the whole list is read inside one request. Today that is
+     * the same list the index action already renders whole, so a size that
+     * breaks this breaks the page first; Step 6 owns both, and they should move
+     * together.
+     */
+    public function export(): StreamedResponse
+    {
+        $this->authorize('export', Supporter::class);
+
+        return response()->streamDownload(
+            function (): void {
+                $stream = fopen('php://output', 'w');
+
+                if ($stream === false) {
+                    // Refused rather than skipped, and the reason is that the
+                    // failure is otherwise indistinguishable from a true
+                    // answer: writing nowhere produces a file with no rows,
+                    // which an operator reads as "this campaign has nobody on
+                    // its list". The same trap SupporterFile::open() names from
+                    // the reading side.
+                    //
+                    // Stated for the next reader: this cannot be driven red by
+                    // a test, because php://output does not fail to open in any
+                    // environment this runs in. It is a refusal to continue on
+                    // an impossible value rather than a guard, and it is not
+                    // counted as one.
+                    throw new RuntimeException('The export could not be opened for writing.');
+                }
+
+                SupporterExport::writeTo($stream);
+
+                fclose($stream);
+            },
+            SupporterExport::filename(),
+            ['Content-Type' => 'text/csv'],
+        );
+    }
+
+    /**
      * Remove a supporter from the campaign permanently.
      *
-     * The one ability the two roles disagree about, and the only control on
-     * this module's pages that has to be hidden from somebody. There is no soft
-     * delete and nothing to restore from, which is exactly why it is withheld
+     * One of the two abilities the roles disagree about -- export() above is
+     * the other, and between them they are the only controls on this module's
+     * pages that have to be hidden from somebody. There is no soft delete here
+     * and nothing to restore from, which is exactly why it is withheld
      * from Staff: the ordinary way to stop contacting somebody is to
      * unsubscribe them, a status kept precisely so a later import cannot put
      * them back.

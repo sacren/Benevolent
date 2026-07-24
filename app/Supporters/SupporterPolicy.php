@@ -31,13 +31,20 @@ use App\Models\User;
  * know the wiring was ever doing anything. (The deny tests do not move, for the
  * reason recorded in tests/Campaign/SupporterAuthorizationTest.php.)
  *
- * **This policy answers exactly the four abilities below, and any other ability
+ * **This policy answers exactly the six abilities below, and any other ability
  * checked against a Supporter is denied — silently, and indistinguishably from
- * a considered refusal.** Measured, not assumed: an ability the policy has no
- * method for returns false and throws the same AuthorizationException as an
- * ability that never existed, so a surface asking for one gets a plausible 403
- * rather than an error naming the cause. `view` is deliberately absent because
- * this module ships no single-supporter page for it to govern. Adding any
+ * a considered refusal.** (The count was wrong here until Step 5 read it: it
+ * said four while there were five, because Step 4 added `import` without
+ * touching this sentence. A count in prose is a claim about code that nothing
+ * runs, so it is exactly the kind that rots — kept anyway, because knowing the
+ * set is closed is what makes the paragraph worth reading, and a wrong number
+ * is at least visible next to the methods.)
+ *
+ * Measured, not assumed: an ability the policy has no method for returns false
+ * and throws the same AuthorizationException as an ability that never existed,
+ * so a surface asking for one gets a plausible 403 rather than an error naming
+ * the cause. `view` is deliberately absent because this module ships no
+ * single-supporter page for it to govern. Adding any
  * surface that needs an ability not listed here means adding the method *and*
  * its allow test together; the missing method will not announce itself.
  */
@@ -97,9 +104,31 @@ class SupporterPolicy
     }
 
     /**
+     * Take the campaign's whole list out of the campaign, as one file.
+     *
+     * The second ability here the two roles disagree about, and the first one
+     * whose grant this module chose rather than inherited. Owner-only, on the
+     * same regret asymmetry that settles delete() below — and on the honest
+     * weaker claim recorded with the permission itself: Staff already read
+     * every supporter on the list page, so this withholds the one action that
+     * turns the list into a portable file, not the reading of it.
+     *
+     * Answered from its own permission rather than from ViewSupporters, which
+     * is the choice that makes the split real. Reusing the view grant would
+     * have made this the fifth ability in a row that discriminates nobody.
+     *
+     * No Supporter argument, for the reason import() gives: this ability is
+     * about the list rather than about anybody on it.
+     */
+    public function export(User $operator): bool
+    {
+        return $operator->can(Permission::ExportSupporters->value);
+    }
+
+    /**
      * Remove a supporter from the campaign permanently.
      *
-     * The one ability here the two roles disagree about. The supporter is
+     * The other ability here the two roles disagree about. The supporter is
      * unconsulted for the same reason as update() above.
      */
     public function delete(User $operator, Supporter $supporter): bool

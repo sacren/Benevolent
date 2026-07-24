@@ -64,6 +64,7 @@ enum OperatorRole: string
                 Permission::ManageOperators,
                 Permission::ViewSupporters,
                 Permission::EditSupporters,
+                Permission::ExportSupporters,
                 Permission::DeleteSupporters,
             ],
             self::Staff => [
