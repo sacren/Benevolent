@@ -29,7 +29,8 @@ use InvalidArgumentException;
  * @property int $id
  * @property int|null $operator_id
  * @property string $original_filename
- * @property string $stored_path
+ * @property string|null $stored_path null once the file has been pruned; the
+ *                                    record of the import is kept for good
  * @property list<string> $headers
  * @property array<string, mixed>|null $mapping
  * @property ImportStatus $status

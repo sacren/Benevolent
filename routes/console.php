@@ -80,3 +80,37 @@ Schedule::command('queue:prune-failed --hours=168')
 Schedule::command('queue:prune-batches --hours=168')
     ->daily()
     ->description('Prune job batches older than seven days');
+
+/*
+ * The uploaded lists themselves, which are the one place a campaign's
+ * supporters live that no deletion path reaches.
+ *
+ * Deleting a supporter removes their row. The CSV they arrived in keeps naming
+ * them in the clear, and keeps naming everyone that import *skipped* for want
+ * of a usable address -- people who were never in the table at all, and who
+ * therefore cannot be reached by deleting a row at any level of effort. So
+ * bounding the file's life is not hygiene next to the delete button: it is the
+ * only mechanism that reaches every person the file names, which is what
+ * settled D-10.
+ *
+ * `tenants:run` is load-bearing here for both halves at once, and this is the
+ * same shape as auth:clear-resets above rather than the plain form the queue
+ * prunes take. The records live in the tenant migration set and the uploads
+ * live in the campaign's own storage tree, so a central invocation would find
+ * neither -- and the command refuses centrally with a sentence rather than
+ * dying on a missing relation.
+ *
+ * No --option here, deliberately, and the contrast with the two prune
+ * declarations above is the reason. Those carry --hours=168 because they
+ * override the *framework's* default of one day, which is wrong for us. This is
+ * our own command, so its default is simply right: seven days, chosen to match
+ * those two and for the same reason -- a file whose import went wrong on a
+ * Friday evening should still be readable on Monday morning.
+ *
+ * Inert without a scheduler in the deployed environment, exactly as the three
+ * declarations above are, and nothing in the application will say so if there
+ * is not one.
+ */
+Schedule::command('tenants:run supporters:prune-import-files')
+    ->daily()
+    ->description('Remove uploaded supporter lists every campaign has finished with');

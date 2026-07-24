@@ -82,6 +82,21 @@ final class ImportSupporters implements ShouldQueue
             throw new RuntimeException('This import has no column mapping to read the file with.');
         }
 
+        $path = $this->import->stored_path;
+
+        if ($path === null) {
+            // The uploaded file has been pruned (supporters:prune-import-files),
+            // which happens a week after it arrived. Reachable only if the queue
+            // has not been worked for that long, and said in a sentence rather
+            // than left to surface as a read error, because the two have
+            // different remedies: this one is not about the file at all.
+            //
+            // Nulled rather than merely missing is what makes this answerable.
+            // A record still naming a path that no longer exists could not tell
+            // "we removed it on purpose" from "something ate it".
+            throw new RuntimeException('The uploaded list for this import is no longer held; upload it again.');
+        }
+
         $this->import->forceFill([
             'status' => ImportStatus::Running,
             'rows_read' => 0,
@@ -91,7 +106,7 @@ final class ImportSupporters implements ShouldQueue
             'failure_reason' => null,
         ])->save();
 
-        foreach (SupporterFile::rowChunks($this->import->stored_path, self::CHUNK) as $rows) {
+        foreach (SupporterFile::rowChunks($path, self::CHUNK) as $rows) {
             $this->absorb($rows, $mapping);
         }
 
