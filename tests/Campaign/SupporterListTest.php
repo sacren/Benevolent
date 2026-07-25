@@ -36,10 +36,10 @@ test('an operator sees the campaign supporters', function (): void {
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('supporters/Index')
-            ->has('supporters', 2)
+            ->has('supporters.data', 2)
         );
 
-    $sent = collect($response->viewData('page')['props']['supporters'])
+    $sent = collect($response->viewData('page')['props']['supporters']['data'])
         ->keyBy('email');
 
     // Both statuses are sent. An unsubscribed supporter stays on the list --
@@ -71,9 +71,9 @@ test('the list arrives newest first, with ties broken so the order is total', fu
         ->get($this->campaignUrl('/supporters'))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
-            ->where('supporters.0.email', $newer->email)
-            ->where('supporters.1.email', $second->email)
-            ->where('supporters.2.email', $first->email)
+            ->where('supporters.data.0.email', $newer->email)
+            ->where('supporters.data.1.email', $second->email)
+            ->where('supporters.data.2.email', $first->email)
         );
 });
 
@@ -88,11 +88,11 @@ test('a supporter with no name at all is still on the list', function (): void {
         ->get($this->campaignUrl('/supporters'))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
-            ->has('supporters', 1)
-            ->where('supporters.0.email', $nameless->email)
-            ->where('supporters.0.name', null)
-            ->where('supporters.0.given_name', null)
-            ->where('supporters.0.family_name', null)
+            ->has('supporters.data', 1)
+            ->where('supporters.data.0.email', $nameless->email)
+            ->where('supporters.data.0.name', null)
+            ->where('supporters.data.0.given_name', null)
+            ->where('supporters.data.0.family_name', null)
         );
 });
 
@@ -127,4 +127,119 @@ test('the page asks the policy, and refuses an operator the policy refuses', fun
     $this->actingAs($operator)
         ->get($this->campaignUrl('/supporters'))
         ->assertForbidden();
+});
+
+test('the list arrives one page at a time, and the count is of the whole list', function (): void {
+    // Sixty supporters against a page of fifty, so the page is genuinely
+    // partial. The two numbers this asserts are the ones a paginated page makes
+    // easy to confuse: `data` is what this request carries and `total` is what
+    // the campaign has, and the obvious implementation counts the wrong one --
+    // which reads as "50 people on this campaign's list" and is wrong in a way
+    // that looks entirely plausible right up until the last page.
+    Supporter::factory()->count(60)->create();
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/supporters'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('supporters.data', 50)
+            ->where('supporters.total', 60)
+            // The page size, pinned where a reader of this test can see it. A
+            // change to PER_PAGE is a change to what an operator is handed, so
+            // it should have to be made here as well as in the controller.
+            ->where('supporters.per_page', 50)
+            ->where('supporters.current_page', 1)
+            ->where('supporters.last_page', 2)
+        );
+});
+
+test('a second page carries the rest of the list, showing nobody twice and skipping nobody', function (): void {
+    // **Every supporter shares one created_at**, which is the case an import
+    // produces rather than a contrived one: a file's rows are written inside a
+    // single transaction and take the same timestamp. Under LIMIT/OFFSET an
+    // order that is not total is not a cosmetic wobble -- a row that drifts from
+    // the end of page one to the start of page two is served twice, and one
+    // drifting the other way is served to nobody.
+    //
+    // **This test does NOT detect a missing tiebreak, and the correction is
+    // recorded rather than quietly dropped.** It was written believing it did.
+    // Measured: deleting `orderByDesc('id')` from the controller leaves this
+    // test green, and it stays green with the arrival index reduced to
+    // `created_at` alone as well -- PostgreSQL simply returns these sixty rows
+    // in a stable order anyway, so the *guarantee* is gone while the *symptom*
+    // never appears at this size. The guard that does catch it is `the list
+    // arrives newest first, with ties broken so the order is total` above, which
+    // reddens on that exact deletion because three rows are sorted rather than
+    // read from the index and an unstable sort shows.
+    //
+    // What this test genuinely guards is the paging arithmetic on top of
+    // whatever order it is given: the sizes of the two pages, that they do not
+    // overlap, and that between them they account for every row. Broken twice,
+    // and this test reddens as an *error* rather than a failure under the first
+    // of them, which is the distinction Step 5 found a break harness can miss:
+    // sending the whole list unpaginated raises "Undefined array key data" here,
+    // and moving the page size to 25 fails the page-size assertion.
+    $arrived = now()->subDay();
+
+    $listed = Supporter::factory()->count(60)->create(['created_at' => $arrived]);
+
+    $operator = User::factory()->create();
+
+    $pageOf = function (int $page) use ($operator): array {
+        $response = $this->actingAs($operator)
+            ->get($this->campaignUrl('/supporters?page='.$page))
+            ->assertOk();
+
+        return collect($response->viewData('page')['props']['supporters']['data'])
+            ->pluck('email')
+            ->all();
+    };
+
+    $first = $pageOf(1);
+    $second = $pageOf(2);
+
+    expect($first)->toHaveCount(50)
+        ->and($second)->toHaveCount(10);
+
+    // Nobody twice...
+    expect(array_intersect($first, $second))->toBe([]);
+
+    // ...and nobody missing. Asserted as a set against what was actually
+    // written, so a page that silently dropped a row -- or served the same
+    // fifty twice -- cannot satisfy it.
+    $seen = collect([...$first, ...$second])->sort()->values()->all();
+    $written = $listed->pluck('email')->sort()->values()->all();
+
+    expect($seen)->toBe($written);
+});
+
+test('the last page is reached by following the links the page carries', function (): void {
+    // The controls the operator actually clicks, rather than a page number this
+    // test made up. On page one there is nowhere previous to go and the absence
+    // is part of the contract -- the template renders a disabled button off it
+    // rather than a link, so a null that became an empty string would put a
+    // live control on the page that navigates nowhere.
+    Supporter::factory()->count(60)->create();
+
+    $operator = User::factory()->create();
+
+    $response = $this->actingAs($operator)
+        ->get($this->campaignUrl('/supporters'))
+        ->assertOk();
+
+    $paginated = $response->viewData('page')['props']['supporters'];
+
+    expect($paginated['prev_page_url'])->toBeNull()
+        ->and($paginated['next_page_url'])->toContain('page=2');
+
+    $second = $this->actingAs($operator)
+        ->get($paginated['next_page_url'])
+        ->assertOk();
+
+    $secondPage = $second->viewData('page')['props']['supporters'];
+
+    expect($secondPage['current_page'])->toBe(2)
+        ->and($secondPage['data'])->toHaveCount(10)
+        ->and($secondPage['next_page_url'])->toBeNull()
+        ->and($secondPage['prev_page_url'])->toContain('page=1');
 });

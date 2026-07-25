@@ -87,8 +87,8 @@ test('a signed-in operator is served their own campaign supporters and never ano
     $this->get('http://harbor-cleanup.test/supporters')
         ->assertOk()
         ->assertInertia(fn ($page) => $page
-            ->has('supporters', 1)
-            ->where('supporters.0.email', 'signer@harbor-cleanup.test')
+            ->has('supporters.data', 1)
+            ->where('supporters.data.0.email', 'signer@harbor-cleanup.test')
             ->where('auth.user.email', 'operator@harbor-cleanup.test')
         );
 
@@ -142,8 +142,8 @@ test('a session carried to another campaign resolves against that campaign, neve
             // Answered as the other campaign's own operator, not as the one who
             // signed in. The identity did not travel; only the id did.
             ->where('auth.user.email', 'operator@ridge-restoration.test')
-            ->has('supporters', 1)
-            ->where('supporters.0.email', 'signer@ridge-restoration.test')
+            ->has('supporters.data', 1)
+            ->where('supporters.data.0.email', 'signer@ridge-restoration.test')
         )
         ->assertDontSee('signer@harbor-cleanup.test');
 

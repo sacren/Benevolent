@@ -219,3 +219,67 @@ test('the subscription status round-trips through the database as an enum', func
     expect(DB::connection('tenant')->table('supporters')->where('id', $supporter->getKey())->value('subscription_status'))
         ->toBe('unsubscribed');
 });
+
+test('the order the list is read in is served by an index rather than by sorting the table', function (): void {
+    // **Three hundred rows, and the number is measured rather than round.**
+    // PostgreSQL will not use an index it considers more expensive than reading
+    // the table, so below a threshold this assertion cannot pass however correct
+    // the schema is. The threshold was found by seeding a throwaway campaign and
+    // reading the plan at each size: at 100 rows the planner sorts, at 200 it
+    // switches to the index. 300 sits clear of it.
+    //
+    // That is L-23's shape approached from the other side. There a guard could
+    // never *fail* because the budget it spent could not reach the ceiling it
+    // asserted; here a guard could never *pass* if the table it seeded stayed
+    // below the planner's threshold -- and it would have looked like a missing
+    // index rather than like a test too small to see one.
+    $rows = [];
+
+    for ($n = 0; $n < 300; $n++) {
+        $rows[] = [
+            'name' => 'Listed '.$n,
+            'email' => 'listed'.$n.'@example.test',
+            'subscription_status' => 'subscribed',
+            // Spread across an hour so the planner sees real selectivity rather
+            // than one repeated value.
+            'created_at' => now()->subSeconds($n % 3600),
+            'updated_at' => now(),
+        ];
+    }
+
+    DB::connection('tenant')->table('supporters')->insert($rows);
+
+    // Without this the planner works from empty statistics and reads the table,
+    // which would fail this test against a perfectly good index.
+    DB::connection('tenant')->statement('analyze supporters');
+
+    // The query the list page actually issues: the ordering from index(), under
+    // the LIMIT that pagination adds.
+    $plan = collect(DB::connection('tenant')->select(
+        'explain (costs off) select * from supporters order by created_at desc, id desc limit 50'
+    ))->map(fn (object $row): string => (string) reset($row))->implode(' ');
+
+    // The behavioural half. An index scan reads the rows already in order; a
+    // sort reads every row and orders them afterwards, which is the cost this
+    // index exists to remove.
+    expect($plan)->toContain('Index Scan')
+        // Paired with the absence, because a plan can contain both -- an index
+        // scan feeding a sort would satisfy the assertion above while doing
+        // exactly the work it was meant to avoid.
+        ->and($plan)->not->toContain('Sort');
+
+    // The configuration invariant behind the behaviour, the same pairing the
+    // unique-index guard above carries. The plan is a fact about one query and
+    // one planner; this names the index doing the work and its columns, and goes
+    // red if the migration ever creates it somewhere other than the campaign's
+    // own database -- which is what a connection mistake would look like, since
+    // the table itself would still be right.
+    $index = collect(Schema::getIndexes('supporters'))
+        ->firstWhere('name', 'supporters_created_at_id_index');
+
+    expect($index)->not->toBeNull()
+        // Both columns, in order. `created_at` alone leaves the tiebreak
+        // unindexed, which is the half that makes paging correct rather than
+        // merely quick.
+        ->and($index['columns'])->toBe(['created_at', 'id']);
+});
