@@ -39,10 +39,36 @@ jobs:
         with:
           node-version: '22'
 
+      # `--no-scripts` was removed, and that is load-bearing rather than tidying.
+      # It suppresses post-autoload-dump, which is where `package:discover`
+      # runs -- and Laravel Wayfinder is auto-discovered (declared in its own
+      # composer.json, absent from bootstrap/providers.php), so without
+      # discovery the `wayfinder:generate` command below does not exist. This
+      # is the install line from tests.yml, which passed on all three PHP
+      # versions.
       - name: Install Dependencies
         run: |
-          composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+          composer install --no-interaction --prefer-dist --optimize-autoloader
           npm ci
+
+      - name: Copy Environment File
+        run: cp .env.example .env
+
+      # Wayfinder's output is gitignored, so a fresh checkout does not have it,
+      # and three pages import from `@/actions/...` and `@/routes/...`. Without
+      # these files ESLint's resolver cannot classify those imports as internal
+      # and `import/order` then demands a different position -- 20 errors across
+      # Index.vue, imports/Create.vue and imports/Show.vue. Measured by deleting
+      # the directories locally and running the job's own commands.
+      #
+      # This is why the old workflow looked healthy: `npm run lint --fix`
+      # reordered the imports, exited 0, and threw the result away.
+      #
+      # `--with-form` rather than bare `wayfinder:generate`: the bare form omits
+      # the Vite plugin's `.form()` helpers, which the pages call at runtime.
+      # Needs no database -- confirmed by running it against an unreachable host.
+      - name: Generate Wayfinder Files
+        run: php artisan wayfinder:generate --with-form
 
       # Every step below is the *checking* variant, and that is the whole point
       # of this file's existence rather than a preference.
