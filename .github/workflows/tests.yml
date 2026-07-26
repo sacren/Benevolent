@@ -1,12 +1,14 @@
 name: tests
 
+# Runs on every branch, deliberately.
+#
+# The previous trigger listed four branches -- develop, main, master, workos --
+# and the branch this application is actually built on is not among them, so no
+# push had ever run this workflow. A workflow that cannot be reached is
+# indistinguishable from one that passes, which is the worse of the two states:
+# the exit criterion "CI green" was being met by a workflow that had never run.
 on:
   push:
-    branches:
-      - develop
-      - main
-      - master
-      - workos
   pull_request:
     branches:
       - develop
@@ -23,6 +25,47 @@ jobs:
     strategy:
       matrix:
         php-version: ['8.3', '8.4', '8.5']
+
+    # This application is database-per-tenant (DEC-1): every campaign a test
+    # provisions is a real database created with CREATE DATABASE, so the suite
+    # cannot run without a PostgreSQL server. There was no services: block
+    # before, and .env.example sets DB_CONNECTION=sqlite -- measured rather than
+    # assumed, by pointing the application at sqlite and running the supporter
+    # isolation test, which fails outright.
+    #
+    # Pinned to the same image the local environment runs (compose.yaml uses
+    # postgres:18-alpine), so a green run here means the engine that passed is
+    # the engine the code was written against.
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: sail
+          POSTGRES_PASSWORD: password
+          # phpunit.xml pins DB_DATABASE to "testing"; the server must therefore
+          # offer a database by that name for the central connection to reach.
+          POSTGRES_DB: testing
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd=pg_isready
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    # Real environment variables win over the .env file, because Laravel loads
+    # it with Dotenv's immutable reader. That is what lets these override
+    # .env.example's sqlite without editing the file after copying it.
+    #
+    # The POSTGRES_USER above is a superuser, which the tenancy package needs:
+    # provisioning a campaign issues CREATE DATABASE.
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: testing
+      DB_USERNAME: sail
+      DB_PASSWORD: password
 
     steps:
       - name: Checkout code

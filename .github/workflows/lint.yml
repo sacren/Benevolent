@@ -1,12 +1,10 @@
 name: linter
 
+# Same trigger correction as tests.yml: the previous four-branch list did not
+# include the branch this application is built on, so this workflow had never
+# run against the work it was meant to police.
 on:
   push:
-    branches:
-      - develop
-      - main
-      - master
-      - workos
   pull_request:
     branches:
       - develop
@@ -14,8 +12,11 @@ on:
       - master
       - workos
 
+# Read, not write. The write permission existed for a commit step that was
+# commented out; with this workflow checking rather than fixing, there is
+# nothing for it to push and no reason to hold the capability.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   quality:
@@ -30,22 +31,36 @@ jobs:
         with:
           php-version: '8.4'
 
+      # Pinned rather than inherited from the runner image, so that the version
+      # of Node deciding whether the frontend is correctly formatted does not
+      # change underneath the project when GitHub updates its image.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: '22'
+
       - name: Install Dependencies
         run: |
           composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
           npm ci
 
-      - name: Run Pint
-        run: composer lint
+      # Every step below is the *checking* variant, and that is the whole point
+      # of this file's existence rather than a preference.
+      #
+      # These three previously ran `composer lint`, `npm run format` and
+      # `npm run lint` -- the variants that rewrite files in place. Pint would
+      # reformat, Prettier would rewrite, ESLint would apply --fix, all three
+      # would exit 0 having repaired whatever was wrong, and the repairs were
+      # discarded with the runner because the commit step that would have saved
+      # them is deleted. The workflow therefore reported success on every input
+      # it was ever given: it could not fail, so a green tick here meant nothing
+      # at all. A check that cannot fail is worse than an absent one, because
+      # it is counted.
+      - name: Check PHP Code Style
+        run: composer lint:check
 
-      - name: Format Frontend
-        run: npm run format
+      - name: Check Frontend Formatting
+        run: npm run format:check
 
       - name: Lint Frontend
-        run: npm run lint
-
-      # - name: Commit Changes
-      #   uses: stefanzweifel/git-auto-commit-action@v7
-      #   with:
-      #     commit_message: fix code style
-      #     commit_options: '--no-verify'
+        run: npm run lint:check
