@@ -2,6 +2,7 @@
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\RunsInCampaignContext;
+use Tests\Support\BuiltAssets;
 use Tests\TestCase;
 
 /*
@@ -42,6 +43,23 @@ pest()->extend(TestCase::class)
         $this->leaveCampaignContext();
     })
     ->in('Campaign');
+
+// Tests driven through a real browser. Everything they assert depends on Vue
+// having mounted, so every one of them first pins the front end to the build
+// output rather than to a Vite dev server -- see Tests\Support\BuiltAssets for
+// why that is a per-test binding rather than a file being moved out of the way.
+//
+// Done here rather than in each file so that it cannot be forgotten: a browser
+// test written without it does not fail, it passes against an empty page.
+//
+// Campaign context is deliberately *not* applied to the whole directory. One of
+// these pages is central and anonymous by design, so a file needing a campaign
+// opts in for itself.
+pest()->extend(TestCase::class)
+    ->beforeEach(function (): void {
+        BuiltAssets::serveFromBuild();
+    })
+    ->in('Browser');
 
 /*
 |--------------------------------------------------------------------------

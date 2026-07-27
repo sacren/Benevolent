@@ -12,6 +12,10 @@
 # test suite makes one per campaign it provisions.
 /storage/tenant*
 /storage/pail
+# Written by the browser plugin when a browser test fails, and removed again on
+# a green run -- so it exists exactly when someone is looking at a failure, and
+# is untracked noise in the diff they are trying to read.
+/tests/Browser/Screenshots
 /resources/js/actions
 /resources/js/routes
 /resources/js/wayfinder

@@ -24,6 +24,20 @@
         <testsuite name="Campaign">
             <directory>tests/Campaign</directory>
         </testsuite>
+        <!--
+            Tests driven through a real browser, which is why they are a suite
+            of their own rather than more Campaign tests. They carry a
+            precondition none of the four suites above has: built front-end
+            assets and an installed Chromium. Folding them in would make a green
+            Campaign run depend on an asset build, and the point of that suite
+            is a sub-second loop.
+
+            `artisan test` runs every suite, so CI picks this up with no second
+            command, and anyone wanting the fast four can exclude it by name.
+        -->
+        <testsuite name="Browser">
+            <directory>tests/Browser</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>
