@@ -103,5 +103,91 @@ jobs:
       - name: Run Type Analysis
         run: composer types:check
 
+      # Every suite except Browser, which needs a Chromium the three matrix legs
+      # do not install. Excluded by name rather than left to fail: this job runs
+      # three times, and installing a browser in each would download the same
+      # ~650MB three times over for a result that cannot differ by PHP version.
+      # The browser job below runs them once instead.
       - name: Tests
-        run: php artisan test
+        run: php artisan test --exclude-testsuite=Browser
+
+  # Browser tests, on one PHP version and in a job of their own.
+  #
+  # Separate from the matrix above because their cost and their failure modes
+  # are different: they need a real browser, and the thing they exercise is
+  # compiled JavaScript, which is identical whichever PHP built the page.
+  #
+  # This job is also the only place these tests run unattended. Locally they
+  # need built assets that a developer has to produce, and the suite refuses to
+  # run against a stale build (see Tests\Support\BuiltAssets) -- so CI, which
+  # always builds from scratch and has no Vite dev server, is where they are
+  # guaranteed to be honest.
+  browser:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: sail
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: testing
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd=pg_isready
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: testing
+      DB_USERNAME: sail
+      DB_PASSWORD: password
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.4'
+          tools: composer:v2
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: '22'
+
+      - name: Install Node Dependencies
+        run: npm ci
+
+      - name: Install Dependencies
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Copy Environment File
+        run: cp .env.example .env
+
+      - name: Generate Application Key
+        run: php artisan key:generate
+
+      # Not optional here, and not merely for speed. These tests read the build
+      # output rather than a dev server, and refuse to run against assets older
+      # than the sources they came from.
+      - name: Build Assets
+        run: npm run build
+
+      # `--with-deps` installs the system libraries Chromium needs. The Sail
+      # image already carries them; a bare GitHub runner is not guaranteed to,
+      # and the failure without them is a browser that will not launch.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser Tests
+        run: php artisan test --testsuite=Browser
