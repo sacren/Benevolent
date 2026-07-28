@@ -69,3 +69,37 @@ test('the central database does not carry a supporter list', function (): void {
     // database/migrations/tenant/ turns this red.
     expect(Schema::hasTable('supporters'))->toBeFalse();
 });
+
+test('the central database does not carry a campaign\'s blasts', function (): void {
+    // The same claim again for the first thing this platform does that leaves
+    // it -- and the one where a reader would most reasonably guess wrong, since
+    // "sent mail" sounds like platform infrastructure and the `jobs` and
+    // `failed_jobs` tables beside it genuinely are. A central blasts table would
+    // let a reader of one campaign see what another campaign said to its
+    // supporters, in the campaign's own name.
+    //
+    // It lives in this suite for the reason the trail's and the list's do: the
+    // campaign suite rebuilds the central schema only when it is missing, so the
+    // same line there would hold whether or not it were true (L-18). This suite
+    // migrates central per test, so a migration written into
+    // database/migrations/ instead of database/migrations/tenant/ turns this
+    // red -- measured, not assumed.
+    //
+    // **What this line is worth was measured, and it is worth less than the two
+    // above it.** Misfiling the blasts migration as it actually stands does not
+    // reach this assertion at all: the table carries a foreign key to `users`,
+    // which exists only inside a campaign, so the migration dies centrally with
+    // `relation "users" does not exist` and every test in this file errors
+    // before asserting anything. Dropping that key and misfiling the migration
+    // then turns *this* line, and only this line, red. So today it is the second
+    // catch rather than the first, which is the same relationship
+    // `supporter_imports` has -- and that table has no assertion here at all.
+    //
+    // Kept anyway, and the reason is the future rather than the present: the
+    // foreign key is protection this table happens to have, not a property of
+    // being campaign-scoped. `supporters` and `audit_entries` have no such key,
+    // which is why their lines are the only catch. Should `operator_id` ever
+    // lose its constraint, the misfiling goes silent and this line is what is
+    // left. It costs one line to hold that open.
+    expect(Schema::hasTable('blasts'))->toBeFalse();
+});

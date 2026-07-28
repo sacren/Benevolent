@@ -1,0 +1,242 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Blasts\BlastStatus;
+use App\Models\Blast;
+use App\Models\User;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+
+// The matching claim -- that the central database carries no blasts -- lives in
+// tests/Feature/CentralSchemaTest.php rather than here, for the reason L-18
+// records: this suite rebuilds the central schema only when it is missing, so a
+// migration misfiled into the central set is never applied during this run and
+// the absence would hold whether or not it is true.
+//
+// refusalFrom() lives in tests/Pest.php, shared with the supporter storage test.
+
+test('the campaign database carries the blasts the campaign has written', function (): void {
+    expect(Schema::hasTable('blasts'))->toBeTrue()
+        ->and(Schema::hasColumns('blasts', [
+            'operator_id',
+            'subject',
+            'body',
+            'postcode_prefixes',
+            'status',
+            'queued_at',
+            'finished_at',
+            'created_at',
+            'updated_at',
+        ]))->toBeTrue();
+});
+
+test('a blast written in campaign context lands in the campaign database', function (): void {
+    Blast::factory()->create(['subject' => 'Save the harbour']);
+
+    expect(DB::connection()->getDatabaseName())
+        ->toBe($this->campaign->database()->getName());
+
+    $this->assertDatabaseHas('blasts', ['subject' => 'Save the harbour'], 'tenant');
+});
+
+test('the factory builds a valid blast, and it is a draft addressed to everyone', function (): void {
+    $blast = Blast::factory()->create();
+
+    $reloaded = Blast::query()->whereKey($blast->getKey())->sole();
+
+    expect($reloaded->subject)->not->toBeEmpty()
+        ->and($reloaded->body)->not->toBeEmpty()
+        ->and($reloaded->status)->toBe(BlastStatus::Draft)
+        ->and($reloaded->queued_at)->toBeNull()
+        ->and($reloaded->finished_at)->toBeNull()
+        // Null is the audience rule "everyone this campaign may contact", not
+        // an unfinished field. A blast narrowed to nobody would be an empty
+        // list, which is a different value and a different meaning.
+        ->and($reloaded->postcode_prefixes)->toBeNull();
+});
+
+test('the audience is a rule the blast stores, and only the operator-chosen half of it', function (): void {
+    // D-14 as data. What a blast holds is criteria, evaluated when sending
+    // starts -- so somebody who unsubscribes after this row is written is left
+    // out of the send, which a frozen recipient list could not manage.
+    //
+    // Written as an operator would type them, unevenly, because the column they
+    // will be matched against holds postcodes exactly as their source gave them.
+    $blast = Blast::factory()->narrowedToPostcodes(['M15', 'sw1a'])->create();
+
+    $reloaded = Blast::query()->whereKey($blast->getKey())->sole();
+
+    expect($reloaded->postcode_prefixes)->toBe(['M15', 'sw1a']);
+
+    // The half that is deliberately absent, asserted as an absence because its
+    // absence is the guarantee. Subscribed-only is the condition the product
+    // enforces rather than one an operator chooses, so there is no column here
+    // that could record an intention to reach people who asked not to be
+    // contacted -- and therefore no way for one to be set.
+    expect(Schema::getColumnListing('blasts'))
+        ->not->toContain('subscription_status')
+        ->not->toContain('include_unsubscribed')
+        // Paired with the positive claim through the same call in the same run
+        // (L-19): a listing that returned nothing at all would satisfy every
+        // line above on its own.
+        ->toContain('postcode_prefixes');
+});
+
+test('a blast records who wrote it, and keeps the record when they leave', function (): void {
+    $author = User::factory()->create();
+    $blast = Blast::factory()->writtenBy($author)->create();
+
+    expect(Blast::query()->whereKey($blast->getKey())->sole()->operator_id)
+        ->toBe($author->getKey());
+
+    $author->delete();
+
+    // The record of what a campaign sent outlives whoever sent it. A cascade
+    // here would erase the campaign's own account of a message that is already
+    // in other people's inboxes, and deleting the row would not recall it.
+    $reloaded = Blast::query()->whereKey($blast->getKey())->sole();
+
+    expect($reloaded->exists)->toBeTrue()
+        ->and($reloaded->operator_id)->toBeNull();
+});
+
+test('the column defaults to a draft for a row that names no status', function (): void {
+    // Written straight to the table, bypassing Eloquent and the factory, so the
+    // value under test can only have come from the database.
+    //
+    // This is also what keeps the migration frozen. It hardcodes 'draft' rather
+    // than reading BlastStatus::default(), because it re-runs for every campaign
+    // at whatever date that campaign is provisioned, and a default read out of
+    // application code would give campaigns created after an edit a different
+    // schema from the ones already provisioned. The cost of hardcoding is that
+    // two places must agree; this is what enforces it.
+    DB::connection('tenant')->table('blasts')->insert([
+        'subject' => 'Raw insert',
+        'body' => 'Written past the model.',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $stored = DB::connection('tenant')->table('blasts')
+        ->where('subject', 'Raw insert')
+        ->value('status');
+
+    // Pinned to each other, so the migration's literal cannot drift from the
+    // enum in either direction...
+    expect($stored)->toBe(BlastStatus::default()->value);
+
+    // ...and pinned to the intended choice, so the pair cannot move together
+    // and stay green. A blast that arrived in any other state would be one the
+    // campaign had committed without ever saying so.
+    expect(BlastStatus::default())->toBe(BlastStatus::Draft);
+});
+
+test('the database refuses a draft that has been committed to sending', function (): void {
+    // The irreversibility, as a fact about the row rather than a convention the
+    // application remembers. A draft is editable and sendable; a blast the
+    // campaign has let go is neither. A row claiming both would make an already
+    // committed message look like one still safe to change.
+    $refusal = refusalFrom(fn () => DB::connection('tenant')->table('blasts')->insert([
+        'subject' => 'Committed, and still calling itself a draft',
+        'body' => 'Refused.',
+        'status' => 'draft',
+        'queued_at' => now(),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]));
+
+    expect($refusal)->not->toBeNull()
+        // SQLSTATE 23514 -- check violation. Asserted by code rather than by
+        // message so a reworded or translated error cannot weaken this.
+        ->and((string) $refusal->getCode())->toBe('23514');
+
+    // The positive half, made through the same call in the same run: without it
+    // this passes just as happily against a table that refuses every insert.
+    $legitimate = Blast::factory()->queued()->create();
+
+    expect($legitimate->exists)->toBeTrue()
+        ->and(Blast::query()->count())->toBe(1);
+});
+
+test('the database refuses a blast that has left draft without recording when', function (): void {
+    // The other direction, and it is a real mistake rather than the same one
+    // written backwards: a send that sets the status and forgets the timestamp
+    // leaves a campaign unable to say when it committed -- which, for the one
+    // act this product cannot undo, is the same as not knowing whether it did.
+    $refusal = refusalFrom(fn () => DB::connection('tenant')->table('blasts')->insert([
+        'subject' => 'Sending, with no record of when it started',
+        'body' => 'Refused.',
+        'status' => 'sending',
+        'queued_at' => null,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]));
+
+    expect($refusal)->not->toBeNull()
+        ->and((string) $refusal->getCode())->toBe('23514');
+
+    $legitimate = Blast::factory()->sending()->create();
+
+    expect($legitimate->exists)->toBeTrue()
+        ->and(Blast::query()->count())->toBe(1);
+});
+
+test('a blast that has left draft can never be a draft again', function (): void {
+    $blast = Blast::factory()->sent()->create();
+
+    // Walking the status back on its own is refused by the database, so the
+    // half-fix -- the one somebody writes when they mean to let an operator
+    // "edit and resend" -- cannot land at all.
+    $refusal = refusalFrom(fn () => DB::connection('tenant')->table('blasts')
+        ->where('id', $blast->getKey())
+        ->update(['status' => 'draft']));
+
+    expect($refusal)->not->toBeNull()
+        ->and((string) $refusal->getCode())->toBe('23514');
+
+    $reloaded = Blast::query()->whereKey($blast->getKey())->sole();
+
+    expect($reloaded->status)->toBe(BlastStatus::Sent)
+        ->and($reloaded->queued_at)->not->toBeNull();
+
+    // Said at its true strength, because the weaker claim is the true one: this
+    // constraint makes the two states mutually exclusive, not the row frozen.
+    // Clearing both columns together is still a legal write, and nothing in the
+    // database stops it -- what is gone is every way of arriving there by
+    // accident, one column at a time.
+    DB::connection('tenant')->table('blasts')
+        ->where('id', $blast->getKey())
+        ->update(['status' => 'draft', 'queued_at' => null]);
+
+    expect(Blast::query()->whereKey($blast->getKey())->sole()->status)
+        ->toBe(BlastStatus::Draft);
+});
+
+test('the status round-trips through the database as an enum', function (): void {
+    $blast = Blast::factory()->failed()->create();
+
+    $reloaded = Blast::query()->whereKey($blast->getKey())->sole();
+
+    expect($reloaded->status)->toBe(BlastStatus::Failed)
+        ->and($reloaded->status->isFinished())->toBeTrue()
+        ->and($reloaded->status->isCommitted())->toBeTrue()
+        // And the stored value is the enum's own, so the column and the
+        // vocabulary cannot drift into two spellings of one state.
+        ->and(DB::connection('tenant')->table('blasts')->where('id', $blast->getKey())->value('status'))
+        ->toBe(BlastStatus::Failed->value);
+});
+
+test('a draft is the only state a blast is not yet committed from', function (): void {
+    // The negative of Draft rather than a list of the other four, so a case
+    // added later is committed unless somebody remembers otherwise -- which is
+    // the safe direction for a question about whether a message can still be
+    // recalled.
+    $committed = array_filter(BlastStatus::cases(), fn (BlastStatus $s): bool => $s->isCommitted());
+
+    expect(BlastStatus::Draft->isCommitted())->toBeFalse()
+        ->and($committed)->toBe(array_filter(
+            BlastStatus::cases(),
+            fn (BlastStatus $s): bool => $s !== BlastStatus::Draft,
+        ));
+});

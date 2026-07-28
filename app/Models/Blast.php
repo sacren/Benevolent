@@ -1,0 +1,79 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Models;
+
+use App\Blasts\BlastStatus;
+use Database\Factories\BlastFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
+
+/**
+ * A message a campaign has written to the people on its list.
+ *
+ * Sits in app/Models/ while the vocabulary it speaks lives in app/Blasts/, the
+ * same split this application already makes three times over — OperatorRole and
+ * Permission in app/Authorization/, AuditEvent in app/Audit/, SubscriptionStatus
+ * and the import vocabulary in app/Supporters/. Eloquent models are where the
+ * framework and every convention look for them; the domain's words follow the
+ * module.
+ *
+ * **This model deliberately names no connection.** That is not an omission: it
+ * means a blast follows the default connection, which tenancy has already
+ * switched onto the campaign serving the request, so a campaign's messages land
+ * in the campaign's own database. Naming a connection here — central, most
+ * plausibly, since "a campaign's sent mail" sounds like platform data, and
+ * doubly so because the `jobs` and `failed_jobs` tables beside it genuinely are
+ * — would pool every campaign's blasts into one table and let a reader of one
+ * campaign see what another said to its supporters. Supporter and AuditEntry
+ * say the same thing from their own side, and the migration says it from the
+ * schema's.
+ *
+ * **What a blast is addressed to is a rule, never a list (D-14).** The audience
+ * is computed when sending starts, so a supporter who unsubscribes after the
+ * message is written is correctly left out of it — which a recipient list
+ * frozen at composing time could not do. `postcode_prefixes` is the whole of
+ * what is stored, and null means every supporter the campaign may contact; the
+ * subscribed-only condition is not here and never will be, because a column
+ * that could record "send to unsubscribed people too" is a column that makes
+ * that sendable.
+ *
+ * **A blast that has left Draft can never return to it.** `queued_at` is the
+ * moment the campaign committed the message to sending, and it is set once. The
+ * database enforces the pairing with `status` as a check constraint rather than
+ * leaving it to whatever writes here, because the alternative to sending twice
+ * is not a bug anybody gets to fix afterwards.
+ *
+ * @property int $id
+ * @property int|null $operator_id
+ * @property string $subject
+ * @property string $body
+ * @property list<string>|null $postcode_prefixes
+ * @property BlastStatus $status
+ * @property Carbon|null $queued_at
+ * @property Carbon|null $finished_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ */
+class Blast extends Model
+{
+    /** @use HasFactory<BlastFactory> */
+    use HasFactory;
+
+    /**
+     * Get the attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'postcode_prefixes' => 'array',
+            'status' => BlastStatus::class,
+            'queued_at' => 'datetime',
+            'finished_at' => 'datetime',
+        ];
+    }
+}
