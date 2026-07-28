@@ -1,6 +1,8 @@
 <?php
 
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\Concerns\RunsInCampaignContext;
 use Tests\Support\BuiltAssets;
 use Tests\TestCase;
@@ -90,4 +92,37 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+/**
+ * Run a write the database is expected to refuse, and hand back its complaint.
+ *
+ * A statement PostgreSQL refuses aborts the transaction it was made in, and the
+ * campaign suite wraps every test body in one so that nothing a test writes
+ * survives it. Running the refusal inside a nested transaction turns it into a
+ * savepoint, so the refusal is rolled back to and the surrounding transaction —
+ * along with every assertion after this call, and the harness's own rollback —
+ * stays usable.
+ *
+ * Declared here rather than in the file that first needed it because a global
+ * function cannot be declared twice: it was written inside
+ * tests/Campaign/SupporterStorageTest.php for D-8's unique index, and
+ * tests/Campaign/BlastStorageTest.php now needs the same thing for the check
+ * constraint that keeps a draft and a queued blast apart. A second consumer is
+ * this project's trigger for lifting a helper, and the alternative — a
+ * differently named copy — would leave two spellings of one idea.
+ *
+ * Returns null when the write was *not* refused, which is what lets a caller
+ * assert that a refusal happened rather than assert on a value that may never
+ * have been set.
+ */
+function refusalFrom(Closure $write): ?QueryException
+{
+    try {
+        DB::connection('tenant')->transaction($write);
+    } catch (QueryException $refusal) {
+        return $refusal;
+    }
+
+    return null;
 }

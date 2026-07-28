@@ -4,28 +4,11 @@ declare(strict_types=1);
 
 use App\Models\Supporter;
 use App\Supporters\SubscriptionStatus;
-use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-/**
- * A statement PostgreSQL refuses aborts the transaction it was made in, and
- * this suite wraps every test body in one so that nothing a test writes
- * survives it. Running the refusal inside a nested transaction turns it into a
- * savepoint, so the refusal is rolled back to and the surrounding transaction —
- * along with every assertion after this call, and the harness's own rollback —
- * stays usable.
- */
-function refusalFrom(Closure $write): ?QueryException
-{
-    try {
-        DB::connection('tenant')->transaction($write);
-    } catch (QueryException $refusal) {
-        return $refusal;
-    }
-
-    return null;
-}
+// refusalFrom() lives in tests/Pest.php, because a second campaign-suite file
+// now asserts a refusal too and a global function cannot be declared twice.
 
 test('the campaign database carries the supporter list', function (): void {
     expect(Schema::hasTable('supporters'))->toBeTrue()
