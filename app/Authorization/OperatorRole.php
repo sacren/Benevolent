@@ -66,10 +66,15 @@ enum OperatorRole: string
                 Permission::EditSupporters,
                 Permission::ExportSupporters,
                 Permission::DeleteSupporters,
+                Permission::ViewBlasts,
+                Permission::EditBlasts,
+                Permission::SendBlasts,
             ],
             self::Staff => [
                 Permission::ViewSupporters,
                 Permission::EditSupporters,
+                Permission::ViewBlasts,
+                Permission::EditBlasts,
             ],
         };
     }

@@ -33,8 +33,10 @@ enum Permission: string
      * The reason the Owner/Staff distinction exists at all — a campaign needs
      * someone who can decide its roster without every operator being able to.
      * It was the *only* thing separating the two roles until the supporter
-     * module arrived; ExportSupporters and DeleteSupporters below are now the
-     * second and third.
+     * module arrived; ExportSupporters and DeleteSupporters below are the
+     * second and third, and SendBlasts the fourth. (A count in prose is a claim
+     * nothing runs, so it rots — this one is kept current in the same edit that
+     * moves it, which is the only discipline that works.)
      */
     case ManageOperators = 'manage-operators';
 
@@ -113,4 +115,65 @@ enum Permission: string
      * in bulk.
      */
     case DeleteSupporters = 'delete-supporters';
+
+    /**
+     * See the blasts a campaign has written, and what became of them.
+     *
+     * Both roles hold this, for the reason both hold ViewSupporters: a
+     * campaign's staff doing the campaign's work needs to know what the
+     * campaign has already said to its list, if only to avoid saying it twice.
+     * Withholding it would also make SendBlasts below unreadable — an operator
+     * who may not see a blast cannot be shown why they may not send one.
+     *
+     * Trigger for it to start refusing someone: the one ViewSupporters already
+     * records, a role that may read the campaign's work without doing it.
+     */
+    case ViewBlasts = 'view-blasts';
+
+    /**
+     * Write a blast and choose who it is aimed at, without sending it.
+     *
+     * Both roles hold this, and it is EditSupporters' shape granted for
+     * EditSupporters' reason: composing is the campaign's work rather than
+     * authority over it. A draft is a document, and a draft that is never sent
+     * has reached nobody. Writing and re-aiming share one permission because an
+     * operator who may write a message but not correct the postcodes it is
+     * aimed at is not a role anybody would design on purpose.
+     *
+     * **What keeps this safe to grant is that it stops at the draft.** The
+     * irreversible half is SendBlasts below, and the two are separate cases
+     * precisely so that this one can be given away freely.
+     */
+    case EditBlasts = 'edit-blasts';
+
+    /**
+     * Commit a blast to sending, and with it the campaign's name.
+     *
+     * Owner-only, and the strongest case the Owner/Staff split has yet had.
+     * ExportSupporters and DeleteSupporters are both withheld on leverage
+     * rather than on reachability, and both are recoverable in the way that
+     * matters: a deleted supporter can be imported again, and an exported file
+     * is a copy of what its holder could already read on screen. **A sent
+     * message is neither.** It leaves the platform, it arrives with people who
+     * are not part of the campaign, and no code path here or anywhere else
+     * brings it back.
+     *
+     * The same regret asymmetry settles it, and more sharply than anywhere
+     * else it has been applied: withholding this and granting it later costs a
+     * campaign one conversation, while granting it now and revoking it later is
+     * a change made after the message somebody regrets has already gone.
+     *
+     * Said at its true strength, because the weaker claim is the true one. This
+     * decides *who may start a send* and nothing else. It does not make
+     * double-sending impossible — the check constraint on `blasts` and the lock
+     * the sending path will carry are what do that — and it does not stop a
+     * Staff operator writing anything they like, since EditBlasts above is
+     * deliberately theirs.
+     *
+     * Trigger to revisit: the first campaign where an Owner is the bottleneck
+     * for routine sending — a weekly bulletin somebody other than the director
+     * actually writes and posts. That is the export trigger's shape and it is
+     * likelier to arrive, because sending is a rhythm rather than an errand.
+     */
+    case SendBlasts = 'send-blasts';
 }
