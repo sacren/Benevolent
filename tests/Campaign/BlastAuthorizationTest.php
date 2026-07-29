@@ -29,6 +29,11 @@ use Illuminate\Support\Facades\Gate;
  * permissions. The split got better and the ratio got worse, which is the
  * honest way round and the same way round Phase 1 recorded at its own Step 5.
  *
+ * Two further properties of the policy are asserted in
+ * tests/Unit/BlastPolicyWiringTest.php rather than here, because neither
+ * changes any answer this file checks: that the policy reads permissions and
+ * never the role, and that nothing occupies the path the gate would guess.
+ *
  * There is deliberately **no `can:` middleware probe here**, unlike the
  * supporter file. Every shipped campaign route settles authority with
  * `$this->authorize(...)` inside its controller -- routes/tenant.php says so in
