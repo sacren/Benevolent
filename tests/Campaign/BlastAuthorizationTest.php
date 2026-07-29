@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use App\Authorization\Permission;
+use App\Blasts\BlastPolicy;
+use App\Models\Blast;
 use App\Models\User;
 use Illuminate\Support\Facades\Gate;
 
@@ -82,4 +84,72 @@ test('the roles disagree about sending a blast, and both directions are pinned',
         ->and(Gate::forUser($owner)->allows(Permission::SendBlasts->value))->toBeTrue()
         ->and($staff->can(Permission::SendBlasts->value))->toBeFalse()
         ->and(Gate::forUser($staff)->denies(Permission::SendBlasts->value))->toBeTrue();
+});
+
+// -----------------------------------------------------------------------------
+// The policy: the same authority, reached the way a controller will reach it.
+// -----------------------------------------------------------------------------
+
+test('a blast is governed by a policy at all', function (): void {
+    // The wiring guard, and the one that fails when #[UsePolicy] is deleted
+    // from the model. Nothing else in this file would notice: without the
+    // attribute the gate finds no policy, every ability against a Blast is
+    // unknown, and an unknown ability is refused exactly as a refused one -- so
+    // the send deny below stays green against a model governed by nothing.
+    //
+    // These three abilities are checked for a Staff operator specifically,
+    // because they are the ones both roles hold: if the policy is unreachable
+    // they go false, and no role change can explain it away.
+    $staff = User::factory()->create();
+    $blast = Blast::factory()->create();
+
+    expect(Gate::getPolicyFor(Blast::class))->toBeInstanceOf(BlastPolicy::class)
+        ->and(Gate::forUser($staff)->allows('viewAny', Blast::class))->toBeTrue()
+        ->and(Gate::forUser($staff)->allows('create', Blast::class))->toBeTrue()
+        ->and(Gate::forUser($staff)->allows('update', $blast))->toBeTrue();
+});
+
+test('the roles disagree about sending, through the policy, and both directions are pinned', function (): void {
+    // Distinct from the permission-level pairing above in what it can catch:
+    // that one says an Owner holds SendBlasts and a Staff operator does not,
+    // this one says the policy routes the `send` ability onto that permission
+    // and not onto another. A policy answering `send` from EditBlasts -- the
+    // tempting reuse, since composing and sending are the same page's two
+    // buttons -- passes every permission-level assertion in this file and fails
+    // this test's second line.
+    //
+    // Both directions in one test, for the reason the permission-level pairing
+    // gives: an allow that can be edited away leaves a deny guarding nothing,
+    // and a deny alone is satisfied by a policy that is simply unreachable.
+    $owner = User::factory()->owner()->create();
+    $staff = User::factory()->create();
+    $blast = Blast::factory()->create();
+
+    expect(Gate::forUser($owner)->allows('send', $blast))->toBeTrue()
+        ->and(Gate::forUser($staff)->denies('send', $blast))->toBeTrue();
+});
+
+test('a draft already committed to sending is still the policy\'s to allow', function (): void {
+    // The state-versus-authority decision, pinned so that folding
+    // BlastStatus::isCommitted() into the policy becomes a visible change
+    // rather than a quiet one.
+    //
+    // This asserts something that looks wrong on first reading, so the reason
+    // is stated rather than left to be re-derived: an Owner is allowed to
+    // `send` a blast that has already been sent. That is correct here because
+    // the policy answers *who may act*, and the Owner may. What stops the
+    // second send is the check constraint on `blasts` and the lock the sending
+    // path will carry -- mechanisms, not courtesies -- and Step 4 owns them.
+    //
+    // Folding the state check in would make send() return false for two
+    // different causes, which is the silent-denial hazard this module already
+    // carries, one level deeper: an Owner would be told "you may not send this"
+    // when the truth is "this was already sent". If a later step decides
+    // otherwise, this test is the thing that must be deliberately rewritten,
+    // which is exactly the visibility it exists to provide.
+    $owner = User::factory()->owner()->create();
+    $sent = Blast::factory()->sent()->create();
+
+    expect($sent->status->isCommitted())->toBeTrue()
+        ->and(Gate::forUser($owner)->allows('send', $sent))->toBeTrue();
 });

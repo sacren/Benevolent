@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Blasts\BlastPolicy;
 use App\Blasts\BlastStatus;
 use Database\Factories\BlastFactory;
+use Illuminate\Database\Eloquent\Attributes\UsePolicy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
@@ -57,6 +59,14 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
+// Named here rather than discovered by convention, the same way SupporterPolicy
+// is attached and the audit observer is attached to User. A policy filed at
+// App\Policies\BlastPolicy would be found by path guessing whether or not this
+// line existed, which would make it impossible to prove the wiring does
+// anything; with the policy beside its module, deleting this line turns the
+// allow tests red and leaves the deny tests green against a model governed by
+// nothing.
+#[UsePolicy(BlastPolicy::class)]
 class Blast extends Model
 {
     /** @use HasFactory<BlastFactory> */
