@@ -20,13 +20,21 @@ const { supporter } = defineProps<{
     supporter: Supporter;
 }>();
 
+/**
+ * A layout callback, not a static object, because defineOptions() is hoisted
+ * out of <script setup> and cannot see `supporter`. Written as a static object
+ * this threw `ReferenceError: supporter is not defined` and rendered nothing,
+ * while the route still answered 200 with the right component name -- so no
+ * server-side assertion could see it. Inertia's callback form is handed the
+ * page's props and returns props only, which merge onto the default layout.
+ */
 defineOptions({
-    layout: {
+    layout: (props: { supporter: Supporter }) => ({
         breadcrumbs: [
             { title: 'Supporters', href: index() },
-            { title: 'Edit supporter', href: edit(supporter.id) },
+            { title: 'Edit supporter', href: edit(props.supporter.id) },
         ],
-    },
+    }),
 });
 </script>
 
