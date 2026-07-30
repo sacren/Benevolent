@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Models\Supporter;
 use App\Models\User;
 use Tests\Concerns\RunsInCampaignContext;
+use Tests\Support\LoopbackHost;
 
 /*
  * The supporter list, opened in a real browser by a signed-in Owner.
@@ -25,7 +26,7 @@ use Tests\Concerns\RunsInCampaignContext;
  * Reaching this page at all is the other half of the work. The browser's HTTP
  * server binds to a hardcoded 127.0.0.1 and rewrites every visit onto it, with
  * no injection point -- so a campaign page is unreachable until 127.0.0.1
- * *is* the campaign, which is what the two arrangements in beforeEach do.
+ * *is* the campaign, which is Tests\Support\LoopbackHost's job.
  */
 
 uses(RunsInCampaignContext::class);
@@ -33,29 +34,16 @@ uses(RunsInCampaignContext::class);
 beforeEach(function (): void {
     $this->enterCampaignContext();
 
-    // The browser can only ever ask for 127.0.0.1, so the campaign has to
-    // answer to it. A second domain row rather than a replacement: the
-    // harness's own `<slug>.test` row stays, so `campaignUrl()` and anything
-    // else reading the campaign's hostname keep working.
-    $this->campaign->createDomain(['domain' => '127.0.0.1']);
-
-    // And central has to stop claiming it. PreventAccessFromCentralDomains runs
-    // ahead of tenant resolution and redirects any central host away from
-    // campaign routes, so while 127.0.0.1 is in this list the browser is sent
-    // to /campaign-sign-in no matter what it asks for.
-    //
-    // Config only, for the life of this test. The committed default in
-    // config/tenancy.php is untouched, which matters: that list is a security
-    // boundary and this must not be a way of quietly widening it.
-    config([
-        'tenancy.central_domains' => array_values(array_diff(
-            (array) config('tenancy.central_domains'),
-            ['127.0.0.1'],
-        )),
-    ]);
+    // Both arrangements the browser needs, and why they have to be shared
+    // rather than repeated, are in Tests\Support\LoopbackHost. They were four
+    // lines here until a second browser file existed and was refused the
+    // address this one had already taken.
+    LoopbackHost::claimFor($this->campaign);
 });
 
 afterEach(function (): void {
+    LoopbackHost::release();
+
     $this->leaveCampaignContext();
 });
 
