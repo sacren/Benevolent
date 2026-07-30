@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\BlastController;
 use App\Http\Controllers\SupporterController;
 use App\Http\Controllers\SupporterImportController;
 use Illuminate\Support\Facades\Route;
@@ -71,6 +72,11 @@ Route::middleware('tenant')->group(function (): void {
         Route::post('supporters/import', [SupporterImportController::class, 'store'])->name('supporters.imports.store');
         Route::get('supporters/imports/{import}', [SupporterImportController::class, 'show'])->name('supporters.imports.show');
         Route::post('supporters/imports/{import}', [SupporterImportController::class, 'start'])->name('supporters.imports.start');
+
+        // The messages the campaign has written. Authority is settled by
+        // BlastPolicy inside the controller rather than by a `can:` middleware
+        // here, for the same reason the supporter routes above carry none.
+        Route::get('blasts', [BlastController::class, 'index'])->name('blasts.index');
     });
 
     require __DIR__.'/settings.php';

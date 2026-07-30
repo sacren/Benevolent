@@ -50,6 +50,7 @@ test('a central host asking for a campaign route is signposted, not refused', fu
     'password reset request' => '/forgot-password',
     'profile settings' => '/settings/profile',
     'supporter list' => '/supporters',
+    'blast list' => '/blasts',
     'add a supporter' => '/supporters/create',
     'import a list' => '/supporters/import',
     // A route with a model binding, deliberately: the middleware turns the

@@ -1,0 +1,138 @@
+<script setup lang="ts">
+import { Head } from '@inertiajs/vue3';
+import Heading from '@/components/Heading.vue';
+import { Badge } from '@/components/ui/badge';
+import { index } from '@/routes/blasts';
+import type { Blast, BlastStatus } from '@/types';
+
+defineProps<{
+    blasts: Blast[];
+}>();
+
+/**
+ * What each state is called on screen, and what it looks like.
+ *
+ * A record keyed by the union rather than a chain of comparisons, so that a
+ * case added to App\Blasts\BlastStatus and mirrored into the type is a
+ * compile-time error here instead of a blast silently rendering as a blank
+ * badge. That is the same reason the import page asks the server whether it has
+ * finished rather than listing the terminal states itself.
+ */
+const statusLabels: Record<BlastStatus, string> = {
+    draft: 'Draft',
+    queued: 'Queued',
+    sending: 'Sending',
+    sent: 'Sent',
+    failed: 'Failed',
+};
+
+const statusVariants: Record<
+    BlastStatus,
+    'default' | 'secondary' | 'outline' | 'destructive'
+> = {
+    draft: 'outline',
+    queued: 'secondary',
+    sending: 'secondary',
+    sent: 'default',
+    failed: 'destructive',
+};
+
+/**
+ * How a blast describes who it is aimed at, in a list with no room for a count.
+ *
+ * **Null, and only null, is the whole list**, which mirrors the server rather
+ * than paraphrasing it: an aim naming no usable postcode reaches nobody, so
+ * saying "everyone subscribed" for it would state the exact opposite of who the
+ * blast goes to. Saying what null means in words is still the point -- an empty
+ * cell would read as a blast aimed at nobody, which is the other way round.
+ */
+function audienceSummary(blast: Blast): string {
+    if (blast.postcode_prefixes === null) {
+        return 'Everyone subscribed';
+    }
+
+    if (blast.postcode_prefixes.length === 0) {
+        return 'Nobody: no postcodes named';
+    }
+
+    return `Subscribed in ${blast.postcode_prefixes.join(', ')}`;
+}
+
+defineOptions({
+    layout: {
+        breadcrumbs: [
+            {
+                title: 'Blasts',
+                href: index(),
+            },
+        ],
+    },
+});
+</script>
+
+<template>
+    <Head title="Blasts" />
+
+    <div class="flex h-full flex-1 flex-col gap-6 p-4">
+        <Heading
+            title="Blasts"
+            :description="
+                blasts.length === 1
+                    ? '1 message this campaign has written'
+                    : `${blasts.length} messages this campaign has written`
+            "
+        />
+
+        <div
+            v-if="blasts.length === 0"
+            class="rounded-xl border border-sidebar-border/70 p-8 text-center dark:border-sidebar-border"
+        >
+            <p class="text-sm text-muted-foreground">
+                No blasts yet. Anything this campaign writes to its supporters
+                will appear here.
+            </p>
+        </div>
+
+        <div
+            v-else
+            class="overflow-x-auto rounded-xl border border-sidebar-border/70 dark:border-sidebar-border"
+        >
+            <table class="w-full text-left text-sm">
+                <thead
+                    class="border-b border-sidebar-border/70 dark:border-sidebar-border"
+                >
+                    <tr
+                        class="text-xs tracking-wide text-muted-foreground uppercase"
+                    >
+                        <th scope="col" class="px-4 py-3 font-medium">
+                            Subject
+                        </th>
+                        <th scope="col" class="px-4 py-3 font-medium">
+                            Aimed at
+                        </th>
+                        <th scope="col" class="px-4 py-3 font-medium">
+                            Status
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr
+                        v-for="blast in blasts"
+                        :key="blast.id"
+                        class="border-b border-sidebar-border/70 last:border-0 dark:border-sidebar-border"
+                    >
+                        <td class="px-4 py-3">{{ blast.subject }}</td>
+                        <td class="px-4 py-3 text-muted-foreground">
+                            {{ audienceSummary(blast) }}
+                        </td>
+                        <td class="px-4 py-3">
+                            <Badge :variant="statusVariants[blast.status]">
+                                {{ statusLabels[blast.status] }}
+                            </Badge>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</template>
