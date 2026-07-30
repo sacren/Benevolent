@@ -77,6 +77,10 @@ Route::middleware('tenant')->group(function (): void {
         // BlastPolicy inside the controller rather than by a `can:` middleware
         // here, for the same reason the supporter routes above carry none.
         Route::get('blasts', [BlastController::class, 'index'])->name('blasts.index');
+        Route::get('blasts/create', [BlastController::class, 'create'])->name('blasts.create');
+        Route::post('blasts', [BlastController::class, 'store'])->name('blasts.store');
+        Route::get('blasts/{blast}/edit', [BlastController::class, 'edit'])->name('blasts.edit');
+        Route::patch('blasts/{blast}', [BlastController::class, 'update'])->name('blasts.update');
     });
 
     require __DIR__.'/settings.php';

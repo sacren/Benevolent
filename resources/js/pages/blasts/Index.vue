@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { Head } from '@inertiajs/vue3';
+import { Head, Link } from '@inertiajs/vue3';
 import Heading from '@/components/Heading.vue';
 import { Badge } from '@/components/ui/badge';
-import { index } from '@/routes/blasts';
+import { Button } from '@/components/ui/button';
+import { create, edit, index } from '@/routes/blasts';
 import type { Blast, BlastStatus } from '@/types';
 
 defineProps<{
@@ -74,14 +75,20 @@ defineOptions({
     <Head title="Blasts" />
 
     <div class="flex h-full flex-1 flex-col gap-6 p-4">
-        <Heading
-            title="Blasts"
-            :description="
-                blasts.length === 1
-                    ? '1 message this campaign has written'
-                    : `${blasts.length} messages this campaign has written`
-            "
-        />
+        <div class="flex flex-wrap items-start justify-between gap-4">
+            <Heading
+                title="Blasts"
+                :description="
+                    blasts.length === 1
+                        ? '1 message this campaign has written'
+                        : `${blasts.length} messages this campaign has written`
+                "
+            />
+
+            <Button as-child>
+                <Link :href="create()">Write a blast</Link>
+            </Button>
+        </div>
 
         <div
             v-if="blasts.length === 0"
@@ -113,6 +120,9 @@ defineOptions({
                         <th scope="col" class="px-4 py-3 font-medium">
                             Status
                         </th>
+                        <th scope="col" class="px-4 py-3">
+                            <span class="sr-only">Actions</span>
+                        </th>
                     </tr>
                 </thead>
                 <tbody>
@@ -129,6 +139,24 @@ defineOptions({
                             <Badge :variant="statusVariants[blast.status]">
                                 {{ statusLabels[blast.status] }}
                             </Badge>
+                        </td>
+                        <td class="px-4 py-3 text-right">
+                            <!--
+                                Only a draft is opened for editing, because only
+                                a draft can be changed: everything past it is
+                                downstream of a decision the campaign cannot
+                                take back. A committed blast gets no link rather
+                                than a link that leads to a refusal.
+                            -->
+                            <Link
+                                v-if="blast.status === 'draft'"
+                                :href="edit(blast.id)"
+                                class="underline underline-offset-4"
+                                >Edit</Link
+                            >
+                            <span v-else class="text-muted-foreground"
+                                >&mdash;</span
+                            >
                         </td>
                     </tr>
                 </tbody>

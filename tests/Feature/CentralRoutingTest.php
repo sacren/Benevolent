@@ -51,6 +51,12 @@ test('a central host asking for a campaign route is signposted, not refused', fu
     'profile settings' => '/settings/profile',
     'supporter list' => '/supporters',
     'blast list' => '/blasts',
+    'write a blast' => '/blasts/create',
+    // A blast route with a model binding, deliberately, for the reason the
+    // import one below carries: the middleware turns the request away before
+    // the binding is ever resolved, so this would 404 rather than redirect if
+    // the guard moved out from in front of it.
+    'edit a blast' => '/blasts/1/edit',
     'add a supporter' => '/supporters/create',
     'import a list' => '/supporters/import',
     // A route with a model binding, deliberately: the middleware turns the

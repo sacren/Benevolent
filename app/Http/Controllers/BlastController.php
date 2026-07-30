@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Blasts\BlastAudience;
+use App\Http\Requests\Blasts\ComposeBlastRequest;
 use App\Models\Blast;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -65,5 +68,129 @@ class BlastController extends Controller
                 ->orderByDesc('id')
                 ->get(),
         ]);
+    }
+
+    /**
+     * Show the form for writing a blast.
+     */
+    public function create(): Response
+    {
+        $this->authorize('create', Blast::class);
+
+        return Inertia::render('blasts/Create');
+    }
+
+    /**
+     * Write a blast, and open it for aiming.
+     *
+     * Redirects to the edit page rather than back to the list, which is the one
+     * place this controller departs from SupporterController's shape. A
+     * supporter is finished when it is saved; a blast is not, because the
+     * number of people it would reach is the thing the operator most needs to
+     * see and it cannot be shown until there is a blast to compute it for.
+     */
+    public function store(ComposeBlastRequest $request): RedirectResponse
+    {
+        $this->authorize('create', Blast::class);
+
+        $blast = new Blast($request->composed());
+
+        // Authorship is stamped here rather than mass-assigned, and `operator_id`
+        // is deliberately absent from the model's fillable list: a form able to
+        // set it could put somebody else's name on a message that went out.
+        $blast->operator_id = $request->user()?->getKey();
+
+        $blast->save();
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Blast saved as a draft.')]);
+
+        return to_route('blasts.edit', $blast);
+    }
+
+    /**
+     * Show the form for changing a blast still in draft, and who it would reach.
+     *
+     * Governed by `update` rather than by a `view` ability, and that is a
+     * decision rather than an oversight -- the same one SupporterController
+     * records. This module ships no read-only page for one blast; the only
+     * reason to open one is to change it. It matters because BlastPolicy
+     * answers exactly the abilities it has methods for and denies every other
+     * one silently, indistinguishably from a considered refusal: the day a
+     * read-only page arrives, `view` and its allow test have to be added in the
+     * same edit or the 403 will look deliberate.
+     */
+    public function edit(Blast $blast): Response|RedirectResponse
+    {
+        $this->authorize('update', $blast);
+
+        if ($refusal = $this->refuseCommitted($blast)) {
+            return $refusal;
+        }
+
+        return Inertia::render('blasts/Edit', [
+            'blast' => $blast,
+
+            // **A prediction, not a promise, and the page says so in those
+            // words.** The audience is a rule evaluated again when sending
+            // starts (D-14), so somebody who unsubscribes between now and then
+            // is correctly left out and this number moves. Materializing a list
+            // here would make the number exact and the send wrong, which is the
+            // trade D-14 refused.
+            'audienceSize' => BlastAudience::size($blast),
+        ]);
+    }
+
+    /**
+     * Change a blast still in draft.
+     */
+    public function update(ComposeBlastRequest $request, Blast $blast): RedirectResponse
+    {
+        $this->authorize('update', $blast);
+
+        if ($refusal = $this->refuseCommitted($blast)) {
+            return $refusal;
+        }
+
+        $blast->update($request->composed());
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Blast updated.')]);
+
+        // Back to the same page, so the recipient count is recomputed against
+        // the aim just saved. Sending the operator to the list would show them
+        // the aim they chose and not what it now reaches.
+        return to_route('blasts.edit', $blast);
+    }
+
+    /**
+     * Turn away an attempt to change a blast the campaign has already committed.
+     *
+     * **This is a statement about state, and it deliberately lives here rather
+     * than in the policy.** BlastPolicy answers authority and never state, on
+     * the grounds recorded in its own docblock: a refusal that means both "you
+     * have no authority" and "this already went" tells an Owner the one thing
+     * that is not true and withholds the one diagnosis they need. So the policy
+     * still says an operator with EditBlasts may update a blast, and this says
+     * there is nothing left to update.
+     *
+     * A redirect carrying the reason, rather than a 403 or a 404. The blast
+     * exists and the operator may edit blasts; what has changed is the blast.
+     *
+     * Note the boundary this draws and the one it does not. Whether a *send* may
+     * run twice is Step 4's, and is held by the check constraint on `blasts` and
+     * by the lock the sending path will carry -- neither of which is a courtesy,
+     * and neither of which this method is.
+     */
+    private function refuseCommitted(Blast $blast): ?RedirectResponse
+    {
+        if (! $blast->status->isCommitted()) {
+            return null;
+        }
+
+        Inertia::flash('toast', [
+            'type' => 'error',
+            'message' => __('That blast has been committed to sending, so it can no longer be changed.'),
+        ]);
+
+        return to_route('blasts.index');
     }
 }

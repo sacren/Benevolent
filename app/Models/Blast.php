@@ -7,6 +7,7 @@ namespace App\Models;
 use App\Blasts\BlastPolicy;
 use App\Blasts\BlastStatus;
 use Database\Factories\BlastFactory;
+use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UsePolicy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -67,6 +68,17 @@ use Illuminate\Support\Carbon;
 // allow tests red and leaves the deny tests green against a model governed by
 // nothing.
 #[UsePolicy(BlastPolicy::class)]
+// What a compose form is allowed to set, listed by name the way Supporter's is.
+//
+// **The four columns left out are the point of the list.** `status`,
+// `queued_at` and `finished_at` are where a blast has got to, written by the
+// sending path and by nothing an operator submits -- a form that could set them
+// could mark a message sent that never went, or return a committed blast to
+// draft, which is the one thing this module's check constraint exists to make
+// impossible. `operator_id` is authorship, stamped by the server from the
+// signed-in operator, because a form that could set it could put somebody
+// else's name on a message that went out.
+#[Fillable(['subject', 'body', 'postcode_prefixes'])]
 class Blast extends Model
 {
     /** @use HasFactory<BlastFactory> */
