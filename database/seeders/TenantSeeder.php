@@ -9,6 +9,7 @@ use App\Models\Supporter;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Supporters\SubscriptionStatus;
+use App\Tenancy\CampaignContact;
 use Illuminate\Database\Seeder;
 
 /**
@@ -37,6 +38,16 @@ class TenantSeeder extends Seeder
      * answer for them without any of this reaching the public DNS.
      */
     private const DOMAIN = 'demo-campaign.test';
+
+    /**
+     * Where a supporter's reply to a demo blast would come back to.
+     *
+     * Seeded because a campaign with no reply address is a legitimate state
+     * that the send path has to handle, and therefore the *less* useful one to
+     * meet by default when opening the application to look at it. The state
+     * with no address is reachable by creating a second campaign without one.
+     */
+    private const CONTACT_ADDRESS = 'replies@demo-campaign.test';
 
     private const OPERATOR_EMAIL = 'operator@demo-campaign.test';
 
@@ -88,6 +99,12 @@ class TenantSeeder extends Seeder
             $operator->role = OperatorRole::Owner;
             $operator->save();
         });
+
+        // Set every run rather than only on creation, so a demo campaign made
+        // before this value existed acquires one -- the same shape as the
+        // operator promotion above, and the reason this seeder is safe to
+        // re-run at all.
+        CampaignContact::store($campaign, self::CONTACT_ADDRESS);
 
         $campaign->run(fn () => $this->seedSupporters());
 
