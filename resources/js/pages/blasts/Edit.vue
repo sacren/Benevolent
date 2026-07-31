@@ -7,13 +7,17 @@ import InputError from '@/components/InputError.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { usePermissions } from '@/composables/usePermissions';
 import { edit, index } from '@/routes/blasts';
 import type { Blast } from '@/types';
 
-const { blast, audienceSize } = defineProps<{
+const { blast, audienceSize, replyTo } = defineProps<{
     blast: Blast;
     audienceSize: number;
+    replyTo: string | null;
 }>();
+
+const { can } = usePermissions();
 
 /**
  * The count as one sentence rather than a number beside some words.
@@ -81,6 +85,71 @@ defineOptions({
                 Worked out again when the blast is sent, so this can change.
                 Anyone who unsubscribes before then will not receive it.
             </p>
+        </div>
+
+        <!--
+            Sending, which is the one thing on this page that cannot be undone.
+
+            Its own form rather than a second button inside the compose form
+            below, and a separate route: submitting the message fields must
+            never be able to send the message. An operator saving a draft they
+            are still writing and an operator committing it to thousands of
+            inboxes are different acts, and they should not share a submit.
+
+            Hidden from an operator who may not send -- Staff hold EditBlasts
+            and not SendBlasts, so this is the first control in this application
+            that differs by role. The policy refuses the request regardless, so
+            hiding it is a courtesy: getting it wrong costs a button or a 403,
+            never access.
+        -->
+        <div
+            v-if="can('send-blasts')"
+            data-test="send-blast"
+            class="max-w-2xl rounded-xl border border-sidebar-border/70 p-4 dark:border-sidebar-border"
+        >
+            <p class="text-sm font-medium">Send this blast</p>
+            <p class="mt-1 text-sm text-muted-foreground">
+                Sending cannot be undone, and a blast cannot be edited or sent
+                again afterwards. Save any changes first.
+            </p>
+
+            <!--
+                Whether a supporter can answer, said before the message goes.
+                A campaign with no contact address sends with no reply path --
+                a real state rather than a broken one, and one worth knowing
+                about while the blast is still a draft.
+            -->
+            <p
+                v-if="replyTo"
+                data-test="reply-path"
+                class="mt-2 text-sm text-muted-foreground"
+            >
+                Replies will come back to {{ replyTo }}.
+            </p>
+            <p
+                v-else
+                data-test="reply-path"
+                class="mt-2 text-sm text-muted-foreground"
+            >
+                This campaign has no reply address, so supporters will not be
+                able to answer. Ask an administrator to set one.
+            </p>
+
+            <Form
+                v-bind="BlastController.send.form(blast.id)"
+                class="mt-4"
+                v-slot="{ processing }"
+            >
+                <Button
+                    type="submit"
+                    variant="destructive"
+                    :disabled="processing"
+                    >Send to {{ audienceSize }}
+                    {{
+                        audienceSize === 1 ? 'supporter' : 'supporters'
+                    }}</Button
+                >
+            </Form>
         </div>
 
         <Form

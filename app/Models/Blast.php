@@ -51,12 +51,14 @@ use Illuminate\Support\Carbon;
  *
  * @property int $id
  * @property int|null $operator_id
+ * @property int|null $queued_by
  * @property string $subject
  * @property string $body
  * @property list<string>|null $postcode_prefixes
  * @property BlastStatus $status
  * @property Carbon|null $queued_at
  * @property Carbon|null $finished_at
+ * @property string|null $failure_reason
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -70,14 +72,15 @@ use Illuminate\Support\Carbon;
 #[UsePolicy(BlastPolicy::class)]
 // What a compose form is allowed to set, listed by name the way Supporter's is.
 //
-// **The four columns left out are the point of the list.** `status`,
-// `queued_at` and `finished_at` are where a blast has got to, written by the
-// sending path and by nothing an operator submits -- a form that could set them
-// could mark a message sent that never went, or return a committed blast to
-// draft, which is the one thing this module's check constraint exists to make
-// impossible. `operator_id` is authorship, stamped by the server from the
-// signed-in operator, because a form that could set it could put somebody
-// else's name on a message that went out.
+// **The six columns left out are the point of the list.** `status`,
+// `queued_at`, `finished_at` and `failure_reason` are where a blast has got to,
+// written by the sending path and by nothing an operator submits -- a form that
+// could set them could mark a message sent that never went, or return a
+// committed blast to draft, which is the one thing this module's check
+// constraint exists to make impossible. `operator_id` is authorship and
+// `queued_by` is who committed the message to sending, both stamped by the
+// server from the signed-in operator, because a form that could set either
+// could put somebody else's name on a message that went out.
 #[Fillable(['subject', 'body', 'postcode_prefixes'])]
 class Blast extends Model
 {

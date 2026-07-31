@@ -81,6 +81,15 @@ Route::middleware('tenant')->group(function (): void {
         Route::post('blasts', [BlastController::class, 'store'])->name('blasts.store');
         Route::get('blasts/{blast}/edit', [BlastController::class, 'edit'])->name('blasts.edit');
         Route::patch('blasts/{blast}', [BlastController::class, 'update'])->name('blasts.update');
+
+        // Committing a blast to sending. A POST rather than a PATCH, and its
+        // own path rather than a field on the update form: this is not an edit
+        // of the blast, it is the one act in this module that cannot be taken
+        // back, and a form that could reach it by submitting the compose fields
+        // would be one stray input away from sending a draft somebody was still
+        // writing. Authority is settled by BlastPolicy's `send` ability inside
+        // the controller, like every route above it.
+        Route::post('blasts/{blast}/send', [BlastController::class, 'send'])->name('blasts.send');
     });
 
     require __DIR__.'/settings.php';

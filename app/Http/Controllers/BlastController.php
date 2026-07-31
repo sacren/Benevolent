@@ -5,10 +5,14 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Blasts\BlastAudience;
+use App\Blasts\BlastStatus;
+use App\Blasts\SendBlast;
 use App\Http\Requests\Blasts\ComposeBlastRequest;
 use App\Models\Blast;
+use App\Tenancy\CampaignContact;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -137,6 +141,15 @@ class BlastController extends Controller
             // here would make the number exact and the send wrong, which is the
             // trade D-14 refused.
             'audienceSize' => BlastAudience::size($blast),
+
+            // **Whether a supporter could answer this message, said before it
+            // goes rather than discovered afterwards.** A campaign with no
+            // contact address sends with no reply path at all -- deliberately,
+            // because falling back to the platform's address would route a
+            // supporter's answer to people who cannot act on it. That is a
+            // legitimate state and an easy one to be in by accident, so the one
+            // page offering to send says which it is.
+            'replyTo' => CampaignContact::address(),
         ]);
     }
 
@@ -159,6 +172,83 @@ class BlastController extends Controller
         // the aim just saved. Sending the operator to the list would show them
         // the aim they chose and not what it now reaches.
         return to_route('blasts.edit', $blast);
+    }
+
+    /**
+     * Commit a blast to sending, and queue the work that does it.
+     *
+     * **The irreversible act of this whole module, and the transition is what
+     * makes it safe rather than the dispatch.** The status is moved out of
+     * draft by an update that names `draft` in its own `where`, so the database
+     * decides whether this request is the one that committed the blast: a
+     * second request arriving at the same instant updates zero rows and is
+     * turned away, with no read-then-write window for it to slip through. Only
+     * the request that won dispatches anything.
+     *
+     * That is a stronger guarantee than a queue lock, and it is deliberately
+     * not the only one. `SendBlast` carries a campaign-scoped
+     * WithoutOverlapping so a second *worker* cannot run the same send
+     * concurrently, and `blast_recipients` carries a unique index so that if one
+     * ever does, no supporter can be written to twice. Three mechanisms for one
+     * property, because it is the property no later commit repairs.
+     *
+     * A blast reaching nobody is refused rather than committed. The count is a
+     * prediction and this check can go stale in the moment after it runs -- but
+     * committing is one-way, so spending a blast on an aim that currently names
+     * nobody is a mistake the operator cannot undo, and an aim that has simply
+     * gone empty by the time the worker starts is a send of nothing rather than
+     * a blast that can never be edited again.
+     */
+    public function send(Request $request, Blast $blast): RedirectResponse
+    {
+        $this->authorize('send', $blast);
+
+        if ($blast->status->isCommitted()) {
+            return $this->refuseCommitted($blast) ?? to_route('blasts.index');
+        }
+
+        if (BlastAudience::size($blast) === 0) {
+            Inertia::flash('toast', [
+                'type' => 'error',
+                'message' => __('That blast currently reaches nobody, so it has not been sent. Change who it is aimed at and try again.'),
+            ]);
+
+            return to_route('blasts.edit', $blast);
+        }
+
+        $committed = Blast::query()
+            ->whereKey($blast->getKey())
+            ->where('status', BlastStatus::Draft)
+            ->update([
+                // Written outside mass assignment, and these three columns are
+                // absent from the model's #[Fillable] for exactly this reason:
+                // a form able to set them could mark a message sent that never
+                // went, or walk a committed blast back to draft.
+                'status' => BlastStatus::Queued,
+                'queued_at' => now(),
+
+                // Who committed it, which is not who wrote it: Staff may draft a
+                // blast and only an Owner may send one, so `operator_id` answers
+                // a different question (D-17).
+                'queued_by' => $request->user()?->getKey(),
+                'updated_at' => now(),
+            ]);
+
+        if ($committed === 0) {
+            // Another request committed it between the check above and here.
+            // Reported as the same refusal, because from the operator's side it
+            // is the same fact: the blast is no longer theirs to send.
+            return $this->refuseCommitted($blast->refresh()) ?? to_route('blasts.index');
+        }
+
+        SendBlast::dispatch($blast->refresh(), (string) tenant('id'));
+
+        Inertia::flash('toast', [
+            'type' => 'success',
+            'message' => __('That blast is queued for sending.'),
+        ]);
+
+        return to_route('blasts.index');
     }
 
     /**
