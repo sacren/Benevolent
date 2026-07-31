@@ -103,3 +103,26 @@ test('the central database does not carry a campaign\'s blasts', function (): vo
     // left. It costs one line to hold that open.
     expect(Schema::hasTable('blasts'))->toBeFalse();
 });
+
+test('the central database does not carry who a campaign has written to', function (): void {
+    // The sharpest form of the claim above, because these rows *are* the list of
+    // members of the public a campaign contacted -- pooled centrally, they would
+    // let a reader of one campaign learn which people another campaign wrote to,
+    // which is the one thing DEC-1's physical separation exists to make
+    // impossible.
+    //
+    // Same suite, same reason (L-18): the campaign suite rebuilds the central
+    // schema only when it is missing, so this line there would hold whether or
+    // not it were true. This one migrates central per test.
+    //
+    // **Its worth was measured before it was believed, and it is the weakest of
+    // the four -- for a reason the blasts line above already records against
+    // itself.** `blast_recipients` carries foreign keys to `blasts` and
+    // `supporters`, neither of which exists centrally, so misfiling this
+    // migration kills it on the first of those and errors every test in this
+    // file before an assertion runs. Only with both keys dropped does this line
+    // become the thing that reports. Kept for the same reason: the keys are
+    // protection this table happens to have rather than a property of being
+    // campaign-scoped, and if either is ever loosened this is what is left.
+    expect(Schema::hasTable('blast_recipients'))->toBeFalse();
+});

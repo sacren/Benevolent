@@ -12,7 +12,6 @@ use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Tests\Support\QueueWorker;
 use Tests\Support\StagedImport;
@@ -282,7 +281,15 @@ test('the lookup that counts who is already listed cannot name them either', fun
 
     ImportSupporters::dispatch($import);
 
-    Schema::connection('tenant')->drop('supporters');
+    // Dropped with CASCADE, and through raw DDL because the schema builder has
+    // no way to say it. `blast_recipients` carries a foreign key to
+    // `supporters`, so a plain drop is now refused with SQLSTATE 2BP01 -- which
+    // is the harness reporting a change in the schema rather than a fault, and
+    // is how this commit found out it had one. Naming the dependent table here
+    // instead would couple a test about the *importer* to whatever else happens
+    // to reference supporters next; "remove the table this select reads, and
+    // whatever hangs off it" is what the break actually means.
+    DB::connection('tenant')->statement('drop table "supporters" cascade');
 
     tenancy()->end();
 
