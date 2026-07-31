@@ -128,3 +128,47 @@ test('a campaign with nobody to write to says so in a number rather than by rend
         ->assertSee('0 supporters match this blast right now')
         ->assertNoJavaScriptErrors();
 });
+
+test('an owner is offered the send, told it cannot be undone, and told where replies go', function (): void {
+    Supporter::factory()->count(2)->create();
+
+    $blast = Blast::factory()->create(['subject' => 'Object before Friday']);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    // **The first control in this application that differs by role**, so it is
+    // the first place a wrong permission string renders nothing while the
+    // server answers 200 with the right component name. `can()` reads a shared
+    // prop against a plain string; a typo in it is invisible to every
+    // server-side assertion and costs an Owner the one control they alone have.
+    visit('/blasts/'.$blast->getKey().'/edit')
+        ->assertPresent('[data-test="send-blast"]')
+        ->assertSee('Send to 2 supporters')
+        ->assertSee('Sending cannot be undone')
+
+        // The campaign in this suite has no contact address, so this is the
+        // honest default rather than a contrived case -- and it is the state
+        // worth rendering, because a campaign can be in it without noticing.
+        ->assertPresent('[data-test="reply-path"]')
+        ->assertSee('no reply address')
+
+        ->assertNoJavaScriptErrors();
+});
+
+test('an operator who may not send is not offered the control', function (): void {
+    Supporter::factory()->create();
+
+    $blast = Blast::factory()->create(['subject' => 'Object before Friday']);
+
+    // Staff hold EditBlasts and not SendBlasts. The policy refuses the request
+    // whatever the browser rendered, so this is a courtesy rather than the
+    // guard -- but a courtesy that fails open shows an operator a button that
+    // 403s, and one that fails closed hides it from the Owner too, which is why
+    // both directions are asserted rather than only this one.
+    $this->actingAs(User::factory()->create());
+
+    visit('/blasts/'.$blast->getKey().'/edit')
+        ->assertSee('Object before Friday')
+        ->assertMissing('[data-test="send-blast"]')
+        ->assertNoJavaScriptErrors();
+});

@@ -27,6 +27,15 @@ export type Blast = {
 
     /** Why the send stopped, for a blast that reached `failed`. */
     failure_reason: string | null;
+
+    /**
+     * How many supporters this blast has actually been handed to the mailer
+     * for, and how many one-message failures it recorded. Counted from
+     * `blast_recipients` rather than from the audience rule: the audience is a
+     * prediction, and these two are what happened.
+     */
+    reached_count: number;
+    failed_count: number;
     created_at: string;
     updated_at: string;
 };

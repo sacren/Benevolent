@@ -39,6 +39,37 @@ const statusVariants: Record<
 };
 
 /**
+ * What has actually happened to this blast, in the campaign's own terms.
+ *
+ * **Keyed by the status union rather than written as a chain of conditions**,
+ * for the same reason the labels above are: a case added to
+ * App\Blasts\BlastStatus and mirrored into the type becomes a compile-time
+ * error here instead of a blast silently reporting nothing.
+ *
+ * **The `queued` line is the one that matters, and it is Finding A's obligation
+ * paid on screen.** No queue worker runs anywhere yet. An import stuck at
+ * "Queued" costs an operator some time; a *blast* queued and never sent is a
+ * campaign believing it has contacted its supporters when it has not -- a
+ * failure that looks like success from the only place anyone can see it. So the
+ * page says the thing that is true rather than the thing that is reassuring, and
+ * says it in words rather than leaving it to be inferred from a badge.
+ */
+const progressSummaries: Record<BlastStatus, (blast: Blast) => string> = {
+    draft: () => 'Not sent',
+    queued: () => 'Waiting — no worker has picked this up yet',
+    sending: (blast) => `${blast.reached_count} sent so far`,
+    sent: (blast) =>
+        blast.failed_count === 0
+            ? `${blast.reached_count} reached`
+            : `${blast.reached_count} reached, ${blast.failed_count} refused`,
+    failed: (blast) => `${blast.reached_count} reached before it stopped`,
+};
+
+function progressSummary(blast: Blast): string {
+    return progressSummaries[blast.status](blast);
+}
+
+/**
  * How a blast describes who it is aimed at, in a list with no room for a count.
  *
  * **Null, and only null, is the whole list**, which mirrors the server rather
@@ -120,6 +151,7 @@ defineOptions({
                         <th scope="col" class="px-4 py-3 font-medium">
                             Status
                         </th>
+                        <th scope="col" class="px-4 py-3 font-medium">Sent</th>
                         <th scope="col" class="px-4 py-3">
                             <span class="sr-only">Actions</span>
                         </th>
@@ -139,6 +171,23 @@ defineOptions({
                             <Badge :variant="statusVariants[blast.status]">
                                 {{ statusLabels[blast.status] }}
                             </Badge>
+                        </td>
+                        <td class="px-4 py-3 text-muted-foreground">
+                            <span :data-test="`blast-progress-${blast.id}`">{{
+                                progressSummary(blast)
+                            }}</span>
+                            <!--
+                                Why a send stopped, where the campaign can read
+                                it. Central failed_jobs has no campaign column
+                                and no campaign surface reads it, so a failure
+                                written only there is one nobody here can see.
+                            -->
+                            <span
+                                v-if="blast.failure_reason"
+                                class="mt-1 block text-xs"
+                                :data-test="`blast-failure-${blast.id}`"
+                                >{{ blast.failure_reason }}</span
+                            >
                         </td>
                         <td class="px-4 py-3 text-right">
                             <!--

@@ -10,6 +10,7 @@ use App\Blasts\SendBlast;
 use App\Http\Requests\Blasts\ComposeBlastRequest;
 use App\Models\Blast;
 use App\Tenancy\CampaignContact;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -68,6 +69,19 @@ class BlastController extends Controller
 
         return Inertia::render('blasts/Index', [
             'blasts' => Blast::query()
+                // **What a send has actually done, as two aggregates rather
+                // than a query per row.** This is the counterpart to the
+                // trigger recorded against putting an *audience* count here:
+                // that would be one BlastAudience query per blast, while these
+                // are counts over `blast_recipients`' own index. They are also
+                // the only honest answer the application can give about a
+                // queued blast -- no worker runs anywhere, so a campaign that
+                // cannot tell "queued" from "sent" would believe it had
+                // contacted its supporters when it had not.
+                ->withCount([
+                    'recipients as reached_count' => fn (Builder $query) => $query->whereNotNull('sent_at'),
+                    'recipients as failed_count' => fn (Builder $query) => $query->whereNotNull('failure_reason'),
+                ])
                 ->orderByDesc('created_at')
                 ->orderByDesc('id')
                 ->get(),

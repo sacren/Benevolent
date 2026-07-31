@@ -256,3 +256,68 @@ test('the edit page says whether a supporter could answer the message', function
             ->component('blasts/Edit')
             ->where('replyTo', null));
 });
+
+test('the list says what a send has done, counted from the record rather than the rule', function (): void {
+    $sentBlast = Blast::factory()->sent()->create(['subject' => 'Went out']);
+    $failedBlast = Blast::factory()->failed()->create([
+        'subject' => 'Stopped early',
+        'failure_reason' => 'The database refused the write.',
+    ]);
+    $queuedBlast = Blast::factory()->queued()->create(['subject' => 'Waiting']);
+
+    BlastRecipient::factory()->count(3)->ofBlast($sentBlast)->sent()->create();
+    BlastRecipient::factory()->ofBlast($sentBlast)->failed()->create();
+    BlastRecipient::factory()->ofBlast($failedBlast)->sent()->create();
+
+    $this->actingAs(owner())
+        ->get($this->campaignUrl('/blasts'))
+        ->assertOk()
+        ->assertInertia(function ($page) use ($sentBlast, $failedBlast, $queuedBlast) {
+            $counts = collect($page->toArray()['props']['blasts'])
+                ->keyBy('id')
+                ->map(fn (array $blast): array => [
+                    'reached' => $blast['reached_count'],
+                    'failed' => $blast['failed_count'],
+                ]);
+
+            // Counted from blast_recipients, so these are what happened rather
+            // than what the audience rule predicts -- which is the distinction
+            // D-14 accepted and the reason a per-blast count is honest where a
+            // recomputed audience size would not be.
+            expect($counts[$sentBlast->getKey()])->toBe(['reached' => 3, 'failed' => 1])
+                ->and($counts[$failedBlast->getKey()])->toBe(['reached' => 1, 'failed' => 0])
+                // A blast nothing has picked up reads zero rather than absent,
+                // which is what lets the page say "waiting" rather than render
+                // an empty cell that looks like a broken column.
+                ->and($counts[$queuedBlast->getKey()])->toBe(['reached' => 0, 'failed' => 0]);
+
+            return $page;
+        });
+});
+
+test('the counts are two aggregates rather than a query for every blast', function (): void {
+    foreach (range(1, 5) as $ignored) {
+        $blast = Blast::factory()->sent()->create();
+        BlastRecipient::factory()->ofBlast($blast)->sent()->create();
+    }
+
+    $operator = owner();
+
+    DB::connection('tenant')->flushQueryLog();
+    DB::connection('tenant')->enableQueryLog();
+
+    $this->actingAs($operator)->get($this->campaignUrl('/blasts'))->assertOk();
+
+    $selects = collect(DB::connection('tenant')->getQueryLog())
+        ->filter(fn (array $entry): bool => str_contains($entry['query'], 'blast_recipients'))
+        ->count();
+
+    DB::connection('tenant')->disableQueryLog();
+
+    // **The trigger Step 3 recorded against putting a count on this page was a
+    // query per row, and this is the assertion that keeps the promise.** Both
+    // counts are subselects on the one blasts query, so five blasts cost the
+    // same as one -- where a recomputed audience size would have cost five
+    // BlastAudience queries and would have been the wrong number besides.
+    expect($selects)->toBe(1);
+});

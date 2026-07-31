@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UsePolicy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -100,5 +101,22 @@ class Blast extends Model
             'queued_at' => 'datetime',
             'finished_at' => 'datetime',
         ];
+    }
+
+    /**
+     * The people this blast has been written to, one row each.
+     *
+     * Added here rather than at the step that created the table, because until
+     * the list page counted them nothing in the application read it -- and a
+     * relation with no reader is the shape this project keeps refusing. Its
+     * reader is `withCount`, which is also why this is worth having at all: a
+     * count per blast is one aggregate over an index, where a count of the
+     * *audience* would be a fresh query per row.
+     *
+     * @return HasMany<BlastRecipient, $this>
+     */
+    public function recipients(): HasMany
+    {
+        return $this->hasMany(BlastRecipient::class);
     }
 }
