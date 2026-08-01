@@ -46,6 +46,7 @@ use Illuminate\Support\Carbon;
  * @property string $email
  * @property string|null $postcode
  * @property SubscriptionStatus $subscription_status
+ * @property string $unsubscribe_token
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -60,6 +61,26 @@ class Supporter extends Model
 {
     /** @use HasFactory<SupporterFactory> */
     use HasFactory;
+
+    /**
+     * The attributes hidden from every array and JSON form of this model.
+     *
+     * **`unsubscribe_token` is a credential, and without this line it ships to
+     * the browser.** Measured rather than feared: `toArray()` returns every
+     * column, and `SupporterController@index` and `@edit` both hand whole
+     * Supporter models to `Inertia::render` -- so the supporter list page would
+     * carry, in its props, in the page's own HTML, the token that unsubscribes
+     * each of the fifty people on screen. Every operator who may view the list
+     * would hold it, Staff included, and so would anything that ever saw that
+     * HTML. There is no surface in this application that has any use for the
+     * value: it exists to be put in one message and read back off one URL.
+     *
+     * It is absent from #[Fillable] for the same reason from the other
+     * direction -- nothing a form submits may set it, so a token cannot be
+     * chosen, only generated. The database generates it (see the migration),
+     * which is why no application code needs to write it at all.
+     */
+    protected $hidden = ['unsubscribe_token'];
 
     /**
      * Find a supporter by the address, the way the campaign's index matches it.

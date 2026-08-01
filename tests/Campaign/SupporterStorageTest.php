@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Models\Supporter;
 use App\Supporters\SubscriptionStatus;
+use Illuminate\Database\Query\Expression;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -19,6 +20,7 @@ test('the campaign database carries the supporter list', function (): void {
             'email',
             'postcode',
             'subscription_status',
+            'unsubscribe_token',
             'created_at',
             'updated_at',
         ]))->toBeTrue();
@@ -265,4 +267,155 @@ test('the order the list is read in is served by an index rather than by sorting
         // unindexed, which is the half that makes paging correct rather than
         // merely quick.
         ->and($index['columns'])->toBe(['created_at', 'id']);
+});
+
+/*
+ * The unsubscribe token (D-16(a)).
+ *
+ * These sit here rather than beside the unsubscribe route because what they
+ * assert is a property of the *schema*: that the column exists, that the
+ * database fills it whoever writes the row, that no two supporters share one,
+ * that it never leaves in a page's props, and that an erasure takes it. The
+ * route that reads it is the next commit's, and it can be wrong without any of
+ * these becoming wrong.
+ */
+
+test('every writer gets a token, including the ones that never touch Eloquent', function (): void {
+    // **The measurement this design turns on.** The obvious home for a
+    // generator is a model `creating` hook, and it would have been silently
+    // wrong: the importer writes `Supporter::query()->upsert()`, which fires no
+    // model events, so every supporter of every real campaign would have
+    // arrived with no way to unsubscribe -- found by the person who could not
+    // get out. So the generator is the column's default, and the three writers
+    // below are the three shapes anything in this application uses.
+    Supporter::factory()->create(['email' => 'through-eloquent@example.test']);
+
+    // The importer's own shape, conflict target included (D-8: the unique index
+    // is on lower(email), so a plain `email` here names no index at all).
+    Supporter::query()->upsert(
+        [[
+            'email' => 'through-upsert@example.test',
+            'name' => 'Upserted',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]],
+        [new Expression('lower(email)')],
+        ['name' => DB::raw('excluded.name')],
+    );
+
+    // And the writer that bypasses the model entirely -- a seeder, a data
+    // migration, a hand-written query.
+    DB::connection('tenant')->table('supporters')->insert([
+        'email' => 'through-raw-sql@example.test',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $tokens = DB::connection('tenant')->table('supporters')
+        ->whereIn('email', [
+            'through-eloquent@example.test',
+            'through-upsert@example.test',
+            'through-raw-sql@example.test',
+        ])
+        ->pluck('unsubscribe_token');
+
+    expect($tokens)->toHaveCount(3)
+        ->and($tokens->filter())->toHaveCount(3)
+        ->and($tokens->unique())->toHaveCount(3);
+});
+
+test('the column generates its own value, which is what makes the writer above irrelevant', function (): void {
+    // The configuration invariant behind the behaviour (L-14's pairing). The
+    // test above would stay green if somebody deleted the default and added a
+    // model hook *and* every writer in it happened to go through the model --
+    // which is exactly the state this design exists to refuse. This one reports
+    // the default itself, so it cannot be satisfied by application code.
+    $default = DB::connection('tenant')->selectOne(
+        'select column_default from information_schema.columns '
+        .'where table_name = ? and column_name = ?',
+        ['supporters', 'unsubscribe_token'],
+    );
+
+    expect($default?->column_default)->toContain('gen_random_uuid()');
+
+    // NOT NULL, so "every supporter has one" is the database's claim rather
+    // than a habit of the code that happens to write it.
+    $nullable = DB::connection('tenant')->selectOne(
+        'select is_nullable from information_schema.columns '
+        .'where table_name = ? and column_name = ?',
+        ['supporters', 'unsubscribe_token'],
+    );
+
+    expect($nullable?->is_nullable)->toBe('NO');
+});
+
+test('the database refuses two supporters holding one token', function (): void {
+    // A collision between two random UUIDs is not a thing that happens. This
+    // says so in the schema anyway, for the reason blast_recipients states its
+    // own claim there: a shared token is a link that unsubscribes an arbitrary
+    // one of two people, and no reader of either row could tell.
+    $first = Supporter::factory()->create(['email' => 'holder@example.test']);
+    $second = Supporter::factory()->create(['email' => 'other@example.test']);
+
+    $refusal = refusalFrom(function () use ($first, $second): void {
+        DB::connection('tenant')->table('supporters')
+            ->where('id', $second->getKey())
+            ->update(['unsubscribe_token' => $first->fresh()->unsubscribe_token]);
+    });
+
+    expect($refusal)->not->toBeNull()
+        ->and($refusal->getCode())->toBe('23505');
+});
+
+test('the token never leaves in a page prop', function (): void {
+    // **Measured rather than feared, and the reason it needs saying.**
+    // `toArray()` returns every column, and both SupporterController@index and
+    // @edit hand whole Supporter models to Inertia::render -- so without the
+    // model's $hidden list, the supporter list page would carry in its own HTML
+    // the token that unsubscribes each of the fifty people on screen, readable
+    // by every operator who may view the list and by anything that ever saw
+    // that page.
+    $supporter = Supporter::factory()->create(['email' => 'listed@example.test']);
+
+    expect($supporter->fresh()->toArray())->not->toHaveKey('unsubscribe_token')
+        ->and(json_decode((string) json_encode($supporter->fresh()), true))
+        ->not->toHaveKey('unsubscribe_token');
+
+    // And the value really is there to be withheld, so this is a guard on
+    // hiding rather than on a column that was never populated -- which is how
+    // it would read as green against a broken schema.
+    expect($supporter->fresh()->unsubscribe_token)->not->toBeEmpty();
+});
+
+test('erasing a supporter takes their token with them', function (): void {
+    // D-10 asked for the third time, and answered the way Blueprint §5 requires
+    // -- by running a deletion and counting rows rather than by reading the
+    // schema. The token is a credential, so where it lives is a data-lifecycle
+    // question; it lives on the one table an erasure already reaches, so the
+    // resolution needs no amendment.
+    $supporter = Supporter::factory()->create(['email' => 'leaving@example.test']);
+    $id = $supporter->getKey();
+
+    expect(DB::connection('tenant')->table('supporters')->where('id', $id)->value('unsubscribe_token'))
+        ->not->toBeEmpty();
+
+    $supporter->delete();
+
+    expect(DB::connection('tenant')->table('supporters')->where('id', $id)->count())->toBe(0);
+
+    // **And the token has exactly one home, which is what makes the deletion
+    // above mean anything.** The assertion before this one is satisfied by a
+    // schema that keeps tokens in a table of their own and leaves them there
+    // forever -- the erasure would still empty the supporters row, and D-10
+    // would still be false. So the claim that carries the weight is that no
+    // second table in this campaign's database carries this column, which is
+    // the same exhaustive shape blast_recipients uses to say it holds no
+    // address.
+    $homes = DB::connection('tenant')->select(
+        'select table_name from information_schema.columns '
+        .'where table_schema = current_schema() and column_name = ?',
+        ['unsubscribe_token'],
+    );
+
+    expect(array_column($homes, 'table_name'))->toBe(['supporters']);
 });
