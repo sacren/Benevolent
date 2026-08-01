@@ -64,16 +64,34 @@ final class BlastMessage extends Mailable
      * @param  Blast  $blast  the message as the campaign wrote it
      * @param  string  $campaignName  the campaign's own name, for the sign-off
      * @param  string|null  $replyAddress  where an answer should go, if the campaign said
+     * @param  string  $unsubscribeUrl  this one recipient's way off the list
      *
      * Named `replyAddress` rather than the obvious `replyTo`, which is not
      * available: Mailable already declares a public `$replyTo` array, and a
      * promoted readonly property of that name is a fatal
      * "cannot redeclare non-readonly property ... as readonly" at class load.
+     *
+     * **`$unsubscribeUrl` is a string rather than the Supporter it belongs to,
+     * and that is a boundary rather than a convenience.** Handing this class
+     * the supporter would be the shorter code and would make the message able
+     * to greet somebody by name -- which is D-20, Step 6's, and expected to
+     * resolve as no. Passing the finished link means the refusal is structural:
+     * there is no name in this object to print, so personalization cannot
+     * arrive here by accident and later be discovered as a feature nobody
+     * decided on.
+     *
+     * **This is nonetheless the first time two recipients get different bytes,
+     * and that is worth naming rather than letting it be noticed later.** Until
+     * now the same message went to everybody. A per-supporter link makes that
+     * false. It is *addressing* -- which envelope this copy belongs to -- and
+     * not personalization, and the distinction is exactly the one above: the
+     * body still says nothing about who is reading it.
      */
     public function __construct(
         private readonly Blast $blast,
         private readonly string $campaignName,
         private readonly ?string $replyAddress,
+        private readonly string $unsubscribeUrl,
     ) {}
 
     /**
@@ -106,6 +124,7 @@ final class BlastMessage extends Mailable
                 'body' => $this->blast->body,
                 'campaignName' => $this->campaignName,
                 'replyTo' => $this->replyAddress,
+                'unsubscribeUrl' => $this->unsubscribeUrl,
             ],
         );
     }

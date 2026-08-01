@@ -539,3 +539,166 @@ function holdSendLock(Blast $blast, Tenant $campaign): Lock
 
     return app(CacheRepository::class)->lock($job->middleware()[0]->getLockKey($job), 60);
 }
+
+/*
+ * The way out, in the message (D-16).
+ *
+ * Step 4 shipped a module that could mail a campaign's whole list and offered
+ * nobody a way off it, and marked the gap in the template itself. These are
+ * what close it, and the last of them is the only test in this project that
+ * follows the whole path a real supporter walks: a send, the message it
+ * produced, the link inside it, and the row it changes.
+ */
+
+test('every message carries a way off the list, and no two carry the same one', function (): void {
+    $sent = messagesSent();
+
+    $harbor = sendingCampaign('harbor-cleanup');
+
+    tenancy()->initialize($harbor);
+    $blast = committedBlastFor(['ama@harbor.test', 'bo@harbor.test']);
+    $tokens = Supporter::query()->pluck('unsubscribe_token', 'email');
+    SendBlast::dispatch($blast, (string) $harbor->getKey());
+    tenancy()->end();
+
+    QueueWorker::runNextJob();
+
+    expect($sent)->toHaveCount(2);
+
+    foreach ($sent as $message) {
+        $address = $message->getTo()[0]->getAddress();
+
+        // **The one value that differs between two recipients' copies.** Until
+        // this step the same bytes went to everybody; a per-supporter link
+        // makes that false, which is addressing rather than personalization --
+        // it says which envelope this copy belongs to and still says nothing
+        // about who is reading it.
+        expect($message->getTextBody())->toContain('/unsubscribe/'.$tokens[$address]);
+    }
+
+    // And they really are different links, so the assertion above is not
+    // satisfied by one token shared between two people -- which is the schema
+    // defect the unique index exists to refuse and which would look exactly
+    // like a working send from here.
+    expect($tokens['ama@harbor.test'])->not->toBe($tokens['bo@harbor.test']);
+});
+
+test('the link in a queued message points at the campaign\'s own host, never the platform\'s', function (): void {
+    // **The hazard CampaignHostTenancyBootstrapper exists for, arriving at the
+    // consumer its docblock predicted.** A queued job has no request to take a
+    // root URL from, so route() would fall back to APP_URL -- the central host,
+    // where campaign routes are deliberately unreachable -- and every
+    // unsubscribe link ever mailed would 404.
+    //
+    // **Two campaigns, and the second is the one that matters (L-21).** A URL
+    // generator that captured the first campaign's host and served it to the
+    // next would send one campaign's supporters to another campaign's site,
+    // where their token names nobody.
+    $sent = messagesSent();
+
+    $harbor = sendingCampaign('harbor-cleanup');
+    $ridge = sendingCampaign('ridge-restoration');
+
+    tenancy()->initialize($harbor);
+    SendBlast::dispatch(committedBlastFor(['ama@harbor.test']), (string) $harbor->getKey());
+    tenancy()->end();
+
+    tenancy()->initialize($ridge);
+    SendBlast::dispatch(committedBlastFor(['bo@ridge.test']), (string) $ridge->getKey());
+    tenancy()->end();
+
+    QueueWorker::runNextJob();
+    QueueWorker::runNextJob();
+
+    $bodyFor = function (string $address) use ($sent): string {
+        foreach ($sent as $message) {
+            if ($message->getTo()[0]->getAddress() === $address) {
+                return $message->getTextBody();
+            }
+        }
+
+        return '';
+    };
+
+    expect($bodyFor('ama@harbor.test'))->toContain('http://harbor-cleanup.test')
+        ->and($bodyFor('ama@harbor.test'))->not->toContain('ridge-restoration.test')
+        ->and($bodyFor('bo@ridge.test'))->toContain('http://ridge-restoration.test')
+        ->and($bodyFor('bo@ridge.test'))->not->toContain('harbor-cleanup.test');
+
+    // And neither carries the central host, which is where an unsteered
+    // generator would have sent both.
+    $centralHost = (string) parse_url((string) config('app.url'), PHP_URL_HOST);
+
+    expect($bodyFor('ama@harbor.test'))->not->toContain($centralHost)
+        ->and($bodyFor('bo@ridge.test'))->not->toContain($centralHost)
+        // The central host really is a different string, so the two assertions
+        // above are not satisfied by it matching the campaign's own.
+        ->and($centralHost)->not->toBe('harbor-cleanup.test');
+});
+
+test('following the link from the message takes the supporter off the list, and the next blast misses them', function (): void {
+    // **The whole path, end to end and in order**: a send, the message it
+    // produced, the link a person would click in it, and the next send not
+    // reaching them. Everything else in this step tests one joint of that; this
+    // is the only test that walks all of it, and it is the definition of done
+    // stated as behaviour.
+    $sent = messagesSent();
+
+    $harbor = sendingCampaign('harbor-cleanup');
+
+    tenancy()->initialize($harbor);
+    SendBlast::dispatch(committedBlastFor(['ama@harbor.test', 'bo@harbor.test']), (string) $harbor->getKey());
+    tenancy()->end();
+
+    QueueWorker::runNextJob();
+
+    expect($sent)->toHaveCount(2);
+
+    // Read out of the message as a supporter reads it, rather than rebuilt from
+    // the token -- which would test this file's own arithmetic instead of what
+    // was actually mailed.
+    $body = '';
+    foreach ($sent as $message) {
+        if ($message->getTo()[0]->getAddress() === 'ama@harbor.test') {
+            $body = $message->getTextBody();
+        }
+    }
+
+    expect(preg_match('~https?://\S+/unsubscribe/[0-9a-fA-F-]{36}~', $body, $matches))->toBe(1);
+
+    // The unsubscribe limiter is caller-keyed and platform-wide by design
+    // (L-24), so its budget carries across files in one process.
+    app('cache')->driver()->flush();
+
+    $this->post($matches[0])->assertRedirect();
+
+    tenancy()->initialize($harbor);
+
+    expect(Supporter::query()->whereEmailMatches('ama@harbor.test')->sole()->subscription_status)
+        ->toBe(SubscriptionStatus::Unsubscribed)
+        ->and(Supporter::query()->whereEmailMatches('bo@harbor.test')->sole()->subscription_status)
+        ->toBe(SubscriptionStatus::Subscribed);
+
+    // A second blast, written after they left. The audience is a rule evaluated
+    // at send (D-14), so this is where that decision pays for itself.
+    $second = Blast::factory()->queued()->create([
+        'subject' => 'Second meeting',
+        'body' => 'Another Thursday.',
+    ]);
+
+    SendBlast::dispatch($second, (string) $harbor->getKey());
+    tenancy()->end();
+
+    QueueWorker::runNextJob();
+
+    expect($sent)->toHaveCount(3);
+
+    // The third message went to the one who stayed, and no fourth exists.
+    expect($sent[2]->getTo()[0]->getAddress())->toBe('bo@harbor.test');
+
+    tenancy()->initialize($harbor);
+
+    expect(DB::table('blast_recipients')->where('blast_id', $second->getKey())->count())->toBe(1);
+
+    tenancy()->end();
+});

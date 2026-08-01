@@ -217,7 +217,12 @@ final class SendBlast implements ShouldQueue
         $failure = null;
 
         try {
-            Mail::to($supporter->email)->send(new BlastMessage($blast, $campaignName, $replyTo));
+            Mail::to($supporter->email)->send(new BlastMessage(
+                $blast,
+                $campaignName,
+                $replyTo,
+                $this->unsubscribeUrlFor($supporter),
+            ));
         } catch (Throwable $exception) {
             $failure = $this->withoutNamingAnybody($exception, $supporter->email);
         }
@@ -229,6 +234,36 @@ final class SendBlast implements ShouldQueue
         // row rather than accept the contradiction, turning one bad record into
         // a failed send.
         $this->resolve($blast, $supporter, $failure);
+    }
+
+    /**
+     * Where this one supporter goes to stop receiving mail.
+     *
+     * **The one value in a blast that differs per recipient, and the reason it
+     * is built here rather than read from a column.** The token is the
+     * supporter's; the URL around it is this campaign's hostname plus a route,
+     * neither of which belongs in the database.
+     *
+     * **The absolute host is the load-bearing part, and it is the thing most
+     * likely to be wrong in exactly this context.** A queued job has no request
+     * to take a root URL from, so `route()` would fall back to APP_URL -- the
+     * *central* host, where campaign routes are deliberately unreachable, and
+     * where this link would therefore 404 for every supporter who clicked it.
+     * `CampaignHostTenancyBootstrapper` is what makes it right: it forces the
+     * root onto the campaign's own hostname when tenancy initializes, which is
+     * precisely the case its docblock was written for. That is asserted with
+     * two campaigns rather than assumed, because a URL generator that captured
+     * one campaign's host and served it to the next would send one campaign's
+     * supporters to another campaign's site -- the L-21 family, with somebody
+     * else's unsubscribe page at the end of it.
+     *
+     * Unsigned, deliberately: the token *is* the credential (D-16(a)), and a
+     * signature over the platform-wide APP_KEY would add a second one that
+     * separates campaigns only by the hostname inside it.
+     */
+    private function unsubscribeUrlFor(Supporter $supporter): string
+    {
+        return route('unsubscribe.show', ['token' => $supporter->unsubscribe_token]);
     }
 
     /**
