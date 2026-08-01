@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\BlastController;
 use App\Http\Controllers\SupporterController;
 use App\Http\Controllers\SupporterImportController;
+use App\Http\Controllers\UnsubscribeController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -90,6 +91,40 @@ Route::middleware('tenant')->group(function (): void {
         // writing. Authority is settled by BlastPolicy's `send` ability inside
         // the controller, like every route above it.
         Route::post('blasts/{blast}/send', [BlastController::class, 'send'])->name('blasts.send');
+    });
+
+    /*
+     * Leaving a campaign's list, which is the one thing here a supporter does
+     * for themselves.
+     *
+     * Deliberately OUTSIDE the ['auth', 'verified'] group above and inside the
+     * `tenant` group -- the only page-rendering route in this application that
+     * sits that way round. A supporter has no account and never will, so
+     * requiring one would make the opt-out reachable exactly by the people who
+     * do not need it. It stays inside `tenant` because the campaign is what
+     * identifies them: the same person on two campaigns' lists is two
+     * supporters in two databases, and the Host header is what says which.
+     *
+     * For the same reason this belongs here and never in routes/web.php. A
+     * central unsubscribe route would have to be told which campaign it meant,
+     * which is either a parameter anybody can change or a lookup across every
+     * campaign's database -- and the central surface stays at exactly two
+     * routes (deferral 1's tripwire).
+     *
+     * `whereUuid` is stated once, on the group, rather than twice. It is not
+     * decoration: `supporters.unsubscribe_token` is a `uuid` column, so a
+     * malformed token compared against it raises SQLSTATE 22P02 rather than
+     * matching no rows -- a 500 for anybody who mistypes a link, with the
+     * offending value inlined into the exception message. The constraint makes
+     * the router answer 404 before a query is ever built.
+     *
+     * Metered by a limiter keyed on the caller and never on the campaign
+     * (L-24), because this is the first endpoint in this application that
+     * anybody at all can reach.
+     */
+    Route::middleware('throttle:unsubscribe')->whereUuid('token')->group(function (): void {
+        Route::get('unsubscribe/{token}', [UnsubscribeController::class, 'show'])->name('unsubscribe.show');
+        Route::post('unsubscribe/{token}', [UnsubscribeController::class, 'store'])->name('unsubscribe.store');
     });
 
     require __DIR__.'/settings.php';
