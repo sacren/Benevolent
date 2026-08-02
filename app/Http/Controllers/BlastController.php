@@ -53,9 +53,35 @@ class BlastController extends Controller
      * rows and forced pagination at Phase 1 Step 6. A blast is written by hand,
      * one at a time, by somebody composing a message -- so the list is bounded
      * by human effort rather than by a file, and a campaign with hundreds of
-     * blasts has been running for years. **Trigger to revisit:** the first
-     * campaign whose blast list needs more than one screen, or the first thing
-     * that creates blasts other than an operator typing one.
+     * blasts has been running for years.
+     *
+     * **The trigger this docblock used to record was the wrong one, and Step 6
+     * measured that rather than reasoning about it.** It said "the first
+     * campaign whose blast list needs more than one screen", which counts the
+     * rows on the page. The cost is not in the rows on the page: it is in the
+     * counts below, and each of those reads one blast's whole recipient set. On
+     * a seeded campaign of 250,000 supporters this query costs 139 ms at one
+     * blast, 449 ms at three and 1,146 ms at ten -- ten rows, well inside one
+     * screen, at over a second. So the recorded trigger could never fire before
+     * the cost arrived, which is the failure mode of a trigger written from the
+     * shape of the page rather than from what the page runs.
+     *
+     * **And pagination is not the answer, which is the more useful half.**
+     * Bounding a page at fifty blasts still runs fifty of these subplans, each
+     * scanning that blast's own recipients -- roughly 117 ms apiece on the
+     * measurement above, so a full page would be slower than the whole
+     * unpaginated list is today. Paging fixes a page that carries too much;
+     * this page carries almost nothing and *computes* too much. The structural
+     * answer is to stop counting -- a reached and a refused column on `blasts`,
+     * maintained by the sending path, turning the page into one row read -- and
+     * it is deliberately not built, because no campaign on this platform is
+     * within two orders of magnitude of needing it (Blueprint §3).
+     *
+     * **Trigger to revisit, replacing the one above:** the first campaign whose
+     * `blast_recipients` table passes roughly a million rows, which is where
+     * this page crosses half a second; or the first thing that creates blasts
+     * other than an operator typing one, which is the half of the old trigger
+     * that was measuring the right quantity and is kept.
      *
      * The id tie-break is kept even so, and for the reason it is kept on the
      * supporter list rather than by imitation: `created_at` is a timestamp two
@@ -78,6 +104,45 @@ class BlastController extends Controller
                 // queued blast -- no worker runs anywhere, so a campaign that
                 // cannot tell "queued" from "sent" would believe it had
                 // contacted its supporters when it had not.
+                //
+                // **"Over the index" is true and was doing less work than it
+                // reads as**, which Step 6 measured rather than assumed. The
+                // unique index on (blast_id, supporter_id) locates a blast's
+                // rows, but neither `sent_at` nor `failure_reason` is in it, so
+                // each count is a Bitmap Heap Scan over every one of that
+                // blast's recipients: 23,491 heap blocks apiece, per blast, per
+                // page load, and the refused count throws away 248,750 of the
+                // 250,000 rows it just read to arrive at 1,250. Two
+                // partial indexes take the same query from 1,146 ms to 335 ms
+                // for 16.6 MB, and are still linear in the recipient count;
+                // they are not built for that reason, and because nothing is
+                // near the size that would justify them.
+                //
+                // **The column order of that unique index is load-bearing in
+                // two directions, so it is worth saying before somebody tidies
+                // it.** Built the other way round it would enforce exactly the
+                // same uniqueness, which is what makes the swap look free.
+                // Measured on the same seeded campaign, with the index rebuilt
+                // as (supporter_id, blast_id) and nothing else changed: this
+                // query stops using it at all and falls to a Seq Scan on
+                // `blast_recipients`, 1,288 ms to 3,716 ms. The erasure lookup
+                // moves the other way, from 11 index searches to 1 and from
+                // 0.108 ms to 0.065 ms, because it finds its rows by
+                // `supporter_id` and that column has no index of its own.
+                //
+                // Erasure is cheap either way and needs no help: at 2.5M
+                // recipient rows PostgreSQL reaches it through the shipped
+                // index as a *non-leading* column -- one index search per
+                // distinct blast -- and deletes a supporter in 2.2 ms. So the
+                // order is chosen for the counts, which are the half that
+                // cannot recover from losing it.
+                //
+                // **Re-measure this with the correlated query above, never with
+                // a standalone count**, which is the mistake made while
+                // establishing it: `select count(*) ... where blast_id = ?`
+                // against a table holding three blasts is a third of the rows,
+                // where the planner correctly prefers a sequential scan in
+                // *both* orders and reports the two as identical.
                 ->withCount([
                     'recipients as reached_count' => fn (Builder $query) => $query->whereNotNull('sent_at'),
                     'recipients as failed_count' => fn (Builder $query) => $query->whereNotNull('failure_reason'),
