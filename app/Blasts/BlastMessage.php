@@ -54,9 +54,10 @@ use Illuminate\Mail\Mailables\Envelope;
  * logo, per-product variation -- with its trigger unchanged.
  *
  * **Plain text, deliberately.** The body is a plain textarea with no template
- * language behind it (D-20 is Step 6's and expects to answer "no"), so text is
- * what the operator wrote and what they can predict the look of. It also has no
- * second rendering to disagree with the first.
+ * language behind it -- D-20 resolved at Step 6 that a blast does not greet
+ * anybody by name, so there is nothing for a template language to substitute --
+ * and text is therefore what the operator wrote and what they can predict the
+ * look of. It also has no second rendering to disagree with the first.
  */
 final class BlastMessage extends Mailable
 {
@@ -74,11 +75,25 @@ final class BlastMessage extends Mailable
      * **`$unsubscribeUrl` is a string rather than the Supporter it belongs to,
      * and that is a boundary rather than a convenience.** Handing this class
      * the supporter would be the shorter code and would make the message able
-     * to greet somebody by name -- which is D-20, Step 6's, and expected to
-     * resolve as no. Passing the finished link means the refusal is structural:
-     * there is no name in this object to print, so personalization cannot
-     * arrive here by accident and later be discovered as a feature nobody
-     * decided on.
+     * to greet somebody by name. **D-20 resolved at Step 6 that it does not**,
+     * so this signature is now that decision rather than a placeholder for it:
+     * the refusal is structural, because there is no name in this object to
+     * print, and personalization cannot arrive here by accident and later be
+     * discovered as a feature nobody decided on.
+     *
+     * **Nothing asserts that absence, deliberately (L-20).** A test that this
+     * class holds no Supporter would go red on the exact change we would make
+     * if D-20 were ever revisited, which is a tripwire rather than a guard --
+     * the same reason D-19's answer ships without one for `Bounced`. What
+     * carries the decision instead is this signature, which cannot be widened
+     * without somebody editing the line they would have to argue for.
+     *
+     * **The first cost of a later yes is undoing this**, and it is named here
+     * rather than left to read as a refactor: `SendBlast` would have to hand
+     * over the supporter, and the question the plan actually poses -- what a
+     * greeting prints for the rows that have no name at all, which Phase 1
+     * established are real -- would have to be answered before a single message
+     * went out.
      *
      * **This is nonetheless the first time two recipients get different bytes,
      * and that is worth naming rather than letting it be noticed later.** Until

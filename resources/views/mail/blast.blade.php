@@ -8,7 +8,11 @@
      Plain text: the body is a plain textarea with no template language behind
      it, so this is exactly what the operator typed, with no second rendering to
      disagree with the first. Nothing here substitutes a supporter's name into
-     anything -- personalization is D-20's and is Step 6's to answer.
+     anything, and after D-20 that is settled rather than pending: Step 6
+     resolved that a blast does not greet anybody by name, on the grounds that a
+     blast with no personalization is a complete product and a template-variable
+     system with one variable is speculative work. The Mailable feeding this
+     template holds no Supporter, so there is nothing here to substitute from.
 
      The unsubscribe line below is the one thing that differs between two
      recipients' copies (D-16). It is addressing rather than personalization:
