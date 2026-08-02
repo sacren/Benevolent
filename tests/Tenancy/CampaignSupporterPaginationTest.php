@@ -47,7 +47,7 @@ use Illuminate\Support\Facades\Auth;
  * catches the defect without naming the cause.
  *
  * *Capturing the path once per process* — `self::$path ??= url('/supporters')`,
- * the L-21 shape this project has met three times — is the one that matters.
+ * the L-21 shape this project has met five times — is the one that matters.
  * Measured: the **entire Campaign suite stays green at 163 tests**, because with
  * one campaign per file "the first" and "the only" are the same campaign, while
  * this file goes red with the second campaign's page carrying

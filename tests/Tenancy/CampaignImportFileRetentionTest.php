@@ -24,7 +24,7 @@ use Illuminate\Support\Facades\Storage;
  * success and is indistinguishable from a working one — which is exactly what
  * Phase 0 Step 11 measured happening to the framework's own `auth:clear-resets`
  * through a cached password broker (L-21). That defect is in the family this
- * project has now met four times, and it has never once been visible to a
+ * project has now met five times, and it has never once been visible to a
  * single-campaign probe.
  *
  * **Whether it refuses centrally rather than doing something.** Central has no

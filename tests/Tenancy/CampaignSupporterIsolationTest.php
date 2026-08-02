@@ -34,7 +34,7 @@ use Illuminate\Support\Facades\DB;
  * it. This is the only place in the suite where **two campaigns hold
  * supporters at once**, and with one campaign a leak is invisible by
  * construction (L-21) — the shape that catches a connection cached across
- * campaigns, which this project has met three times. And it reports the fault
+ * campaigns, which this project has met five times. And it reports the fault
  * *as a leak*, naming the campaign that read another's supporter, where the
  * others report a missing relation: the difference between debugging a
  * migration and seeing a disclosure.
