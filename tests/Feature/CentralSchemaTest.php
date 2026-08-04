@@ -126,3 +126,33 @@ test('the central database does not carry who a campaign has written to', functi
     // campaign-scoped, and if either is ever loosened this is what is left.
     expect(Schema::hasTable('blast_recipients'))->toBeFalse();
 });
+
+test('the central database does not carry a campaign\'s segments', function (): void {
+    // The same claim again, for the module whose mistake has its own flavour: a
+    // segment stores a *rule*, a rule looks like configuration rather than like
+    // data, and configuration sounds central. It is not. "Everyone in M15" names
+    // a different set of human beings in every campaign, so a central segments
+    // table would be one row read by campaigns that share nothing but a
+    // postcode -- and each of them would be able to see, and edit, the aim
+    // another campaign takes at its own supporters.
+    //
+    // Same suite, same reason (L-18): the campaign suite rebuilds the central
+    // schema only when it is missing, so this line there would hold whether or
+    // not it were true. This suite migrates central per test.
+    //
+    // **This is the second catch rather than the first, and it is said here
+    // rather than left for a reader to assume.** `segments` carries a foreign
+    // key to `users`, which exists only inside a campaign, so misfiling the
+    // migration as it stands kills it centrally with `relation "users" does not
+    // exist` and errors every test in this file before an assertion runs.
+    // Dropping that key and misfiling then turns this line, and only this line,
+    // red -- measured both ways rather than inherited from the `blasts` line
+    // above, which is in the same position for the same reason.
+    //
+    // Kept for the reason that line is: the foreign key is protection this table
+    // happens to have rather than a property of being campaign-scoped, and
+    // `supporters` and `audit_entries` have no such key, which is why their
+    // lines are the only catch. Should `operator_id` ever lose its constraint,
+    // the misfiling goes silent and this is what is left.
+    expect(Schema::hasTable('segments'))->toBeFalse();
+});
