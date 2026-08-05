@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Segments\SegmentPolicy;
 use Database\Factories\SegmentFactory;
+use Illuminate\Database\Eloquent\Attributes\UsePolicy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
@@ -12,13 +14,13 @@ use Illuminate\Support\Carbon;
 /**
  * A narrowing of a campaign's supporter list that the campaign has named.
  *
- * Sits in app/Models/ while any vocabulary this module grows will follow the
- * module, the split this application already makes four times over. There is no
- * app/Segments/ yet and that is deliberate rather than pending: both earlier
- * modules created their directory at this step to hold a *status enum*, and a
- * segment has no status because it is not a thing that runs. The directory
- * arrives when something needs filing in it -- the policy, at the step that
- * writes one.
+ * Sits in app/Models/ while the vocabulary this module grows follows the
+ * module, the split this application already makes four times over.
+ * `app/Segments/` did not exist when this model was written, deliberately
+ * rather than pending: both earlier modules created their directory at their
+ * own first step to hold a *status enum*, and a segment has no status because
+ * it is not a thing that runs. It arrived at the next step with the first thing
+ * that needed filing in it, which is the policy below.
  *
  * **This model deliberately names no connection.** That is the single most
  * consequential line here, and the plausible mistake has a flavour of its own:
@@ -68,10 +70,10 @@ use Illuminate\Support\Carbon;
  * of what a postcode prefix means, which is why D-24 promotes it to a variation
  * point rather than leaving it filed as a candidate.
  *
- * **No `#[UsePolicy]` and no `#[Fillable]` here yet**, for the reason `Blast`
- * carried neither at its own first step: the first belongs with the policy, the
- * second with the controller whose form would mass-assign, and adding either
- * now would be wiring to a call site that does not exist.
+ * **`#[UsePolicy]` arrives here with the policy, and `#[Fillable]` still does
+ * not**, which is the split `Blast` made for the same reason: the first belongs
+ * with the policy, the second with the controller whose form would mass-assign,
+ * and that controller does not exist yet.
  *
  * @property int $id
  * @property int|null $operator_id
@@ -80,6 +82,14 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
+// Filed with the module rather than at the path Gate::getPolicyFor() would
+// guess, and this attribute is what makes that filing testable (D-5). Measured
+// on this model rather than inherited: with nothing anywhere the gate returns
+// null for a Segment, and a class declared at App\Policies\SegmentPolicy is
+// handed back *with no attribute present at all* -- so a policy filed by
+// convention would make this line decorative and deletable with every test
+// still green. Here, deleting it turns the allow tests red.
+#[UsePolicy(SegmentPolicy::class)]
 class Segment extends Model
 {
     /** @use HasFactory<SegmentFactory> */
