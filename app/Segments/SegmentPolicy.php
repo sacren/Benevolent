@@ -84,6 +84,8 @@ use App\Models\User;
  * to `return true`, which is byte-equivalent in behaviour today and diverges
  * only once a grant moves -- measured, and guarded by nothing: neither PHPStan
  * nor Pint objects to the import left unused behind it.
+ * tests/Unit/SegmentPolicyWiringTest.php records that measurement, the guard
+ * drafted for it and rejected, and the condition that closes it.
  */
 class SegmentPolicy
 {

@@ -73,6 +73,13 @@ use Illuminate\Support\Facades\Gate;
  * to the import left unused behind it. What closes it is the same condition
  * that gives segments their own permissions -- the first segment ability that
  * discriminates makes the rewrite visible to an ordinary allow/deny pair.
+ * tests/Unit/SegmentPolicyWiringTest.php carries that measurement and the guard
+ * that was drafted for it and rejected.
+ *
+ * Two further properties of the policy are asserted in
+ * tests/Unit/SegmentPolicyWiringTest.php rather than here, because neither
+ * changes any answer this file checks: that the policy reads permissions and
+ * never the role, and that nothing occupies the path the gate would guess.
  */
 
 test('a segment is governed by a policy at all', function (): void {
