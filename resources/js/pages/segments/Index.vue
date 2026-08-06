@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { Head } from '@inertiajs/vue3';
+import { Form, Head, Link } from '@inertiajs/vue3';
+import SegmentController from '@/actions/App/Http/Controllers/SegmentController';
 import Heading from '@/components/Heading.vue';
-import { index } from '@/routes/segments';
+import { Button } from '@/components/ui/button';
+import { create, edit, index } from '@/routes/segments';
 import type { Segment } from '@/types';
 
 defineProps<{
@@ -58,6 +60,10 @@ defineOptions({
                         : `${segments.length} ways this campaign has named to narrow its list`
                 "
             />
+
+            <Button as-child>
+                <Link :href="create()">Name a segment</Link>
+            </Button>
         </div>
 
         <div
@@ -86,6 +92,9 @@ defineOptions({
                         <th scope="col" class="px-4 py-3 font-medium">
                             Postcodes
                         </th>
+                        <th scope="col" class="px-4 py-3">
+                            <span class="sr-only">Actions</span>
+                        </th>
                     </tr>
                 </thead>
                 <tbody>
@@ -99,6 +108,46 @@ defineOptions({
                             <span :data-test="`segment-rule-${segment.id}`">{{
                                 ruleSummary(segment)
                             }}</span>
+                        </td>
+                        <td class="px-4 py-3 text-right">
+                            <div
+                                class="flex items-center justify-end gap-3 text-sm"
+                            >
+                                <Link
+                                    :href="edit(segment.id)"
+                                    class="underline underline-offset-4"
+                                    >Edit</Link
+                                >
+
+                                <!--
+                                    Shown to every operator, unlike the Remove
+                                    control on the supporter list. No segment
+                                    ability discriminates between the two roles
+                                    (D-25): removing a segment destroys no
+                                    supporter, and anybody who may edit one can
+                                    already strip its postcodes down to a rule
+                                    matching nobody. A `usePermissions` branch
+                                    here would be posture rather than a guard.
+                                -->
+                                <Form
+                                    v-bind="
+                                        SegmentController.destroy.form(
+                                            segment.id,
+                                        )
+                                    "
+                                    v-slot="{ processing }"
+                                    :options="{ preserveScroll: true }"
+                                >
+                                    <button
+                                        type="submit"
+                                        :disabled="processing"
+                                        class="text-destructive underline underline-offset-4 disabled:opacity-50"
+                                        :data-test="`remove-segment-${segment.id}`"
+                                    >
+                                        Remove
+                                    </button>
+                                </Form>
+                            </div>
                         </td>
                     </tr>
                 </tbody>

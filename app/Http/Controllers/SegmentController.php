@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\Segments\NameSegmentRequest;
 use App\Models\Segment;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -28,9 +30,9 @@ use Inertia\Response;
  * from a considered refusal, measured at Phase 1 Step 2. This controller is the
  * first call site that policy has ever had, so it is the first place that could
  * cost anybody debugging time. It asks for none but those four, and a surface
- * that needs one it does not answer has to add the method *and* its allow test
- * in the same edit: `view` in particular is absent because this module ships no
- * page for a single segment.
+ * that needs a fifth has to add the method *and* its allow test in the same
+ * edit: `view` in particular is absent because this module ships no page for a
+ * single segment.
  */
 class SegmentController extends Controller
 {
@@ -91,5 +93,108 @@ class SegmentController extends Controller
         return Inertia::render('segments/Index', [
             'segments' => Segment::query()->orderBy('name')->get(),
         ]);
+    }
+
+    /**
+     * Show the form for naming a new narrowing.
+     */
+    public function create(): Response
+    {
+        $this->authorize('create', Segment::class);
+
+        return Inertia::render('segments/Create');
+    }
+
+    /**
+     * Name a new narrowing of the campaign's list.
+     */
+    public function store(NameSegmentRequest $request): RedirectResponse
+    {
+        $this->authorize('create', Segment::class);
+
+        $segment = new Segment($request->named());
+
+        // Authorship is stamped here rather than mass-assigned, and
+        // `operator_id` is deliberately absent from the model's fillable list:
+        // a form able to set it could put somebody else's name on a segment
+        // other people's work will be aimed by. BlastController::store() is the
+        // precedent, and the shape matters -- handing this key to create()
+        // alongside the fillable ones drops it *silently*, because Laravel
+        // guards every attribute by default and mass assignment does not
+        // complain about the ones it refuses.
+        //
+        // This is the segment's own record of who named it, nulled when that
+        // operator leaves the campaign. It is not the audit trail, which is
+        // D-27's and is untouched here.
+        $segment->operator_id = $request->user()?->getKey();
+
+        $segment->save();
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Segment saved.')]);
+
+        return to_route('segments.index');
+    }
+
+    /**
+     * Show the form for re-aiming a segment already named.
+     *
+     * Governed by `update` rather than by a `view` ability, which is
+     * SupporterController::edit()'s decision for the same reason: this module
+     * ships no read-only page for one segment, so the only reason to open one
+     * is to change it, and adding `view` to the policy would create an ability
+     * nothing checks. It matters because SegmentPolicy answers exactly the
+     * abilities it has methods for and denies every other one silently -- so the
+     * day a read-only page arrives, `view` and its allow test have to be added
+     * in the same edit or the 403 will look deliberate.
+     */
+    public function edit(Segment $segment): Response
+    {
+        $this->authorize('update', $segment);
+
+        return Inertia::render('segments/Edit', [
+            'segment' => $segment,
+        ]);
+    }
+
+    /**
+     * Re-aim a segment already named.
+     *
+     * **What this does to a blast that used the segment is D-27's, and today
+     * the question has no subject:** nothing in this application points at a
+     * segment, so re-aiming one changes what the supporter list shows and
+     * nothing else. Step 4 is where a pointer could arrive, and Step 5 owns what
+     * an edit then means.
+     */
+    public function update(NameSegmentRequest $request, Segment $segment): RedirectResponse
+    {
+        $this->authorize('update', $segment);
+
+        $segment->update($request->named());
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Segment updated.')]);
+
+        return to_route('segments.index');
+    }
+
+    /**
+     * Remove a segment from the campaign.
+     *
+     * **Not withheld from Staff, unlike removing a supporter, and that is D-25
+     * rather than an oversight.** `DeleteSupporters` protects a person's
+     * existence against a table with no soft delete; a segment holds a name and
+     * a handful of postcodes that retype in seconds, destroys no supporter when
+     * it goes, and is already emptiable by anybody holding `EditSupporters` --
+     * who can strip its prefixes down to a rule matching nobody. So there is no
+     * control on this module's pages that has to be hidden from anyone.
+     */
+    public function destroy(Segment $segment): RedirectResponse
+    {
+        $this->authorize('delete', $segment);
+
+        $segment->delete();
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Segment removed.')]);
+
+        return to_route('segments.index');
     }
 }

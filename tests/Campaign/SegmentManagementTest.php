@@ -1,0 +1,207 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Authorization\Permission;
+use App\Models\Segment;
+use App\Models\User;
+use Illuminate\Support\Facades\Gate;
+use Inertia\Testing\AssertableInertia as Assert;
+
+/*
+ * Naming a narrowing, re-aiming one, and removing one — over HTTP, on the
+ * campaign's own hostname, signed in.
+ *
+ * tests/Campaign/SegmentListTest.php drives the read-only page. This file
+ * drives the four actions that change something, at the verb and path
+ * route:list reports for each, which is what makes exit criterion 1's "driven"
+ * different from "inspected".
+ */
+
+test('an operator names a segment and it appears on the list', function (): void {
+    $operator = User::factory()->create();
+
+    $this->actingAs($operator)
+        ->post($this->campaignUrl('/segments'), [
+            'name' => 'Harbour ward',
+            'postcode_prefixes' => 'M15, eh8',
+        ])
+        ->assertRedirect(route('segments.index'));
+
+    $segment = Segment::query()->sole();
+
+    expect($segment->name)->toBe('Harbour ward')
+        // Stored as typed, unfolded, because the fold happens at match time
+        // against a column that is itself unfolded. Storing them folded would
+        // show an operator back a prefix they did not write.
+        ->and($segment->postcode_prefixes)->toBe(['M15', 'eh8'])
+        // Authorship comes from the signed-in operator rather than from the
+        // form, which is what keeps it out of #[Fillable].
+        ->and($segment->operator_id)->toBe($operator->getKey());
+});
+
+test('a form cannot claim that somebody else named a segment', function (): void {
+    $operator = User::factory()->create();
+    $someoneElse = User::factory()->create();
+
+    $this->actingAs($operator)
+        ->post($this->campaignUrl('/segments'), [
+            'name' => 'Harbour ward',
+            'postcode_prefixes' => 'M15',
+            'operator_id' => $someoneElse->getKey(),
+        ])
+        ->assertRedirect(route('segments.index'));
+
+    // **This is green for a reason other than the one it looks like, and the
+    // measurement is why it is written down rather than assumed.** Widening the
+    // model's #[Fillable] to include `operator_id` leaves this assertion green,
+    // at 0 red of 453 -- because NameSegmentRequest::named() is itself an
+    // allowlist returning exactly two keys, so the forged value never reaches
+    // the model at all. Phase 2 Step 3 measured the identical thing about
+    // ComposeBlastRequest and this reproduces it.
+    //
+    // So the behavioural half below says the surface is safe today, and the
+    // configuration half beside it pins the thing that would be the last
+    // defence if `named()` ever stopped being an allowlist -- a `create($request
+    // ->all())`, or a third key added to it. Laravel guards every attribute by
+    // default, so the fillable list is what *permits* the two that are there.
+    expect(Segment::query()->sole()->operator_id)->toBe($operator->getKey())
+        ->and((new Segment)->getFillable())->toBe(['name', 'postcode_prefixes']);
+});
+
+test('a segment must name at least one postcode, and separators are not postcodes', function (): void {
+    $this->actingAs(User::factory()->create())
+        ->post($this->campaignUrl('/segments'), [
+            'name' => 'Aimed at nobody',
+            'postcode_prefixes' => ',,,',
+        ])
+        ->assertInvalid(['postcode_prefixes']);
+
+    // `required` catches an empty field and cannot catch this one: `,,,` is a
+    // perfectly good non-empty string that parses to no prefixes at all. The
+    // column would accept the result as `[]`, the segment would exist and look
+    // like a rule, and it would match nobody.
+    //
+    // Step 1 put this check on the form deliberately rather than in a check
+    // constraint, on the ground that an empty rule is *safe* under the
+    // fail-closed reading. This is that decision being honoured rather than
+    // rediscovered.
+    expect(Segment::query()->count())->toBe(0);
+});
+
+test('two segments cannot share a name, and the refusal is the form\'s rather than the database\'s', function (): void {
+    Segment::factory()->create(['name' => 'Harbour ward']);
+
+    $this->actingAs(User::factory()->create())
+        ->post($this->campaignUrl('/segments'), [
+            'name' => 'Harbour ward',
+            'postcode_prefixes' => 'M15',
+        ])
+        ->assertInvalid(['name']);
+
+    // The distinction is the whole point, and Phase 1 paid for learning it. A
+    // uniqueness rule that fails to catch the duplicate is not a missing
+    // niceness: the insert then reaches the index and PostgreSQL answers 23505,
+    // which is a 500 in an operator's face. There it happened because
+    // `Rule::unique` compares the raw column while the index is on
+    // `lower(email)`. Here Step 1 chose a plain unique index, so the framework's
+    // own rule compares exactly what the index compares.
+    expect(Segment::query()->count())->toBe(1);
+});
+
+test('a segment name differing only in case is a different name, in the form and in the database', function (): void {
+    Segment::factory()->create(['name' => 'Chorlton']);
+
+    $this->actingAs(User::factory()->create())
+        ->post($this->campaignUrl('/segments'), [
+            'name' => 'chorlton',
+            'postcode_prefixes' => 'M21',
+        ])
+        ->assertValid();
+
+    // Pinned in both directions, so a later step that decides segment names
+    // should fold reddens a line saying where the decision was made. Step 1
+    // chose the plain index over `lower(name)` because a duplicate segment name
+    // is *visible* -- both rows appear in the list somebody is reading at the
+    // moment they choose -- where a duplicate address is silent.
+    expect(Segment::query()->pluck('name')->sort()->values()->all())
+        ->toBe(['Chorlton', 'chorlton']);
+});
+
+test('an operator re-aims a segment, and the form is shown what is stored', function (): void {
+    $segment = Segment::factory()->narrowedToPostcodes(['M15', 'M16'])->create(['name' => 'Old name']);
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl("/segments/{$segment->getKey()}/edit"))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('segments/Edit')
+            ->where('segment.name', 'Old name')
+            ->where('segment.postcode_prefixes', ['M15', 'M16'])
+        );
+
+    $this->actingAs(User::factory()->create())
+        ->patch($this->campaignUrl("/segments/{$segment->getKey()}"), [
+            'name' => 'New name',
+            'postcode_prefixes' => 'SW1A',
+        ])
+        ->assertRedirect(route('segments.index'));
+
+    expect($segment->refresh()->name)->toBe('New name')
+        ->and($segment->postcode_prefixes)->toBe(['SW1A']);
+});
+
+test('re-aiming a segment without renaming it is not refused by its own name', function (): void {
+    $segment = Segment::factory()->create(['name' => 'Harbour ward']);
+
+    // Without ignore(), the uniqueness rule would refuse this because the name
+    // already belongs to a segment -- namely this one. The supporter module hit
+    // exactly this and answered it with a second request class; one class
+    // answers it here because nothing else about the two forms differs.
+    $this->actingAs(User::factory()->create())
+        ->patch($this->campaignUrl("/segments/{$segment->getKey()}"), [
+            'name' => 'Harbour ward',
+            'postcode_prefixes' => 'M15, M16',
+        ])
+        ->assertValid();
+
+    expect($segment->refresh()->postcode_prefixes)->toBe(['M15', 'M16']);
+});
+
+test('an operator removes a segment', function (): void {
+    $segment = Segment::factory()->create();
+
+    $this->actingAs(User::factory()->create())
+        ->delete($this->campaignUrl("/segments/{$segment->getKey()}"))
+        ->assertRedirect(route('segments.index'));
+
+    expect(Segment::query()->count())->toBe(0);
+});
+
+test('every action refuses an operator who has lost the grant', function (string $verb, string $path): void {
+    // The deny half for all four, and none of them can fail alone: a route that
+    // 403'd at everybody would satisfy each exactly as a working guard does.
+    // What makes them evidence is every test above, where the identical request
+    // succeeds.
+    //
+    // EditSupporters rather than a permission of segments' own, which is D-25 as
+    // behaviour -- including `delete`, which deliberately does *not* answer from
+    // DeleteSupporters: removing a segment destroys no supporter, and anybody
+    // who may edit one can already empty it.
+    Gate::define(Permission::EditSupporters->value, fn (): bool => false);
+
+    $segment = Segment::factory()->create();
+
+    $this->actingAs(User::factory()->create())
+        ->call($verb, $this->campaignUrl(str_replace('{id}', (string) $segment->getKey(), $path)), [
+            'name' => 'Renamed',
+            'postcode_prefixes' => 'M15',
+        ])
+        ->assertForbidden();
+})->with([
+    'name a segment' => ['GET', '/segments/create'],
+    'save a new segment' => ['POST', '/segments'],
+    'open one for editing' => ['GET', '/segments/{id}/edit'],
+    're-aim one' => ['PATCH', '/segments/{id}'],
+    'remove one' => ['DELETE', '/segments/{id}'],
+]);

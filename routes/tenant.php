@@ -97,7 +97,16 @@ Route::middleware('tenant')->group(function (): void {
         // Authority is settled by SegmentPolicy inside the controller rather
         // than by a `can:` middleware here, for the reason every route above
         // carries none.
+        //
+        // `segments/create` is a literal path and cannot be mistaken for a
+        // segment: there is no `GET segments/{segment}` route to collide with,
+        // only `segments/{segment}/edit`.
         Route::get('segments', [SegmentController::class, 'index'])->name('segments.index');
+        Route::get('segments/create', [SegmentController::class, 'create'])->name('segments.create');
+        Route::post('segments', [SegmentController::class, 'store'])->name('segments.store');
+        Route::get('segments/{segment}/edit', [SegmentController::class, 'edit'])->name('segments.edit');
+        Route::patch('segments/{segment}', [SegmentController::class, 'update'])->name('segments.update');
+        Route::delete('segments/{segment}', [SegmentController::class, 'destroy'])->name('segments.destroy');
     });
 
     /*

@@ -52,6 +52,12 @@ test('a central host asking for a campaign route is signposted, not refused', fu
     'supporter list' => '/supporters',
     'blast list' => '/blasts',
     'segment list' => '/segments',
+    'name a segment' => '/segments/create',
+    // A segment route with a model binding, deliberately, for the reason the
+    // blast and import ones above carry: the middleware turns the request away
+    // before the binding is ever resolved, so this would 404 rather than
+    // redirect if the guard moved out from in front of it.
+    'edit a segment' => '/segments/1/edit',
     'write a blast' => '/blasts/create',
     // A blast route with a model binding, deliberately, for the reason the
     // import one below carries: the middleware turns the request away before

@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Segments\SegmentPolicy;
 use Database\Factories\SegmentFactory;
+use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UsePolicy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -70,10 +71,12 @@ use Illuminate\Support\Carbon;
  * of what a postcode prefix means, which is why D-24 promotes it to a variation
  * point rather than leaving it filed as a candidate.
  *
- * **`#[UsePolicy]` arrives here with the policy, and `#[Fillable]` still does
- * not**, which is the split `Blast` made for the same reason: the first belongs
- * with the policy, the second with the controller whose form would mass-assign,
- * and that controller does not exist yet.
+ * **`#[UsePolicy]` arrived with the policy and `#[Fillable]` arrives with the
+ * controller whose form mass-assigns**, which is the split `Blast` made for the
+ * same reason. What the list permits is exactly what a person types: the name
+ * and the rule. `operator_id` is stamped from the signed-in operator by
+ * SegmentController::store() and is deliberately absent, so a form cannot claim
+ * that somebody else named a segment.
  *
  * @property int $id
  * @property int|null $operator_id
@@ -90,6 +93,7 @@ use Illuminate\Support\Carbon;
 // convention would make this line decorative and deletable with every test
 // still green. Here, deleting it turns the allow tests red.
 #[UsePolicy(SegmentPolicy::class)]
+#[Fillable(['name', 'postcode_prefixes'])]
 class Segment extends Model
 {
     /** @use HasFactory<SegmentFactory> */
