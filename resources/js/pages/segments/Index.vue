@@ -72,8 +72,8 @@ defineOptions({
         >
             <p class="text-sm text-muted-foreground">
                 No segments yet. A segment is a group of postcodes this campaign
-                has named, so it can be aimed at again without typing the
-                postcodes out each time.
+                has named, so the supporter list can be narrowed to it without
+                typing the postcodes again.
             </p>
         </div>
 

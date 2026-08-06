@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace App\Supporters;
 
+use App\Models\Segment;
 use App\Models\Supporter;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 
 /**
- * Writes the campaign's whole list out as a CSV.
+ * Writes the campaign's list out as a CSV — the whole of it, or the part a
+ * segment names.
  *
  * **Separate from SupporterFile rather than folded into it, and the two are
  * less alike than the shared word "CSV" suggests.** That class reads a *named
@@ -84,13 +87,30 @@ final class SupporterExport
      * in, so the export costs one stable pass with no risk of a row being seen
      * twice or missed as the list changes underneath it.
      *
+     * **Narrowed to a segment when one is given, and the file then holds exactly
+     * what the page held.** An operator who has narrowed the list to 300 people
+     * and asks for it as a file has asked for those 300; handing back 12,000
+     * would be a surprise delivered as a download, discovered after the fact
+     * rather than on screen. The narrowing is the same PostcodeNarrowing the
+     * page uses, so the two cannot come to disagree about who is in a segment.
+     *
+     * No subscription filter here either, for the list's reason rather than the
+     * blast's: this file is a campaign's own list coming back out, and it has
+     * always carried the unsubscribed with a column saying so.
+     *
      * @param  resource  $stream
      */
-    public static function writeTo($stream): void
+    public static function writeTo($stream, ?Segment $segment = null): void
     {
         fputcsv($stream, self::HEADER);
 
-        Supporter::query()
+        $supporters = Supporter::query();
+
+        if ($segment instanceof Segment) {
+            $supporters = PostcodeNarrowing::apply($supporters, $segment->postcode_prefixes);
+        }
+
+        $supporters
             ->orderBy('id')
             ->chunkById(self::CHUNK, function (Collection $supporters) use ($stream): void {
                 /** @var Collection<int, Supporter> $supporters */
@@ -113,14 +133,36 @@ final class SupporterExport
      * Falls back to a bare name outside campaign context. Nothing reaches this
      * from there — the route is a campaign route — but a filename is not the
      * place to raise about it.
+     *
+     * **A narrowed file says which narrowing, and that is the same argument one
+     * level in.** The campaign slug is here because a downloads folder is where
+     * two campaigns' exports meet; once an export can be narrowed, a downloads
+     * folder is also where one campaign's whole list and one of its segments
+     * meet, on the same day, under otherwise identical names. A file that cannot
+     * say what it holds is the defect this name already existed to prevent.
+     *
+     * The segment's name is slugged rather than used raw: it is a string an
+     * operator typed, so it can hold a slash, a quote or a newline, none of
+     * which belong in a filename. A name that slugs away to nothing -- one
+     * written entirely in punctuation -- falls back to the segment's id, which
+     * is never empty, rather than producing a doubled hyphen where a word
+     * should be.
      */
-    public static function filename(): string
+    public static function filename(?Segment $segment = null): string
     {
         $slug = tenant('slug');
 
         $prefix = is_string($slug) && $slug !== '' ? $slug.'-' : '';
 
-        return $prefix.'supporters-'.now()->toDateString().'.csv';
+        $narrowing = '';
+
+        if ($segment instanceof Segment) {
+            $named = Str::slug($segment->name);
+
+            $narrowing = ($named !== '' ? $named : (string) $segment->getKey()).'-';
+        }
+
+        return $prefix.'supporters-'.$narrowing.now()->toDateString().'.csv';
     }
 
     /**

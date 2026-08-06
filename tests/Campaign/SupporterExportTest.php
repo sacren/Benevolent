@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Authorization\Permission;
+use App\Models\Segment;
 use App\Models\Supporter;
 use App\Models\User;
 use App\Supporters\SubscriptionStatus;
@@ -178,4 +179,69 @@ test('the export refuses an operator whose permission is withdrawn', function ()
     $this->actingAs(User::factory()->owner()->create())
         ->get($this->campaignUrl('/supporters/export'))
         ->assertForbidden();
+});
+
+test('a narrowed export holds what the narrowed page held, and says so in its name', function (): void {
+    // **The export follows the narrowing**, decided at Step 3 rather than
+    // inherited: an operator who exports after looking at 300 rows and receives
+    // 12,000 has been surprised by a file rather than served by one. The other
+    // answer -- export everything and say so on the page -- was available and
+    // was not taken, because only this one keeps the file and the screen
+    // answering the same question.
+    Supporter::factory()->create(['email' => 'inside@example.test', 'postcode' => 'M15 6BH']);
+    Supporter::factory()->create(['email' => 'also-inside@example.test', 'postcode' => 'm156bh']);
+    Supporter::factory()->create(['email' => 'outside@example.test', 'postcode' => 'EH8 9YL']);
+
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create(['name' => 'Hulme & Moss Side']);
+
+    $response = $this->actingAs(User::factory()->owner()->create())
+        ->get($this->campaignUrl('/supporters/export?segment='.$segment->getKey()))
+        ->assertOk();
+
+    $csv = $response->streamedContent();
+
+    expect($csv)->toContain('inside@example.test')
+        ->and($csv)->toContain('also-inside@example.test')
+        ->and($csv)->not->toContain('outside@example.test');
+
+    // **The filename carries the segment, and that is the same argument the
+    // campaign slug already makes one level in.** The slug is there because a
+    // downloads folder is where two campaigns' exports meet; once an export can
+    // be narrowed, it is also where one campaign's whole list and one of its
+    // segments meet, on the same day, under otherwise identical names.
+    //
+    // Slugged rather than raw, because the name is a string an operator typed
+    // and can hold a slash or a quote.
+    expect($response->headers->get('content-disposition'))
+        ->toContain('supporters-hulme-moss-side-');
+});
+
+test('an export naming no segment is still the whole list', function (): void {
+    Supporter::factory()->create(['email' => 'inside@example.test', 'postcode' => 'M15 6BH']);
+    Supporter::factory()->create(['email' => 'outside@example.test', 'postcode' => 'EH8 9YL']);
+
+    Segment::factory()->narrowedToPostcodes(['M15'])->create();
+
+    $response = $this->actingAs(User::factory()->owner()->create())
+        ->get($this->campaignUrl('/supporters/export'))
+        ->assertOk();
+
+    expect($response->streamedContent())
+        ->toContain('inside@example.test')
+        ->toContain('outside@example.test')
+        ->and($response->headers->get('content-disposition'))
+        // The unnarrowed name is unchanged, so a campaign's existing exports do
+        // not silently acquire a new shape.
+        ->toContain('supporters-'.now()->toDateString().'.csv');
+});
+
+test('an export naming a segment that does not exist is refused rather than answered with everybody', function (): void {
+    // The same widening the list refuses, on the surface where the result is a
+    // file somebody keeps. Owner-only, so this is asserted as an Owner: a Staff
+    // operator is refused earlier and for a different reason.
+    Supporter::factory()->count(3)->create();
+
+    $this->actingAs(User::factory()->owner()->create())
+        ->get($this->campaignUrl('/supporters/export?segment=999999'))
+        ->assertNotFound();
 });

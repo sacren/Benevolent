@@ -6,10 +6,13 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\Supporters\StoreSupporterRequest;
 use App\Http\Requests\Supporters\UpdateSupporterRequest;
+use App\Models\Segment;
 use App\Models\Supporter;
+use App\Supporters\PostcodeNarrowing;
 use App\Supporters\SupporterExport;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 use RuntimeException;
@@ -83,18 +86,95 @@ class SupporterController extends Controller
      * break under size, and it breaks on memory rather than on time — which is
      * why Step 5 could record that a list breaking the export breaks the page
      * first, and why the export, whose memory is flat, is left streaming whole.
+     *
+     * **Narrowed by a segment when the request names one, and by nothing else.**
+     * This is the first request input this action has ever read that changes
+     * which rows come back — until now it read only `page`, which is why the
+     * plan could describe it as reading no request input at all. The narrowing
+     * is a stored segment rather than a postcode typed here: a segment is
+     * already named, already validated and already the product's one definition
+     * of what a prefix means, so the list gets the rule the blast module gets
+     * rather than a second one typed into a box.
+     *
+     * **`withQueryString()` was already here and is what makes paging correct.**
+     * It re-appends the request's query to every page link, so `?segment=` rides
+     * from page one to page two without being wired — and a filter that silently
+     * dropped on page two would show an operator a different list from the one
+     * they asked for, which is a defect visible only on the second page. It was
+     * here before this step; what changed is that it now carries something.
+     *
+     * **Subscription status is deliberately not filtered.** The narrowed list
+     * shows everyone the segment names, including people who unsubscribed,
+     * because an operator correcting a record has to be able to find them. That
+     * is the opposite guarantee to the one a blast makes from the same rule, and
+     * it is why App\Supporters\PostcodeNarrowing carries no status condition of
+     * its own (D-24).
+     *
+     * The campaign's segments are handed to the page as well, because the
+     * control that aims the list has to list them. They are read through
+     * SegmentPolicy rather than assumed readable by anybody who reached this
+     * action — the two abilities agree today, both answering from
+     * ViewSupporters, and asking is what keeps them from drifting apart in
+     * silence.
      */
-    public function index(): Response
+    public function index(Request $request): Response
     {
         $this->authorize('viewAny', Supporter::class);
+        $this->authorize('viewAny', Segment::class);
+
+        $segment = $this->narrowingSegment($request);
+
+        $supporters = Supporter::query()
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
+
+        if ($segment instanceof Segment) {
+            $supporters = PostcodeNarrowing::apply($supporters, $segment->postcode_prefixes);
+        }
 
         return Inertia::render('supporters/Index', [
-            'supporters' => Supporter::query()
-                ->orderByDesc('created_at')
-                ->orderByDesc('id')
-                ->paginate(self::PER_PAGE)
-                ->withQueryString(),
+            'supporters' => $supporters->paginate(self::PER_PAGE)->withQueryString(),
+            'segments' => Segment::query()->orderBy('name')->get(),
+            'narrowedTo' => $segment?->getKey(),
         ]);
+    }
+
+    /**
+     * The segment this request asks the list to be narrowed to, if any.
+     *
+     * **Every way of failing to identify a segment answers 404, and never "no
+     * narrowing", because the two are one predicate apart and only one of them
+     * is safe.** A request naming a segment that does not exist is an operator
+     * following a stale link or mistyping a URL; handing them the whole list
+     * under a heading that says it is narrowed is the same widening the `%`
+     * metacharacter would have produced, arriving through the router instead of
+     * through SQL. The direction of harm here is milder than a blast's — a
+     * widened list is looked at, a widened send is received — but it is the same
+     * rule, and relaxing it for the milder case is how it stops being one.
+     *
+     * **A malformed id is refused before it reaches a query, not after.**
+     * `segments.id` is a bigint, so comparing it against `abc` raises SQLSTATE
+     * 22P02 rather than matching no rows: a 500 for anybody who mistypes a link,
+     * with the offending value inlined into the exception message. That is the
+     * trap `whereUuid` closes on the unsubscribe routes, and the answer is the
+     * same — refuse before a statement is built.
+     */
+    private function narrowingSegment(Request $request): ?Segment
+    {
+        $named = $request->query('segment');
+
+        if ($named === null || $named === '') {
+            return null;
+        }
+
+        // query() answers with a string or an array -- never an int -- so an
+        // array (`?segment[]=1`) falls straight through to the refusal below
+        // rather than reaching filter_var, which would answer null for it.
+        $id = is_string($named) ? filter_var($named, FILTER_VALIDATE_INT) : false;
+
+        abort_if($id === false, 404);
+
+        return Segment::query()->findOrFail($id);
     }
 
     /**
@@ -181,13 +261,30 @@ class SupporterController extends Controller
      * the same list the index action already renders whole, so a size that
      * breaks this breaks the page first; Step 6 owns both, and they should move
      * together.
+     *
+     * **The file follows the narrowing, and the control on the page says so.**
+     * An operator who has narrowed the list to 300 people and then exports has
+     * asked for those 300; a file of 12,000 would be a surprise they discover
+     * after opening it rather than a list they were shown. The alternative was
+     * to export the whole list regardless and say *that* on the page, which is
+     * defensible and was not chosen: of the two, only this one keeps the file
+     * and the screen answering the same question.
+     *
+     * `export` is Owner-only where the list is not, so the two surfaces do not
+     * have the same audience -- a Staff operator narrows the list and is offered
+     * no export at all. That is unchanged by this and is why the segment
+     * reaches this action the same way it reaches the page, through the query
+     * string, rather than through anything remembered between requests.
      */
-    public function export(): StreamedResponse
+    public function export(Request $request): StreamedResponse
     {
         $this->authorize('export', Supporter::class);
+        $this->authorize('viewAny', Segment::class);
+
+        $segment = $this->narrowingSegment($request);
 
         return response()->streamDownload(
-            function (): void {
+            function () use ($segment): void {
                 $stream = fopen('php://output', 'w');
 
                 if ($stream === false) {
@@ -206,11 +303,11 @@ class SupporterController extends Controller
                     throw new RuntimeException('The export could not be opened for writing.');
                 }
 
-                SupporterExport::writeTo($stream);
+                SupporterExport::writeTo($stream, $segment);
 
                 fclose($stream);
             },
-            SupporterExport::filename(),
+            SupporterExport::filename($segment),
             ['Content-Type' => 'text/csv'],
         );
     }
