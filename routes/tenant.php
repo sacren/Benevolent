@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\BlastController;
+use App\Http\Controllers\SegmentController;
 use App\Http\Controllers\SupporterController;
 use App\Http\Controllers\SupporterImportController;
 use App\Http\Controllers\UnsubscribeController;
@@ -91,6 +92,12 @@ Route::middleware('tenant')->group(function (): void {
         // writing. Authority is settled by BlastPolicy's `send` ability inside
         // the controller, like every route above it.
         Route::post('blasts/{blast}/send', [BlastController::class, 'send'])->name('blasts.send');
+
+        // The narrowings a campaign has named for its own supporter list.
+        // Authority is settled by SegmentPolicy inside the controller rather
+        // than by a `can:` middleware here, for the reason every route above
+        // carries none.
+        Route::get('segments', [SegmentController::class, 'index'])->name('segments.index');
     });
 
     /*
