@@ -23,11 +23,12 @@ use Illuminate\Database\Eloquent\Builder;
  * for addresses.
  *
  * **This is the *matcher*, and it is deliberately not the *storage*.** Where a
- * rule is kept -- on a blast, in a segment, or in one place both point at -- is
- * D-26 and belongs to Step 4. The two are independent axes, and the whole reason
- * this class exists is that extracting one of them does not commit the other:
- * `blasts.postcode_prefixes` is exactly where Step 3 found it, and BlastAudience
- * still reads its own column.
+ * rule is kept was D-26, answered at Step 4 as shape (b): a blast points at a
+ * segment *or* carries its own `postcode_prefixes`, and the column stayed. The
+ * two are independent axes, and separating them is what let one be settled
+ * without committing the other -- this class was extracted a step before that
+ * answer and needed no change when it arrived, because it takes a plain list of
+ * prefixes and knows nothing about where they were kept.
  *
  * **What this class deliberately does NOT do, and both omissions are
  * correctness-critical in opposite directions.**
@@ -87,10 +88,16 @@ final class PostcodeNarrowing
      * Narrow a supporter query to the supporters those prefixes name.
      *
      * Takes and returns a query rather than building one, so the caller owns
-     * what else is true of the set. Today the only caller is BlastAudience,
-     * which hands in a query that is already subscribed-only; a caller that
-     * wants the unsubscribed too hands in one that is not, and this class does
-     * not need to know which it was given.
+     * what else is true of the set. BlastAudience hands in a query that is
+     * already subscribed-only; the supporter list and its export hand in ones
+     * that are not, because an operator correcting a record has to be able to
+     * find somebody who unsubscribed. This class does not need to know which it
+     * was given.
+     *
+     * (That sentence said "the only caller is BlastAudience" until now. It was
+     * already untrue when Step 3 wrote it -- the same step added the other two
+     * callers -- and is corrected here rather than left standing beside a
+     * paragraph above that has just been brought up to date.)
      *
      * @param  Builder<Supporter>  $query
      * @param  list<string>  $prefixes

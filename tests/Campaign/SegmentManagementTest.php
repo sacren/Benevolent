@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Authorization\Permission;
+use App\Models\Blast;
 use App\Models\Segment;
 use App\Models\User;
 use Illuminate\Support\Facades\Gate;
@@ -205,3 +206,87 @@ test('every action refuses an operator who has lost the grant', function (string
     're-aim one' => ['PATCH', '/segments/{id}'],
     'remove one' => ['DELETE', '/segments/{id}'],
 ]);
+
+test('a segment a blast is aimed at is not removed, and the operator is told why', function (): void {
+    // **The refusal is the schema's and this is only its sentence.** Without
+    // it the operator sees a 500: the foreign key restricts on delete, because
+    // the two alternatives are both wrong in ways nothing reports -- nulling
+    // would widen the blast to every supporter the campaign may contact, and
+    // cascading would destroy the record of a message already sent.
+    $segment = Segment::factory()->create(['name' => 'Whalley Range']);
+    $blast = Blast::factory()->aimedAtSegment($segment)->create();
+
+    $this->actingAs(User::factory()->create())
+        ->delete($this->campaignUrl("/segments/{$segment->getKey()}"))
+        // A redirect carrying the reason rather than a 403 or a 404. The
+        // segment exists and the operator may remove segments; what has changed
+        // is that something points at this one -- which is the same division
+        // BlastController::refuseCommitted() makes for a committed blast.
+        ->assertRedirect(route('segments.index'));
+
+    // The claim, rather than the status code: nothing was removed and nothing
+    // was re-aimed.
+    expect(Segment::query()->count())->toBe(1)
+        ->and($blast->fresh()->segment_id)->toBe($segment->getKey());
+});
+
+test('an owner cannot remove one either, because this is state and not authority', function (): void {
+    // The refusal is not an authority the Owner can override, which is what
+    // makes it different from every other refusal in this module. SegmentPolicy
+    // answers who may act and never what may be acted on, so both roles reach
+    // this line and both are turned away by the same fact about the row.
+    $segment = Segment::factory()->create();
+    Blast::factory()->aimedAtSegment($segment)->create();
+
+    $owner = User::factory()->create();
+
+    expect(Gate::forUser($owner)->allows('delete', $segment))->toBeTrue();
+
+    $this->actingAs($owner)
+        ->delete($this->campaignUrl("/segments/{$segment->getKey()}"))
+        ->assertRedirect(route('segments.index'));
+
+    expect(Segment::query()->count())->toBe(1);
+});
+
+test('a segment is removable again once the blast aimed at it has been re-aimed', function (): void {
+    // The control, and it is what stops the refusal above being a segment that
+    // can never be removed at all. It also names the way out an operator
+    // actually has: re-aim the blast, then remove the segment.
+    $segment = Segment::factory()->create();
+    $blast = Blast::factory()->aimedAtSegment($segment)->create();
+
+    $this->actingAs(User::factory()->create())
+        ->patch($this->campaignUrl('/blasts/'.$blast->getKey()), [
+            'subject' => 'Aimed by postcode now',
+            'body' => 'Re-aimed so the segment can go.',
+            'postcode_prefixes' => 'M15',
+        ])
+        ->assertSessionHasNoErrors();
+
+    $this->actingAs(User::factory()->create())
+        ->delete($this->campaignUrl("/segments/{$segment->getKey()}"))
+        ->assertRedirect(route('segments.index'));
+
+    expect(Segment::query()->count())->toBe(0)
+        // And the blast is still there, carrying the aim it was moved to. A
+        // cascade would have taken it with the segment.
+        ->and($blast->fresh()->postcode_prefixes)->toBe(['M15']);
+});
+
+test('a sent blast still holds its segment, so the record cannot be tidied away', function (): void {
+    // The direction that matters most and the one no later commit repairs. A
+    // blast that has gone out is a record of what this campaign said to
+    // people; removing the segment it names would leave the campaign unable to
+    // say what it was aimed at, and `blast_recipients` answers a different
+    // question -- who it reached, not who it was for.
+    $segment = Segment::factory()->create();
+    $blast = Blast::factory()->aimedAtSegment($segment)->sent()->create();
+
+    $this->actingAs(User::factory()->create())
+        ->delete($this->campaignUrl("/segments/{$segment->getKey()}"))
+        ->assertRedirect(route('segments.index'));
+
+    expect(Segment::query()->count())->toBe(1)
+        ->and($blast->fresh()->segment_id)->toBe($segment->getKey());
+});

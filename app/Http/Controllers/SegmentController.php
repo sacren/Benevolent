@@ -159,11 +159,15 @@ class SegmentController extends Controller
     /**
      * Re-aim a segment already named.
      *
-     * **What this does to a blast that used the segment is D-27's, and today
-     * the question has no subject:** nothing in this application points at a
-     * segment, so re-aiming one changes what the supporter list shows and
-     * nothing else. Step 4 is where a pointer could arrive, and Step 5 owns what
-     * an edit then means.
+     * **What this does to a blast that used the segment is D-27's, and the
+     * question now has a subject.** Step 4 gave a blast a pointer, so re-aiming
+     * a segment re-aims every blast pointing at it -- correctly and by design
+     * for a draft, because that is the whole value of pointing rather than
+     * retyping. For a blast the campaign has already **committed** it is not
+     * correct at all: `SendBlast` reads the rule when the job runs, so a send
+     * queued against one narrowing can go out against another. Nothing here
+     * refuses that yet. It is D-27's and Step 5's, and it is named rather than
+     * quietly left as an unremarked gap.
      */
     public function update(NameSegmentRequest $request, Segment $segment): RedirectResponse
     {
@@ -186,10 +190,45 @@ class SegmentController extends Controller
      * it goes, and is already emptiable by anybody holding `EditSupporters` --
      * who can strip its prefixes down to a rule matching nobody. So there is no
      * control on this module's pages that has to be hidden from anyone.
+     *
+     * **A segment a blast is aimed at cannot be removed, and this refusal is
+     * forced by the schema rather than chosen here.** `blasts.segment_id`
+     * restricts on delete, because the two alternatives are both wrong in ways
+     * nothing would report: nulling the pointer would silently widen a blast
+     * aimed at one ward to every supporter the campaign may contact, and
+     * cascading would destroy the record of a message already in other people's
+     * inboxes. So the database refuses, and this turns its refusal into a
+     * sentence an operator can act on -- without it they would see a 500.
+     *
+     * **This is a sliver of D-27 and not the whole of it, and the boundary is
+     * stated so Step 5 is not read as already done.** What is answered here is
+     * only what a *deletion* does, because adding the foreign key forced a
+     * choice about it. What an *edit* does to a blast the campaign has already
+     * committed is untouched, and so is whether the trail records either.
+     *
+     * **The check is the message and the foreign key is the guarantee.** An
+     * operator aiming a blast at this segment between the query below and the
+     * delete still loses the race to the database, which refuses; that is a 500
+     * rather than a wrong outcome, and nothing is destroyed. It is recorded
+     * rather than defended against, because the alternative -- catching a bare
+     * QueryException around the delete -- would swallow refusals that have
+     * nothing to do with this one.
      */
     public function destroy(Segment $segment): RedirectResponse
     {
         $this->authorize('delete', $segment);
+
+        $aimedHere = $segment->blasts()->count();
+
+        if ($aimedHere > 0) {
+            Inertia::flash('toast', ['type' => 'error', 'message' => trans_choice(
+                '{1} A blast is aimed at that segment, so it cannot be removed. Re-aim that blast first.'
+                .'|[2,*] :count blasts are aimed at that segment, so it cannot be removed. Re-aim them first.',
+                $aimedHere,
+            )]);
+
+            return to_route('segments.index');
+        }
 
         $segment->delete();
 

@@ -155,8 +155,11 @@ test('a staff operator may delete a segment, and that is not DeleteSupporters', 
     // same gate, so a policy that had reused it would fail here and nowhere
     // else in the file.
     //
-    // What a deletion does to a blast that used the segment is D-27's and is
-    // not decided here; nothing points at a segment yet.
+    // A blast can now point at a segment, and it did not move this ability:
+    // what changed is what a deletion *does*, not who may attempt one. The
+    // foreign key refuses a segment a blast is aimed at, for either role, and
+    // SegmentManagementTest drives that over HTTP. This policy answers
+    // authority and never state.
     $staff = User::factory()->create();
     $segment = Segment::factory()->create();
 

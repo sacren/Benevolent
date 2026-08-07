@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UsePolicy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -109,5 +110,26 @@ class Segment extends Model
         return [
             'postcode_prefixes' => 'array',
         ];
+    }
+
+    /**
+     * The blasts aimed at this narrowing.
+     *
+     * Added with its reader rather than with the column, which is the split
+     * this project keeps making: `blasts.segment_id` arrived at Step 4's first
+     * commit, and nothing on this side needed to look back along it until
+     * SegmentController::destroy() had to say why a segment cannot be removed.
+     * A relation with no reader is the shape this project keeps refusing.
+     *
+     * **It is a question, not a cascade.** The foreign key restricts on delete,
+     * so this relation can never be used to remove the rows on the other end of
+     * it -- a blast is a record of what a campaign said to people, and no
+     * tidying of a narrowing gets to destroy one.
+     *
+     * @return HasMany<Blast, $this>
+     */
+    public function blasts(): HasMany
+    {
+        return $this->hasMany(Blast::class);
     }
 }

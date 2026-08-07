@@ -144,8 +144,14 @@ class SegmentPolicy
      * emptying it -- an operator holding EditSupporters could already strip a
      * segment's prefixes down to a rule matching nobody.
      *
-     * What a deletion does to a blast that used the segment is D-27's and is
-     * not answered here; today nothing points at a segment at all.
+     * **A blast can now point at a segment, and that did not move this
+     * ability.** What it changed is what a deletion *does*, not who may attempt
+     * one: `blasts.segment_id` restricts on delete, so a segment a blast is
+     * aimed at cannot be removed by anybody, of either role, and
+     * SegmentController::destroy() says so. This policy still answers authority
+     * and never state, which is the division BlastPolicy's own docblock records
+     * -- a refusal meaning both "you may not" and "something points at this"
+     * would tell an Owner the one thing that is not true.
      */
     public function delete(User $operator, Segment $segment): bool
     {
