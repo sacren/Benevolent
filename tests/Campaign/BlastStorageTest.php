@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Blasts\BlastStatus;
 use App\Models\Blast;
+use App\Models\Segment;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -22,6 +23,7 @@ test('the campaign database carries the blasts the campaign has written', functi
             'operator_id',
             'subject',
             'body',
+            'segment_id',
             'postcode_prefixes',
             'status',
             'queued_at',
@@ -239,4 +241,108 @@ test('a draft is the only state a blast is not yet committed from', function ():
             BlastStatus::cases(),
             fn (BlastStatus $s): bool => $s !== BlastStatus::Draft,
         ));
+});
+
+test('a blast can be aimed at a segment the campaign has named', function (): void {
+    // D-26 as data, and the shape of the answer is that both columns are here:
+    // a blast points at a segment *or* carries its own rule, so the pointer was
+    // added without taking the rule away.
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+
+    $blast = Blast::factory()->aimedAtSegment($segment)->create();
+
+    $reloaded = Blast::query()->whereKey($blast->getKey())->sole();
+
+    expect($reloaded->segment_id)->toBe($segment->getKey())
+        ->and($reloaded->postcode_prefixes)->toBeNull()
+        // The relation resolves to the campaign's own row, and its prefixes are
+        // the ones the segment holds rather than a copy taken at any point.
+        // Copying would be the shape §7 names as an illegitimate way to satisfy
+        // this phase's fifth criterion.
+        ->and($reloaded->segment?->getKey())->toBe($segment->getKey())
+        ->and($reloaded->segment?->postcode_prefixes)->toBe(['M15']);
+});
+
+test('the database refuses a blast that names two aims at once', function (): void {
+    $segment = Segment::factory()->create();
+
+    // An aim is one thing. The alternative to this constraint was precedence in
+    // application code -- "the segment wins" -- and the reason it was refused is
+    // that a rule about which of two columns to believe is a rule some later
+    // reader gets wrong, and what they get wrong is who a message goes to.
+    $refusal = refusalFrom(fn () => DB::connection('tenant')->table('blasts')->insert([
+        'subject' => 'Aimed two ways',
+        'body' => 'Refused.',
+        'segment_id' => $segment->getKey(),
+        'postcode_prefixes' => json_encode(['M15']),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]));
+
+    expect($refusal)->not->toBeNull()
+        // SQLSTATE 23514 -- check violation. Asserted by code rather than by
+        // message so a reworded or translated error cannot weaken this.
+        ->and((string) $refusal->getCode())->toBe('23514');
+
+    // The three legitimate shapes, made through the same table in the same run:
+    // without them this passes just as happily against a table that refuses
+    // every insert (L-19).
+    $pointing = Blast::factory()->aimedAtSegment($segment)->create();
+    $carrying = Blast::factory()->narrowedToPostcodes(['M15'])->create();
+
+    // Neither column set, which is the ordinary blast to everybody the campaign
+    // may contact and is this module's only widening branch. It is named here
+    // because a constraint written as "exactly one of the two" would forbid it,
+    // and that is the plausible wrong version of this rule.
+    $everyone = Blast::factory()->create();
+
+    expect($pointing->exists)->toBeTrue()
+        ->and($carrying->exists)->toBeTrue()
+        ->and($everyone->exists)->toBeTrue()
+        ->and($everyone->segment_id)->toBeNull()
+        ->and($everyone->postcode_prefixes)->toBeNull()
+        ->and(Blast::query()->count())->toBe(3);
+});
+
+test('the database refuses to delete a segment a blast is aimed at', function (): void {
+    $segment = Segment::factory()->create();
+
+    Blast::factory()->aimedAtSegment($segment)->create();
+
+    // **Restricted rather than nulled, and this is the assertion that matters
+    // most in this file.** Both of this table's other foreign keys are
+    // nullOnDelete, and copying that here would be wrong in a way nothing would
+    // report: a null aim is this module's *widening* branch, so deleting the
+    // segment would silently turn a blast aimed at one postcode into one aimed
+    // at every supporter the campaign may contact.
+    $refusal = refusalFrom(fn () => DB::connection('tenant')->table('segments')
+        ->where('id', $segment->getKey())
+        ->delete());
+
+    expect($refusal)->not->toBeNull()
+        // **SQLSTATE 23001 -- restrict_violation, and measured rather than
+        // assumed.** The obvious guess is 23503, foreign_key_violation, which
+        // is what PostgreSQL raises for the schema builder's *default* on-delete
+        // behaviour (NO ACTION). ON DELETE RESTRICT is a stricter rule -- it
+        // cannot be deferred to the end of the transaction -- and it reports
+        // itself with its own code. Either way it is a different code from the
+        // check violations above, so this cannot be satisfied by whatever
+        // reddens those.
+        ->and((string) $refusal->getCode())->toBe('23001');
+
+    // And the widening that would have happened did not: the blast still points
+    // where it did, which is the property the code is standing in for.
+    expect(Blast::query()->sole()->segment_id)->toBe($segment->getKey())
+        ->and(Segment::query()->count())->toBe(1);
+});
+
+test('a segment nothing points at is still deletable', function (): void {
+    // The control for the refusal above. Without it that test passes against a
+    // table no segment can ever be deleted from, which would be a different and
+    // worse product.
+    $segment = Segment::factory()->create();
+
+    $segment->delete();
+
+    expect(Segment::query()->count())->toBe(0);
 });

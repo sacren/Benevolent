@@ -6,6 +6,7 @@ namespace Database\Factories;
 
 use App\Blasts\BlastStatus;
 use App\Models\Blast;
+use App\Models\Segment;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -36,6 +37,7 @@ class BlastFactory extends Factory
             'operator_id' => null,
             'subject' => fake()->sentence(6),
             'body' => fake()->paragraphs(3, asText: true),
+            'segment_id' => null,
             'postcode_prefixes' => null,
             'status' => BlastStatus::default(),
             'queued_at' => null,
@@ -67,6 +69,23 @@ class BlastFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'postcode_prefixes' => $prefixes,
+        ]);
+    }
+
+    /**
+     * Indicate that the blast is aimed at a segment the campaign has named.
+     *
+     * Leaves `postcode_prefixes` at the default null, and it has to: the two
+     * are mutually exclusive by check constraint, so a state that set both
+     * would be refused by the database rather than produce a blast with two
+     * aims. That is deliberate -- a factory able to build the bad row is a
+     * factory that makes the constraint look optional.
+     */
+    public function aimedAtSegment(Segment $segment): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'segment_id' => $segment->getKey(),
+            'postcode_prefixes' => null,
         ]);
     }
 

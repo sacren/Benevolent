@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UsePolicy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
@@ -38,11 +39,19 @@ use Illuminate\Support\Carbon;
  * **What a blast is addressed to is a rule, never a list (D-14).** The audience
  * is computed when sending starts, so a supporter who unsubscribes after the
  * message is written is correctly left out of it — which a recipient list
- * frozen at composing time could not do. `postcode_prefixes` is the whole of
- * what is stored, and null means every supporter the campaign may contact; the
- * subscribed-only condition is not here and never will be, because a column
- * that could record "send to unsubscribed people too" is a column that makes
- * that sendable.
+ * frozen at composing time could not do. The subscribed-only condition is not
+ * here and never will be, because a column that could record "send to
+ * unsubscribed people too" is a column that makes that sendable.
+ *
+ * **Where that rule is kept is two columns rather than one (D-26).** A blast
+ * either points at a segment the campaign has named, or carries its own
+ * `postcode_prefixes`, or does neither — and doing neither is the aim at every
+ * supporter the campaign may contact. Shape (b): the pointer was added without
+ * taking the column away, so every blast written before it kept saying exactly
+ * what it was aimed at. The two are mutually exclusive as a fact about the row
+ * rather than as a convention this class remembers; `blasts_aimed_one_way_only`
+ * is the check constraint that holds it, and the migration says why an aim that
+ * could be read two ways is a send hazard rather than an untidiness.
  *
  * **A blast that has left Draft can never return to it.** `queued_at` is the
  * moment the campaign committed the message to sending, and it is set once. The
@@ -55,7 +64,9 @@ use Illuminate\Support\Carbon;
  * @property int|null $queued_by
  * @property string $subject
  * @property string $body
+ * @property int|null $segment_id
  * @property list<string>|null $postcode_prefixes
+ * @property-read Segment|null $segment
  * @property BlastStatus $status
  * @property Carbon|null $queued_at
  * @property Carbon|null $finished_at
@@ -101,6 +112,30 @@ class Blast extends Model
             'queued_at' => 'datetime',
             'finished_at' => 'datetime',
         ];
+    }
+
+    /**
+     * The narrowing this blast is aimed at, if it points at one rather than
+     * carrying its own.
+     *
+     * **Null here does not mean "everybody", and that is the trap this relation
+     * carries.** It means "this blast's aim is not a segment" — which is either
+     * its own `postcode_prefixes` or, when that is null too, the whole
+     * contactable list. Putting the two together is one reader's job and no
+     * other's: a reader that took a null segment for a null aim would widen a
+     * narrowed blast, which is the one direction this module cannot recover
+     * from.
+     *
+     * Added here with the column rather than with its first reader, unlike
+     * `recipients()` below, because it is what makes the column legible: a bare
+     * `segment_id` on a table whose other two foreign keys point at operators
+     * reads as a fourth authorship column until something says otherwise.
+     *
+     * @return BelongsTo<Segment, $this>
+     */
+    public function segment(): BelongsTo
+    {
+        return $this->belongsTo(Segment::class);
     }
 
     /**
