@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Blasts\BlastAudience;
 use App\Models\Blast;
+use App\Models\Segment;
 use App\Models\Supporter;
 use App\Supporters\SubscriptionStatus;
 
@@ -171,5 +172,113 @@ test('an aim that names nothing usable reaches nobody, never everybody', functio
         ->and(BlastAudience::size($empty))->toBe(0)
         // Paired with the case it must not be confused with, in the same run:
         // an empty list of aims is not the same claim as no aim at all.
+        ->and(BlastAudience::size($everyone))->toBe(2);
+});
+
+test('a blast aimed at a segment reaches the people that segment names', function (): void {
+    $inside = supporterWithPostcode('M15 6BH');
+    supporterWithPostcode('EH8 9YL');
+
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $blast = Blast::factory()->aimedAtSegment($segment)->create();
+
+    // The same two directions the unnarrowed test asserts together, so a later
+    // edit cannot drop the half that does the work.
+    expect(BlastAudience::for($blast)->pluck('id')->all())->toBe([$inside->getKey()])
+        ->and(BlastAudience::size($blast))->toBe(1);
+});
+
+test('a segment is read when the audience is asked, never copied when the blast was aimed', function (): void {
+    // **The assertion that makes a pointer a pointer**, and §7's fifth
+    // criterion names the alternative as an illegitimate way to satisfy it: a
+    // convenience that copied the segment's prefixes onto the blast would pass
+    // the test above and fail this one, while leaving the product with the two
+    // narrowing mechanisms this phase exists to join up.
+    supporterWithPostcode('M15 6BH');
+    $moved = supporterWithPostcode('EH8 9YL');
+
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $blast = Blast::factory()->aimedAtSegment($segment)->create();
+
+    expect(BlastAudience::size($blast))->toBe(1);
+
+    // The campaign re-aims the segment. Nothing about the blast's own row
+    // changes -- and this is the whole of D-27's exposure stated as a fact
+    // rather than as a worry: for a draft it is correct and is the point, and
+    // for a committed blast it is the question Step 5 owns.
+    $segment->update(['postcode_prefixes' => ['EH8']]);
+
+    expect(BlastAudience::for($blast->refresh())->pluck('id')->all())
+        ->toBe([$moved->getKey()]);
+});
+
+test('a segment cannot widen a blast past the people who may be contacted', function (): void {
+    // **Exit criterion 3, the half this step owes**, and it is a different
+    // claim from the two already paid. Step 1 proved a segment's stored rule
+    // *cannot say* anything about subscription -- there is no column for it.
+    // Step 3 proved the supporter list may legitimately show somebody who
+    // unsubscribed. This is the third: reaching the rule through a segment does
+    // not carry the list's permission with it, because subscribed-only is this
+    // class's shape rather than a parameter anything passes.
+    supporterWithPostcode('M15 6BH', SubscriptionStatus::Unsubscribed);
+    supporterWithPostcode('M15 9AA', SubscriptionStatus::Unsubscribed);
+    $reachable = supporterWithPostcode('M15 1AA');
+
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $blast = Blast::factory()->aimedAtSegment($segment)->create();
+
+    // The same segment narrows a supporter list to all three of these people,
+    // which is the asymmetry: one stored rule, two readers, two different
+    // guarantees around it.
+    expect(BlastAudience::for($blast)->pluck('id')->all())->toBe([$reachable->getKey()])
+        ->and(BlastAudience::size($blast))->toBe(1);
+});
+
+test('a segment naming nothing usable reaches nobody, never everybody', function (): void {
+    // PostcodeNarrowing's fail-closed case reached through the pointer rather
+    // than through the column, because the two arrive by different branches and
+    // only one of them was ever tested. A segment whose rule folds away is the
+    // pointer's version of the wildcard: the aim names nothing `left()` can
+    // use, and the safe answer is nobody.
+    supporterWithPostcode('M15 6BH');
+    supporterWithPostcode('EH8 9YL');
+
+    $blank = Segment::factory()->narrowedToPostcodes(['   '])->create();
+    $blast = Blast::factory()->aimedAtSegment($blank)->create();
+
+    // Paired with the case it must not be confused with, in the same run: a
+    // blast naming no aim at all still reaches everybody, so this is not
+    // passing against an audience that is simply broken.
+    $everyone = Blast::factory()->create();
+
+    expect(BlastAudience::size($blast))->toBe(0)
+        ->and(BlastAudience::size($everyone))->toBe(2);
+});
+
+test('a pointer that resolves to no segment reaches nobody, never everybody', function (): void {
+    // **The one branch in this class the database cannot reach, driven through
+    // the model instead.** `blasts.segment_id` restricts on delete and
+    // `segments.postcode_prefixes` is NOT NULL, so no stored row can carry a
+    // pointer that resolves to nothing -- which means the fallback protecting
+    // that case is unguarded unless something builds the state directly.
+    //
+    // It is worth guarding rather than deleting because of what the two
+    // spellings of "I could not resolve the aim" differ by. Written as an empty
+    // list it reaches nobody; written as null it would arrive back at the
+    // widening branch and reach every supporter the campaign may contact. The
+    // difference is the entire list, and the direction that cannot be taken
+    // back is the one a dropped constraint would open.
+    supporterWithPostcode('M15 6BH');
+    supporterWithPostcode('EH8 9YL');
+
+    $dangling = new Blast;
+    $dangling->segment_id = 9_999_999;
+
+    // Paired with the case it must not be confused with, through the same class
+    // in the same run: a blast naming no aim at all still reaches everybody, so
+    // this is not passing against an audience that is simply broken.
+    $everyone = Blast::factory()->create();
+
+    expect(BlastAudience::size($dangling))->toBe(0)
         ->and(BlastAudience::size($everyone))->toBe(2);
 });

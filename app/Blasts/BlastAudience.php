@@ -18,16 +18,37 @@ use Illuminate\Database\Eloquent\Builder;
  * so the count an operator is shown before sending and the set a send actually
  * walks come from the same lines of code rather than from two that agree today.
  *
- * **What a postcode prefix means is no longer decided here (D-29).** The fold
- * and the leading-character comparison moved to App\Supporters\PostcodeNarrowing
- * when a second reader arrived, because D-24 promoted that rule from an
- * implementation detail of this class to the product's definition of what a
- * prefix *is*, and a definition with two spellings is one the two readers may
- * disagree about. What stayed here is everything that is true of a *blast's*
- * audience and of nothing else: subscribed-only, and the meaning of a null
- * column. **This moved the matcher and deliberately not the storage** -- whether
- * a blast keeps its own `postcode_prefixes` is D-26, owned by Step 4, and this
- * class still reads that column exactly where it always did.
+ * **What a postcode prefix means is not decided here (D-29).** The fold and the
+ * leading-character comparison live in App\Supporters\PostcodeNarrowing,
+ * because D-24 promoted that rule from an implementation detail of this class
+ * to the product's definition of what a prefix *is*, and a definition with two
+ * spellings is one its readers may disagree about. What stayed here is
+ * everything that is true of a *blast's* audience and of nothing else:
+ * subscribed-only, and where the blast's rule is found.
+ *
+ * **Where the rule is found is now two places, and this class is the only one
+ * that puts them together (D-26).** A blast either points at a segment the
+ * campaign named or carries its own `postcode_prefixes`; the database forbids
+ * both at once. So the aim is resolved here, once, and every caller keeps
+ * asking the same two questions it always asked.
+ *
+ * **The widening branch is the whole risk of that change and is drawn first,
+ * deliberately.** Exactly one state means "everybody this campaign may
+ * contact": neither column set. Everything else is an aim, and an aim is
+ * honoured or it reaches nobody -- so a pointer that resolved to nothing
+ * narrows to nobody rather than falling through to the whole list. That
+ * ordering is not defensive tidiness: `restrictOnDelete` on the column makes a
+ * dangling pointer unreachable through the database, and writing the branch the
+ * other way round would put the product one dropped constraint away from
+ * mailing a campaign's entire list.
+ *
+ * **A segment is read, never copied.** The rule this returns is the segment's
+ * rule as it stands at the moment of asking, which is what makes a pointer a
+ * pointer -- an operator correcting a segment corrects every draft aimed at it.
+ * The cost of that is real and is not this class's to pay: a blast queued
+ * against a segment edited before the worker runs goes to a different set of
+ * people, because SendBlast consumes this query when the job runs rather than
+ * when the campaign committed. That is D-27's, owned by Step 5.
  *
  * **A count taken from here is a prediction, not a promise, and any surface
  * showing one has to say so.** The rule is evaluated again when sending starts,
@@ -58,31 +79,84 @@ final class BlastAudience
         $query = Supporter::query()
             ->where('subscription_status', SubscriptionStatus::Subscribed);
 
-        $prefixes = $blast->postcode_prefixes;
-
-        // **Null, and only null, is the campaign's whole contactable list.**
-        // That is the migration's own contract for this column, and the one
-        // branch here that widens rather than narrows, so it is drawn as
-        // narrowly as it can be: everything else is an aim, and an aim is
-        // honoured or it reaches nobody.
+        // **Naming neither a segment nor a rule, and only that, is the
+        // campaign's whole contactable list.** That is the migration's own
+        // contract for these two columns, and the one branch here that widens
+        // rather than narrows, so it is drawn as narrowly as it can be:
+        // everything else is an aim, and an aim is honoured or it reaches
+        // nobody.
         //
         // An earlier draft also let a stored empty list mean "everybody", on
         // the reading that a list of no prefixes narrows nothing. Breaking that
         // branch reddened nothing at all, which is what exposed it: it made `[]`
         // mean everybody while `['  ']` -- equally an aim that names nothing
         // usable -- meant nobody, and the widening half was the unguarded one.
-        // One rule, drawn on null, is both simpler and safe in the same
-        // direction as PostcodeNarrowing's own fail-closed case.
-        //
-        // This branch is why the matcher has none of its own: `segments`
-        // declares the same column NOT NULL, so widening cannot be reached
-        // through a segment at all, and a matcher that widened on an empty rule
-        // would put that branch back where nobody asked for it.
-        if ($prefixes === null) {
+        // One rule, drawn on the absence of both columns, is both simpler and
+        // safe in the same direction as PostcodeNarrowing's own fail-closed
+        // case.
+        if ($blast->segment_id === null && $blast->postcode_prefixes === null) {
             return $query;
         }
 
-        return PostcodeNarrowing::apply($query, $prefixes);
+        return PostcodeNarrowing::apply($query, self::prefixesFor($blast));
+    }
+
+    /**
+     * The prefixes this blast's aim currently names.
+     *
+     * Only ever called for a blast that has an aim, because the widening branch
+     * above has already returned for the one that does not -- which is why
+     * every path out of here is a narrowing and none of them can be mistaken
+     * for "no rule".
+     *
+     * **The empty list returned for a segment that will not resolve is the
+     * safety here, and it is not a formality.** A segment reached through a
+     * pointer cannot be missing -- `blasts.segment_id` restricts on delete, and
+     * `segments.postcode_prefixes` is NOT NULL -- so that branch is unreachable
+     * through a stored row. It is written anyway, and written as an empty list
+     * rather than as null, because the two possible spellings of "I could not
+     * resolve the aim" differ by the entire supporter list: an empty list
+     * reaches nobody through PostcodeNarrowing's own fail-closed case, while a
+     * null would arrive back at the widening branch above. The cost of the
+     * wrong one is a message in every supporter's inbox, so it is spelled the
+     * safe way, and a test drives it by building the state through the model
+     * rather than through the table.
+     *
+     * **It is written as an explicit branch rather than as `?->` with a
+     * fallback, because static analysis reads the relation as never null and
+     * refuses the shorter spelling.** That disagreement is worth recording
+     * rather than silencing: the analyser is describing the schema, which is
+     * right, and the test is describing a model somebody built by hand, which
+     * is also right. The branch below satisfies both and reads more plainly for
+     * a safety this consequential.
+     *
+     * **The segment is fetched through the relation's query rather than through
+     * `$blast->segment`, and the reason is that this is the one place the rule
+     * must not be cached.** The magic property memoizes on the instance, so a
+     * caller that asked once and asked again would be answered from before the
+     * segment moved. Asking the relation costs one query per blast per
+     * operation, which is one, and buys the property that gives a pointer its
+     * whole value.
+     *
+     * @return list<string>
+     */
+    private static function prefixesFor(Blast $blast): array
+    {
+        if ($blast->segment_id !== null) {
+            // Read, never copied. The rule is the segment's as it stands at the
+            // moment of asking, which is what makes the pointer worth having
+            // and is also what D-27 has to reckon with for a blast the campaign
+            // has already committed.
+            $segment = $blast->segment()->first();
+
+            if ($segment === null) {
+                return [];
+            }
+
+            return $segment->postcode_prefixes;
+        }
+
+        return $blast->postcode_prefixes ?? [];
     }
 
     /**
