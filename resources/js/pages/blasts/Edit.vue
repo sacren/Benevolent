@@ -9,12 +9,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { usePermissions } from '@/composables/usePermissions';
 import { edit, index } from '@/routes/blasts';
-import type { Blast } from '@/types';
+import type { Blast, Segment } from '@/types';
 
-const { blast, audienceSize, replyTo } = defineProps<{
+const { blast, audienceSize, replyTo, segments } = defineProps<{
     blast: Blast;
     audienceSize: number;
     replyTo: string | null;
+    segments: Segment[];
 }>();
 
 const { can } = usePermissions();
@@ -183,13 +184,42 @@ defineOptions({
                 <InputError :message="errors.body" />
             </div>
 
+            <!-- See blasts/Create.vue for why this is hidden with no segments. -->
+            <div v-if="segments.length > 0" class="grid gap-2">
+                <Label for="segment_id">Segment (optional)</Label>
+                <select
+                    id="segment_id"
+                    name="segment_id"
+                    data-test="aim-at-segment"
+                    class="h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm dark:bg-input/30"
+                >
+                    <option value="">No segment</option>
+                    <option
+                        v-for="segment in segments"
+                        :key="segment.id"
+                        :value="segment.id"
+                        :selected="segment.id === blast.segment_id"
+                    >
+                        {{ segment.name }}
+                    </option>
+                </select>
+                <p class="text-sm text-muted-foreground">
+                    Aim this blast at a narrowing you have named. The blast
+                    follows the segment, so correcting the segment corrects this
+                    blast too.
+                </p>
+                <InputError :message="errors.segment_id" />
+            </div>
+
             <div class="grid gap-2">
                 <Label for="postcode_prefixes">Postcodes (optional)</Label>
                 <!--
                     Joined back into the one line the operator typed, rather
                     than rendered as a list: this is the same field they wrote
                     in, so it has to read back the same way. `null` becomes an
-                    empty field, which is what "everyone" looks like here.
+                    empty field, which is what "everyone" looks like here -- and
+                    also what a blast aimed at a segment looks like, because the
+                    two cannot both be set.
                 -->
                 <Input
                     id="postcode_prefixes"
@@ -202,6 +232,9 @@ defineOptions({
                     Narrow the blast to supporters whose postcode starts with
                     one of these. Leave it empty to write to everyone. Case and
                     spacing do not matter.
+                    <template v-if="segments.length > 0">
+                        Choose a segment or type postcodes, not both.
+                    </template>
                 </p>
                 <InputError :message="errors.postcode_prefixes" />
             </div>

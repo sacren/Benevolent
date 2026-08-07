@@ -9,11 +9,14 @@ use App\Blasts\BlastStatus;
 use App\Blasts\SendBlast;
 use App\Http\Requests\Blasts\ComposeBlastRequest;
 use App\Models\Blast;
+use App\Models\Segment;
 use App\Tenancy\CampaignContact;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -177,7 +180,9 @@ class BlastController extends Controller
     {
         $this->authorize('create', Blast::class);
 
-        return Inertia::render('blasts/Create');
+        return Inertia::render('blasts/Create', [
+            'segments' => $this->segments(),
+        ]);
     }
 
     /**
@@ -229,6 +234,11 @@ class BlastController extends Controller
 
         return Inertia::render('blasts/Edit', [
             'blast' => $blast,
+
+            // The narrowings this campaign has named, so the operator can point
+            // at one rather than retype it. See segments() for why an operator
+            // who may not read them is still given this page.
+            'segments' => $this->segments(),
 
             // **A prediction, not a promise, and the page says so in those
             // words.** The audience is a rule evaluated again when sending
@@ -345,6 +355,47 @@ class BlastController extends Controller
         ]);
 
         return to_route('blasts.index');
+    }
+
+    /**
+     * The narrowings this campaign has named, in the order its own list shows
+     * them, or none if this operator may not read them.
+     *
+     * **Asked rather than authorized, and the difference from
+     * SupporterController::index() is deliberate rather than an
+     * inconsistency.** There, `viewAny` on a Segment is a hard authorize and
+     * costs nothing: an operator already needed ViewSupporters to reach the
+     * supporter list at all, so the second check can only agree with the first.
+     * Here the operator's authority to be on this page comes from EditBlasts,
+     * which is a different permission -- so refusing the whole page on a second
+     * one would withdraw a capability they plainly hold. Aiming a blast by
+     * postcode does not require reading a segment, and it must not stop working
+     * because they cannot.
+     *
+     * So the page renders and the select is simply not offered, which is what
+     * it already does for a campaign that has named no segments. The two
+     * authorities agree today -- `viewAny` answers from ViewSupporters and both
+     * roles hold it -- so nothing an operator can currently see depends on this
+     * branch. What it does is stop a page that lists a campaign's segments
+     * answering to nothing that governs them.
+     *
+     * The order matches SegmentController::index() and the blast list's own
+     * eager load, because an operator choosing from this select has just been
+     * reading that list and a second order would make the same segments look
+     * like different ones. Whole models rather than a projection, matching
+     * every other list this application hands to Inertia -- nothing on
+     * `segments` is a secret, which is a property of today's columns and is
+     * stated in that controller rather than restated here.
+     *
+     * @return Collection<int, Segment>
+     */
+    private function segments(): Collection
+    {
+        if (Gate::denies('viewAny', Segment::class)) {
+            return new Collection;
+        }
+
+        return Segment::query()->orderBy('name')->get();
     }
 
     /**

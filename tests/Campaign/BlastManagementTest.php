@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Authorization\Permission;
 use App\Blasts\BlastStatus;
 use App\Models\Blast;
+use App\Models\Segment;
 use App\Models\Supporter;
 use App\Models\User;
 use App\Supporters\SubscriptionStatus;
@@ -88,16 +89,18 @@ test('a form cannot set the state, the moment of committing, or who wrote it', f
         ->and($blast->operator_id)->toBe($operator->getKey());
 });
 
-test('the model permits exactly the three columns a compose form fills', function (): void {
+test('the model permits exactly the four columns a compose form fills', function (): void {
     // L-14's pairing: the behavioural assertion above, and the configuration
     // invariant behind it, in the same run so neither half can stand alone.
     //
-    // This one is not decorative even though widening it changes no behaviour
-    // today. Laravel guards every attribute by default, so this list is what
-    // *permits* the three that a compose form fills -- and it is the thing a
-    // later action passing raw input to create() or update() would be relying
-    // on without knowing it.
-    expect((new Blast)->getFillable())->toBe(['subject', 'body', 'postcode_prefixes']);
+    // This one is not decorative. Laravel guards every attribute by default, so
+    // this list is what *permits* the four that a compose form fills -- and
+    // `segment_id` is the one that proves it, because mass assignment drops a
+    // guarded attribute silently: removing that name would leave every blast
+    // aimed at a segment aimed at nobody in particular, with no error anywhere.
+    // That is the opposite of how this list has failed twice before, where a
+    // request object's own allowlist made widening it harmless.
+    expect((new Blast)->getFillable())->toBe(['subject', 'body', 'segment_id', 'postcode_prefixes']);
 });
 
 test('a blast needs something to say', function (): void {
@@ -290,4 +293,181 @@ test('a guest is sent to sign in rather than shown the compose form', function (
 
     $this->get($this->campaignUrl('/blasts/'.$blast->getKey().'/edit'))
         ->assertRedirect(route('login'));
+});
+
+test('the compose form is handed the campaign\'s own segments to aim at', function (): void {
+    Segment::factory()->create(['name' => 'Whalley Range']);
+    Segment::factory()->create(['name' => 'Ardwick']);
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/blasts/create'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('blasts/Create')
+            // Ordered by name, matching the segment list an operator has just
+            // been reading: the same segments in a second order would look like
+            // different segments.
+            ->where('segments.0.name', 'Ardwick')
+            ->where('segments.1.name', 'Whalley Range')
+            ->count('segments', 2)
+        );
+});
+
+test('a blast can be aimed at a segment from the form', function (): void {
+    Supporter::factory()->create(['postcode' => 'M15 6BH']);
+    Supporter::factory()->create(['postcode' => 'EH8 9YL']);
+
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+
+    $this->actingAs(User::factory()->create())
+        ->post($this->campaignUrl('/blasts'), [
+            'subject' => 'Aimed by name',
+            'body' => 'Pointing rather than retyping.',
+            'segment_id' => (string) $segment->getKey(),
+        ])
+        ->assertRedirect();
+
+    $blast = Blast::query()->sole();
+
+    // The pointer is stored and the blast carries no rule of its own, which is
+    // the pair the check constraint holds and the form has to produce.
+    expect($blast->segment_id)->toBe($segment->getKey())
+        ->and($blast->postcode_prefixes)->toBeNull();
+
+    // And the edit page counts against the segment's rule rather than against
+    // nothing, which is what proves the aim survived the round trip as an aim
+    // and not merely as a column.
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/blasts/'.$blast->getKey().'/edit'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('blast.segment_id', $segment->getKey())
+            ->where('audienceSize', 1)
+        );
+});
+
+test('a form cannot aim a blast two ways at once', function (): void {
+    $segment = Segment::factory()->create();
+
+    // The database refuses this row with SQLSTATE 23514 and the operator would
+    // see a 500. The rule turns that into a sentence about which of the two
+    // they have to give up -- the same division of labour UniqueSupporterEmail
+    // makes beside the lower(email) index.
+    $this->actingAs(User::factory()->create())
+        ->post($this->campaignUrl('/blasts'), [
+            'subject' => 'Aimed two ways',
+            'body' => 'Refused.',
+            'segment_id' => (string) $segment->getKey(),
+            'postcode_prefixes' => 'M15',
+        ])
+        ->assertSessionHasErrors('segment_id');
+
+    expect(Blast::query()->count())->toBe(0);
+});
+
+test('a stray separator in the postcode field does not refuse a segment', function (): void {
+    // The rule asks prefixes() rather than the raw field, so the form's notion
+    // of "the operator typed postcodes" is the same one the storage uses. A
+    // rule written against the raw string would refuse this on a comma.
+    $segment = Segment::factory()->create();
+
+    $this->actingAs(User::factory()->create())
+        ->post($this->campaignUrl('/blasts'), [
+            'subject' => 'Aimed by name, with a leftover comma',
+            'body' => 'Accepted.',
+            'segment_id' => (string) $segment->getKey(),
+            'postcode_prefixes' => ' , ,',
+        ])
+        ->assertSessionHasNoErrors();
+
+    expect(Blast::query()->sole()->segment_id)->toBe($segment->getKey());
+});
+
+test('a blast cannot be aimed at a segment that does not exist here', function (): void {
+    // Ids restart at 1 in every campaign, so an id naming another campaign's
+    // segment is a plausible value rather than an obvious forgery. The rule
+    // runs on the campaign's own connection, so it simply is not there.
+    $this->actingAs(User::factory()->create())
+        ->post($this->campaignUrl('/blasts'), [
+            'subject' => 'Aimed somewhere else',
+            'body' => 'Refused.',
+            'segment_id' => '1',
+        ])
+        ->assertSessionHasErrors('segment_id');
+
+    expect(Blast::query()->count())->toBe(0);
+});
+
+test('re-aiming a draft from a segment to postcodes clears the pointer, and back again', function (): void {
+    Supporter::factory()->create(['postcode' => 'M15 6BH']);
+    Supporter::factory()->create(['postcode' => 'EH8 9YL']);
+
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $blast = Blast::factory()->aimedAtSegment($segment)->create();
+
+    // **Both directions, because only one of them can fail quietly.** Switching
+    // away from a segment has to null the pointer, or the saved row names two
+    // aims and the database refuses it; switching back has to null the
+    // prefixes for the same reason. composed() returns both halves every time
+    // for exactly this, and a form that returned only the field it was given
+    // would produce the refused row on the first switch.
+    $this->actingAs(User::factory()->create())
+        ->patch($this->campaignUrl('/blasts/'.$blast->getKey()), [
+            'subject' => 'Now aimed by postcode',
+            'body' => 'Rewritten.',
+            'postcode_prefixes' => 'eh8',
+        ])
+        ->assertSessionHasNoErrors();
+
+    $blast->refresh();
+
+    expect($blast->segment_id)->toBeNull()
+        ->and($blast->postcode_prefixes)->toBe(['eh8']);
+
+    $this->actingAs(User::factory()->create())
+        ->patch($this->campaignUrl('/blasts/'.$blast->getKey()), [
+            'subject' => 'Back to the segment',
+            'body' => 'Rewritten again.',
+            'segment_id' => (string) $segment->getKey(),
+        ])
+        ->assertSessionHasNoErrors();
+
+    $blast->refresh();
+
+    expect($blast->segment_id)->toBe($segment->getKey())
+        ->and($blast->postcode_prefixes)->toBeNull();
+});
+
+test('an operator who may not read segments still gets the compose page, without them', function (): void {
+    // **The proportional answer, guarded, because the heavy-handed one was
+    // tried first and reddened nothing.** A hard authorize on the segment
+    // policy here would 403 the whole page -- and an operator holding
+    // EditBlasts without ViewSupporters plainly may write a blast and aim it by
+    // postcode. So the page renders and the select is simply not offered, which
+    // is what it already does for a campaign that has named none.
+    //
+    // Both roles hold ViewSupporters today, so the refusal has to be built
+    // rather than found: the grant is withdrawn for the length of this test,
+    // the same way the compose-route test above withdraws EditBlasts.
+    Segment::factory()->create(['name' => 'Whalley Range']);
+
+    $operator = User::factory()->create();
+
+    Gate::define(Permission::ViewSupporters->value, fn (): bool => false);
+
+    $this->actingAs($operator)
+        ->get($this->campaignUrl('/blasts/create'))
+        // Not forbidden. The authority to be here is EditBlasts, and it is
+        // untouched.
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('blasts/Create')
+            ->count('segments', 0)
+        );
+
+    $blast = Blast::factory()->create();
+
+    $this->actingAs($operator)
+        ->get($this->campaignUrl('/blasts/'.$blast->getKey().'/edit'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->count('segments', 0));
 });

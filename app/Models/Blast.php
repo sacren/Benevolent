@@ -93,7 +93,22 @@ use Illuminate\Support\Carbon;
 // `queued_by` is who committed the message to sending, both stamped by the
 // server from the signed-in operator, because a form that could set either
 // could put somebody else's name on a message that went out.
-#[Fillable(['subject', 'body', 'postcode_prefixes'])]
+//
+// **`segment_id` is here rather than stamped, unlike the two operator columns,
+// because it is something the operator chooses and not something the server
+// knows.** It is safe to accept for the reason the id is safe to accept at all:
+// the form's `exists` rule runs on the campaign's own connection, so an id
+// naming another campaign's segment does not resolve, and the check constraint
+// refuses a row that names it alongside a rule of its own.
+//
+// **And it is load-bearing in the positive direction, which is the opposite of
+// how this list has failed before.** Twice in this project a request object's
+// allowlist has made a model's fillable list decorative, so that widening the
+// list reddened nothing. Here the list is what *permits* the write: mass
+// assignment drops a guarded attribute silently, so removing this name would
+// leave every blast aimed at nobody in particular with no error anywhere. A
+// test pins the list beside the behaviour for that reason.
+#[Fillable(['subject', 'body', 'segment_id', 'postcode_prefixes'])]
 class Blast extends Model
 {
     /** @use HasFactory<BlastFactory> */
