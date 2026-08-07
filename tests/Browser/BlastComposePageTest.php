@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Models\Blast;
+use App\Models\Segment;
 use App\Models\Supporter;
 use App\Models\User;
 use App\Supporters\SubscriptionStatus;
@@ -27,6 +28,13 @@ use Tests\Support\LoopbackHost;
  *   - **The postcode field has to read back the same line the operator typed.**
  *     The server stores a list and the page joins it, so a round trip through
  *     the form is the only thing that shows the two agree.
+ *   - **A `<select>` whose chosen option is set by `:selected` on the options
+ *     rather than by a model shows the wrong aim silently when the binding does
+ *     not take.** The server sends the right `segment_id` and `assertInertia`
+ *     is satisfied by it; the operator sees a different segment named in the
+ *     control, and saving any unrelated edit re-aims the blast to whatever the
+ *     browser had selected. That is a message going to the wrong people, and
+ *     nothing outside a browser can see it.
  *
  * Reaching this page at all is the other half of the work, and it is
  * Tests\Support\LoopbackHost's job -- see that class for why claiming the
@@ -170,5 +178,81 @@ test('an operator who may not send is not offered the control', function (): voi
     visit('/blasts/'.$blast->getKey().'/edit')
         ->assertSee('Object before Friday')
         ->assertMissing('[data-test="send-blast"]')
+        ->assertNoJavaScriptErrors();
+});
+
+test('the segment a draft is aimed at is the one the control shows', function (): void {
+    // **Two segments, and the aim is the second**, because a control that
+    // simply shows its first option would be right by accident with one.
+    Segment::factory()->narrowedToPostcodes(['EH8'])->create(['name' => 'Ardwick']);
+    $aim = Segment::factory()->narrowedToPostcodes(['M15'])->create(['name' => 'Whalley Range']);
+
+    Supporter::factory()->create(['postcode' => 'M15 6BH']);
+    Supporter::factory()->create(['postcode' => 'EH8 9YL']);
+
+    $blast = Blast::factory()->aimedAtSegment($aim)->create(['subject' => 'Dockside works begin']);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    visit('/blasts/'.$blast->getKey().'/edit')
+        // Vue mounted and the server's row reached it. Everything below is
+        // evidence only because of this.
+        ->assertSee('Dockside works begin')
+
+        // The control exists and offers the campaign's narrowings by name.
+        //
+        // **Asserted through the DOM rather than with assertSee, and that is a
+        // measurement rather than a preference.** An <option>'s label is not
+        // visible text until the list is opened, so assertSee('Whalley Range')
+        // fails on a page where the option is present and correct -- which it
+        // did, on the first run of this test.
+        ->assertPresent('[data-test="aim-at-segment"]')
+        ->assertScript(
+            "Array.from(document.querySelectorAll('#segment_id option'))"
+            ."   .map(o => o.textContent.trim()).join('|') === 'No segment|Ardwick|Whalley Range'"
+        )
+
+        // **The assertion this test exists for.** Read off the control's own
+        // state rather than inferred from the options being present, because a
+        // select rendering both names while sitting on the wrong one is exactly
+        // the failure worth catching -- and it is invisible to every
+        // server-side assertion, which sees only the prop that was sent.
+        ->assertValue('#segment_id', (string) $aim->getKey())
+        ->assertScript(
+            "document.querySelector('#segment_id').selectedOptions[0]"
+            .".textContent.trim() === 'Whalley Range'"
+        )
+
+        // And the count is computed through the pointer rather than from a rule
+        // on the blast's own row, which is what makes the aim real rather than
+        // decorative: one supporter in M15, not the two on the list.
+        ->assertSee('1 supporter matches this blast right now')
+
+        // The postcode field is empty, because the two aims are mutually
+        // exclusive -- and an operator seeing a stale postcode beside a chosen
+        // segment would be looking at a row the database refuses.
+        ->assertValue('#postcode_prefixes', '')
+
+        ->assertNoJavaScriptErrors();
+});
+
+test('a campaign that has named no narrowings is offered no control for them', function (): void {
+    // The other half, and it is what stops the test above being satisfied by a
+    // control that is always present: the select is rendered only when there is
+    // something to choose, which is the supporter list's argument for the same
+    // control one module along.
+    Supporter::factory()->create(['postcode' => 'M15 6BH']);
+
+    $blast = Blast::factory()->narrowedToPostcodes(['M15'])->create(['subject' => 'Aimed by hand']);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    visit('/blasts/'.$blast->getKey().'/edit')
+        ->assertSee('Aimed by hand')
+        ->assertMissing('[data-test="aim-at-segment"]')
+
+        // The page an operator has always had is unchanged: they aim by
+        // postcode, and the field reads back the line they typed.
+        ->assertValue('#postcode_prefixes', 'M15')
         ->assertNoJavaScriptErrors();
 });

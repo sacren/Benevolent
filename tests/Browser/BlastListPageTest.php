@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Models\Blast;
 use App\Models\BlastRecipient;
+use App\Models\Segment;
 use App\Models\User;
 use Tests\Concerns\RunsInCampaignContext;
 use Tests\Support\LoopbackHost;
@@ -28,6 +29,13 @@ use Tests\Support\LoopbackHost;
  *     campaign that cannot read the difference believes it has contacted its
  *     supporters when it has not -- and a summary that failed to render at all
  *     would read exactly like a blast with nothing to report.
+ *   - **The audience summary asks about the segment before the column, and
+ *     getting that order wrong says the opposite of the truth.** A blast aimed
+ *     at a segment carries no `postcode_prefixes` of its own, so a summary
+ *     testing the column first calls it "Everyone subscribed" -- a blast
+ *     narrowed to one ward described as going to the whole list. The server
+ *     sends both fields and is satisfied either way; only the rendered
+ *     sentence differs, and this is the only guard that reads it.
  *
  * Reaching the page is Tests\Support\LoopbackHost's job -- see that class for
  * why claiming the address begins by releasing whoever holds it, and note that
@@ -109,5 +117,47 @@ test('a send that stopped says why, where the campaign can read it', function ()
         ->assertSee('1 reached before it stopped')
         ->assertSee('The list could not be read')
         ->assertPresent('[data-test="blast-failure-'.$failed->getKey().'"]')
+        ->assertNoJavaScriptErrors();
+});
+
+test('a blast aimed at a segment says which one, and never that it goes to everybody', function (): void {
+    // **The one guard on the summary's branch order**, and it cannot be written
+    // anywhere else: the ordering lives in a client-side function, the server
+    // sends the same two fields whichever way it is written, and a front-end
+    // mutation cannot be confirmed at all without a build.
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create(['name' => 'Whalley Range']);
+
+    Blast::factory()->aimedAtSegment($segment)->create(['subject' => 'Dockside works begin']);
+
+    // The two neighbours it must not be confused with, on the same page in the
+    // same run: one aimed by its own rule, one aimed at nobody in particular.
+    Blast::factory()->narrowedToPostcodes(['EH8'])->create(['subject' => 'Ridge path closure']);
+    Blast::factory()->create(['subject' => 'Everyone, then']);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    visit('/blasts')
+        ->assertSee('Dockside works begin')
+        ->assertSee('Ridge path closure')
+        ->assertSee('Everyone, then')
+
+        // The segment-aimed blast is named by its narrowing rather than by an
+        // id, which is why the page is handed the whole segment and not just
+        // the pointer.
+        ->assertSee('Subscribed in Whalley Range')
+
+        // The blast carrying its own rule is unchanged, so this is not passing
+        // against a summary that renders one thing for everything...
+        ->assertSee('Subscribed in EH8')
+
+        // ...and a blast that really does go to the whole list still says so,
+        // which is what makes the assertion below a statement about the
+        // *ordering* rather than about the words being absent.
+        ->assertSee('Everyone subscribed')
+
+        // The failure this exists to catch would render "Everyone subscribed"
+        // three times, and the two assertions above would both still pass.
+        ->assertDontSee('Subscribed in segment')
+
         ->assertNoJavaScriptErrors();
 });
