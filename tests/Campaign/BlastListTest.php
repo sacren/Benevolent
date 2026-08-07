@@ -5,7 +5,9 @@ declare(strict_types=1);
 use App\Authorization\Permission;
 use App\Blasts\BlastStatus;
 use App\Models\Blast;
+use App\Models\Segment;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Testing\AssertableInertia as Assert;
 
@@ -112,4 +114,57 @@ test('the list refuses an operator who has lost the grant', function (): void {
     $this->actingAs(User::factory()->create())
         ->get($this->campaignUrl('/blasts'))
         ->assertForbidden();
+});
+
+test('the list says which named narrowing a blast is aimed at', function (): void {
+    // The page renders this cell from what arrives here, so what arrives has to
+    // be the segment rather than only the pointer: `segment_id` is an id and
+    // names nothing an operator can read.
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create(['name' => 'Whalley Range']);
+
+    Blast::factory()->aimedAtSegment($segment)->create();
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/blasts'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('blasts.0.segment_id', $segment->getKey())
+            ->where('blasts.0.segment.name', 'Whalley Range')
+            // And the blast carries no rule of its own, which is the pair that
+            // makes the page's ordering matter: a summary reading the column
+            // first would call this blast "everyone subscribed".
+            ->where('blasts.0.postcode_prefixes', null)
+        );
+});
+
+test('the narrowing is loaded once for the page, not once per blast', function (): void {
+    // The distinction this page is built on, asserted rather than described.
+    // An audience count per row is refused here on a measurement; a segment per
+    // row would be the same shape one table along, and eager loading is what
+    // makes it one query for the whole list however many blasts there are.
+    $first = Segment::factory()->create(['name' => 'Ardwick']);
+    $second = Segment::factory()->create(['name' => 'Whalley Range']);
+
+    Blast::factory()->aimedAtSegment($first)->create();
+    Blast::factory()->aimedAtSegment($second)->create();
+    Blast::factory()->aimedAtSegment($first)->create();
+
+    $operator = User::factory()->create();
+
+    $segmentQueries = 0;
+
+    DB::listen(function ($query) use (&$segmentQueries): void {
+        if (str_contains($query->sql, '"segments"')) {
+            $segmentQueries++;
+        }
+    });
+
+    $this->actingAs($operator)
+        ->get($this->campaignUrl('/blasts'))
+        ->assertOk();
+
+    // One for three blasts pointing at two segments. Written as an exact
+    // number rather than "fewer than three", because the claim is that the
+    // count does not grow with the list and an inequality would still hold
+    // for a page that queried twice.
+    expect($segmentQueries)->toBe(1);
 });

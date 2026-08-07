@@ -95,6 +95,23 @@ class BlastController extends Controller
 
         return Inertia::render('blasts/Index', [
             'blasts' => Blast::query()
+                // **The narrowing each blast points at, as one eager load
+                // rather than a query per row**, which is the same distinction
+                // the counts below turn on. This is one select over `segments`
+                // for the whole page -- a table holding as many rows as a
+                // campaign has named narrowings -- where the audience count
+                // this page still refuses would be a fresh BlastAudience query
+                // per blast against every supporter.
+                //
+                // It is loaded because a page that cannot say what a blast was
+                // aimed at is a regression on a surface Phase 2 built
+                // deliberately, and `segment_id` alone is an id: it names
+                // nothing an operator can read. **A whole Segment per blast
+                // rather than the name alone**, matching every other list this
+                // application hands to Inertia; nothing on `segments` is a
+                // secret, which SegmentController::index() states and which is
+                // a property of today's columns rather than a guarantee.
+                ->with('segment')
                 // **What a send has actually done, as two aggregates rather
                 // than a query per row.** This is the counterpart to the
                 // trigger recorded against putting an *audience* count here:

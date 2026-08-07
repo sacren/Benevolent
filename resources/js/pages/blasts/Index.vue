@@ -72,13 +72,31 @@ function progressSummary(blast: Blast): string {
 /**
  * How a blast describes who it is aimed at, in a list with no room for a count.
  *
- * **Null, and only null, is the whole list**, which mirrors the server rather
+ * **The segment is asked about first, and the order is the whole correctness of
+ * this function.** A blast aimed at a segment carries no `postcode_prefixes` of
+ * its own -- the database forbids both -- so a version that tested the column
+ * first would answer "everyone subscribed" for a blast narrowed to one ward,
+ * which is the exact opposite of who it goes to. Server-side the same ordering
+ * is what BlastAudience draws first and for the same reason.
+ *
+ * **Only naming neither is the whole list**, which mirrors the server rather
  * than paraphrasing it: an aim naming no usable postcode reaches nobody, so
- * saying "everyone subscribed" for it would state the exact opposite of who the
- * blast goes to. Saying what null means in words is still the point -- an empty
- * cell would read as a blast aimed at nobody, which is the other way round.
+ * saying "everyone subscribed" for it would state the opposite again. Saying
+ * what naming neither means in words is still the point -- an empty cell would
+ * read as a blast aimed at nobody, which is the other way round.
+ *
+ * A blast pointing at a segment the server did not load is named by its id, and
+ * that branch is deliberately not "everyone": this page always loads it, and
+ * the fallback fails in the direction that understates reach rather than
+ * overstating it.
  */
 function audienceSummary(blast: Blast): string {
+    if (blast.segment_id !== null) {
+        return blast.segment
+            ? `Subscribed in ${blast.segment.name}`
+            : `Subscribed in segment ${blast.segment_id}`;
+    }
+
     if (blast.postcode_prefixes === null) {
         return 'Everyone subscribed';
     }
