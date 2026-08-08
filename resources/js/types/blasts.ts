@@ -42,6 +42,20 @@ export type Blast = {
      */
     segment?: Segment | null;
     postcode_prefixes: string[] | null;
+
+    /**
+     * What the aim named at the moment the campaign committed the blast, for a
+     * blast that pointed at a segment (D-27). Null for a draft, for a blast
+     * carrying its own rule, and for one aimed at everybody — the database ties
+     * it to exactly the rows that have one.
+     *
+     * **This, and not the segment, is what a committed blast actually reached.**
+     * A segment stays editable after a blast has gone out, so `segment` is a
+     * live value that may have moved since; a page describing a sent blast from
+     * it would be reporting today's narrowing as though it were the one the
+     * campaign used.
+     */
+    committed_prefixes: string[] | null;
     status: BlastStatus;
     queued_at: string | null;
     finished_at: string | null;

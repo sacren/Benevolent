@@ -89,9 +89,26 @@ function progressSummary(blast: Blast): string {
  * that branch is deliberately not "everyone": this page always loads it, and
  * the fallback fails in the direction that understates reach rather than
  * overstating it.
+ *
+ * **A committed blast is described from what it froze, never from its segment
+ * (D-27).** A segment stays editable after a blast has gone out -- deliberately,
+ * because a named narrowing a campaign cannot correct is worth little -- so the
+ * segment on the row is today's rule and today's name. Describing a sent blast
+ * from it reports the wrong narrowing as though it were the one that went out,
+ * which is the reporting half of the exposure the send path closed.
+ *
+ * **The status decides, not the presence of a frozen rule**, mirroring
+ * BlastAudience exactly: `draft` is the one state that still follows its
+ * pointer, and everything past it reads what it kept. Mirroring the server's
+ * spelling is what keeps the sentence on this page and the set the send walked
+ * the same claim.
  */
 function audienceSummary(blast: Blast): string {
     if (blast.segment_id !== null) {
+        if (blast.status !== 'draft') {
+            return committedAudienceSummary(blast);
+        }
+
         return blast.segment
             ? `Subscribed in ${blast.segment.name}`
             : `Subscribed in segment ${blast.segment_id}`;
@@ -106,6 +123,49 @@ function audienceSummary(blast: Blast): string {
     }
 
     return `Subscribed in ${blast.postcode_prefixes.join(', ')}`;
+}
+
+/**
+ * Whether two stored rules say the same thing.
+ *
+ * Order-sensitive on purpose. A frozen rule is copied verbatim from the segment
+ * it was taken from, so an unchanged segment gives back an identical list in an
+ * identical order; anything else is a rule somebody edited, and reordering the
+ * prefixes of a narrowing is an edit like any other.
+ */
+function sameRule(one: string[], other: string[]): boolean {
+    return (
+        one.length === other.length &&
+        one.every((prefix, index) => prefix === other[index])
+    );
+}
+
+/**
+ * What a blast the campaign has already committed was aimed at.
+ *
+ * The null case is unreachable through a stored row -- the check constraint
+ * gives every committed segment-aimed blast a frozen rule -- and is written
+ * anyway, in the same direction the server's fallback goes: say nothing was
+ * narrowed rather than name a segment whose rule this blast never used.
+ */
+function committedAudienceSummary(blast: Blast): string {
+    const frozen = blast.committed_prefixes;
+
+    if (frozen === null) {
+        return `Subscribed in segment ${blast.segment_id}`;
+    }
+
+    const where = frozen.length === 0 ? 'no postcodes' : frozen.join(', ');
+
+    if (!blast.segment) {
+        return `Subscribed in ${where}`;
+    }
+
+    if (sameRule(frozen, blast.segment.postcode_prefixes)) {
+        return `Subscribed in ${blast.segment.name}`;
+    }
+
+    return `Subscribed in ${where} — ${blast.segment.name} has changed since`;
 }
 
 defineOptions({
