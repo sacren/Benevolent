@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Blasts\BlastStatus;
 use App\Blasts\SendBlast;
 use App\Models\Blast;
+use App\Models\Segment;
 use App\Models\Supporter;
 use App\Models\Tenant;
 use App\Supporters\SubscriptionStatus;
@@ -701,4 +702,73 @@ test('following the link from the message takes the supporter off the list, and 
     expect(DB::table('blast_recipients')->where('blast_id', $second->getKey())->count())->toBe(1);
 
     tenancy()->end();
+});
+
+test('a second attempt at the same send cannot widen who it reaches', function (): void {
+    // **The measurement that decided D-27(a), turned into a guard.** Before the
+    // freeze this exact sequence delivered to somebody who was never in the
+    // committed audience: the send resolves its rule inside handle(), `tries`
+    // is 3 and `retry_after` is 90 seconds, so any send longer than that is
+    // released and re-entered -- and the unique index on blast_recipients
+    // refuses a *duplicate* while saying nothing at all about an audience that
+    // grew between one attempt and the next.
+    //
+    // Driven through the worker rather than handle(), because a job's campaign
+    // is restored by a listener only the worker raises.
+    $sent = messagesSent();
+
+    $harbor = sendingCampaign('harbor-cleanup');
+
+    tenancy()->initialize($harbor);
+
+    $inTheCommittedAim = Supporter::factory()->create([
+        'email' => 'ama@harbor.test',
+        'postcode' => 'M15 6BH',
+        'subscription_status' => SubscriptionStatus::Subscribed,
+    ]);
+
+    // Never in the committed audience, and admitted only by the edit below.
+    Supporter::factory()->create([
+        'email' => 'bo@harbor.test',
+        'postcode' => 'EH8 9YL',
+        'subscription_status' => SubscriptionStatus::Subscribed,
+    ]);
+
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create(['name' => 'Dockside streets']);
+    $blast = Blast::factory()->aimedAtSegment($segment)->queued()->create(['subject' => 'Dockside works begin']);
+
+    SendBlast::dispatch($blast, (string) $harbor->getKey());
+    tenancy()->end();
+
+    QueueWorker::runNextJobs(1);
+
+    expect($sent)->toHaveCount(1);
+
+    // The segment is re-aimed somewhere disjoint between the two attempts --
+    // an ordinary, permitted act, which is the whole reason the blast had to
+    // keep its own copy rather than the edit being refused.
+    tenancy()->initialize($harbor);
+    $segment->update(['postcode_prefixes' => ['EH8']]);
+
+    // The second attempt. Not a double-click, which the controller makes
+    // impossible: this is what the queue itself does to a long send.
+    SendBlast::dispatch($blast->fresh(), (string) $harbor->getKey());
+    tenancy()->end();
+
+    QueueWorker::runNextJobs(1);
+
+    // Still one message, and still to the person the campaign committed to
+    // reaching. Asserted on who rather than only how many, because a count
+    // alone would pass if the retry had reached the wrong person instead.
+    expect($sent)->toHaveCount(1)
+        ->and($sent[0]->getTo()[0]->getAddress())->toBe('ama@harbor.test');
+
+    tenancy()->initialize($harbor);
+
+    expect(DB::table('blast_recipients')->count())->toBe(1)
+        ->and(DB::table('blast_recipients')->value('supporter_id'))->toBe($inTheCommittedAim->getKey())
+        // And the segment really did move, so this is a difference rather than
+        // two readings of an unchanged row.
+        ->and($segment->fresh()->postcode_prefixes)->toBe(['EH8'])
+        ->and($blast->fresh()->committed_prefixes)->toBe(['M15']);
 });

@@ -9,6 +9,7 @@ use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Queue;
 
 /**
  * The path Step 4 created: a blast in one campaign pointing at a segment, over
@@ -292,5 +293,114 @@ test('a segment one campaign has a blast aimed at is still removable in the othe
     tenancy()->initialize($harbor);
     expect(Segment::query()->count())->toBe(1)
         ->and(Blast::query()->sole()->segment_id)->toBe($harborSegment->getKey());
+    tenancy()->end();
+});
+
+test('committing a blast freezes the host campaign\'s rule, never the other campaign\'s', function (): void {
+    // **D-27(a) asked across the boundary this file exists to guard.** The
+    // freeze happens inside the statement that commits the blast, and that
+    // statement reads the segment through a pointer whose id means a different
+    // rule in each campaign. A freeze computed against the wrong connection
+    // would write another campaign's postcodes onto this campaign's blast --
+    // and because the frozen rule is now what the send walks, that is not a
+    // wrong label on a page but the wrong people receiving a message.
+    //
+    // Queue::fake() because the subject here is the row the request wrote, not
+    // the send. What a worker does with it is CampaignBlastSendingTest's.
+    Queue::fake();
+
+    $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
+    $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
+
+    [, $harborSegment] = stockBlastSegments($harbor, 'operator@harbor-cleanup.test', 'M15', ['M15 6BH', 'M15 9AA', 'EH8 9YL']);
+    [, $ridgeSegment] = stockBlastSegments($ridge, 'operator@ridge-restoration.test', 'EH8', ['M15 6BH', 'EH8 9YL', 'EH8 1AB', 'EH8 2CD']);
+
+    // The premise, asserted rather than assumed: were the ids to stop
+    // colliding this would keep passing while testing nothing.
+    expect($harborSegment->getKey())->toBe($ridgeSegment->getKey());
+
+    foreach ([
+        ['harbor-cleanup', $harbor, $harborSegment, 'M15'],
+        ['ridge-restoration', $ridge, $ridgeSegment, 'EH8'],
+    ] as [$slug, $campaign, $segment, $ownPrefix]) {
+        signInAt($slug.'.test', 'operator@'.$slug.'.test');
+
+        $this->post('http://'.$slug.'.test/blasts', [
+            'subject' => 'Aimed at '.$ownPrefix,
+            'body' => 'The consultation closes on Friday.',
+            'segment_id' => (string) $segment->getKey(),
+        ])->assertRedirect();
+
+        tenancy()->initialize($campaign);
+        $blast = Blast::query()->sole();
+        tenancy()->end();
+
+        // Still a draft, so nothing is frozen yet -- which is what makes the
+        // assertion after the send a change rather than a restatement.
+        expect($blast->committed_prefixes)->toBeNull();
+
+        $this->post('http://'.$slug.'.test/blasts/'.$blast->getKey().'/send')
+            ->assertRedirect();
+
+        tenancy()->initialize($campaign);
+        $committed = Blast::query()->sole();
+        tenancy()->end();
+
+        expect($committed->committed_prefixes)->toBe([$ownPrefix])
+            ->and($committed->segment_id)->toBe($segment->getKey());
+    }
+
+    // Both campaigns, read back together, because the failure this guards is
+    // one campaign's rule appearing on the other's blast and a per-campaign
+    // assertion in a loop can pass twice against a value captured once.
+    tenancy()->initialize($harbor);
+    expect(Blast::query()->sole()->committed_prefixes)->toBe(['M15']);
+    tenancy()->end();
+
+    tenancy()->initialize($ridge);
+    expect(Blast::query()->sole()->committed_prefixes)->toBe(['EH8']);
+    tenancy()->end();
+});
+
+test('editing one campaign\'s segment leaves the other campaign\'s frozen blast alone', function (): void {
+    // The other direction, and it is a real mistake rather than the same one
+    // written backwards: a frozen rule is only worth having if it stays put,
+    // and "stays put" across two campaigns sharing a segment id is a claim
+    // about which connection an update reached.
+    Queue::fake();
+
+    $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
+    $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
+
+    [, $harborSegment] = stockBlastSegments($harbor, 'operator@harbor-cleanup.test', 'M15', ['M15 6BH', 'M15 9AA', 'EH8 9YL']);
+    [, $ridgeSegment] = stockBlastSegments($ridge, 'operator@ridge-restoration.test', 'EH8', ['M15 6BH', 'EH8 9YL', 'EH8 1AB', 'EH8 2CD']);
+
+    expect($harborSegment->getKey())->toBe($ridgeSegment->getKey());
+
+    tenancy()->initialize($harbor);
+    $harborBlast = Blast::factory()->aimedAtSegment($harborSegment)->sent()->create();
+    tenancy()->end();
+
+    tenancy()->initialize($ridge);
+    $ridgeBlast = Blast::factory()->aimedAtSegment($ridgeSegment)->sent()->create();
+    tenancy()->end();
+
+    // Harbor re-aims its own narrowing, over HTTP, on its own host.
+    signInAt('harbor-cleanup.test', 'operator@harbor-cleanup.test');
+
+    $this->patch('http://harbor-cleanup.test/segments/'.$harborSegment->getKey(), [
+        'name' => 'Dockside streets',
+        'postcode_prefixes' => 'SW1A',
+    ])->assertRedirect();
+
+    tenancy()->initialize($harbor);
+    expect(Segment::query()->sole()->postcode_prefixes)->toBe(['SW1A'])
+        // Harbor's sent blast still says what it went out against.
+        ->and($harborBlast->fresh()->committed_prefixes)->toBe(['M15']);
+    tenancy()->end();
+
+    tenancy()->initialize($ridge);
+    expect(Segment::query()->sole()->postcode_prefixes)->toBe(['EH8'])
+        ->and($ridgeBlast->fresh()->committed_prefixes)->toBe(['EH8']);
     tenancy()->end();
 });
