@@ -36,6 +36,12 @@ use Tests\Support\LoopbackHost;
  *     narrowed to one ward described as going to the whole list. The server
  *     sends both fields and is satisfied either way; only the rendered
  *     sentence differs, and this is the only guard that reads it.
+ *   - **A committed blast described from its segment reports a narrowing it
+ *     never used (D-27).** A segment stays editable after a blast has gone out,
+ *     so the row carries today's name and today's rule beside the rule the
+ *     blast froze. The server sends all three and cannot tell which the page
+ *     chose; the difference is one sentence, and a campaign reading it has no
+ *     other way to learn that its narrowing has moved since the message went.
  *
  * Reaching the page is Tests\Support\LoopbackHost's job -- see that class for
  * why claiming the address begins by releasing whoever holds it, and note that
@@ -121,10 +127,16 @@ test('a send that stopped says why, where the campaign can read it', function ()
 });
 
 test('a blast aimed at a segment says which one, and never that it goes to everybody', function (): void {
-    // **The one guard on the summary's branch order**, and it cannot be written
-    // anywhere else: the ordering lives in a client-side function, the server
-    // sends the same two fields whichever way it is written, and a front-end
-    // mutation cannot be confirmed at all without a build.
+    // **The guard on the summary's first branch**, and it cannot be written
+    // anywhere else: the ordering lives in a client-side function and the
+    // server sends the same fields whichever way it is written. The committed
+    // branch below it is guarded by the two tests at the foot of this file --
+    // this one was the only such guard until D-27 gave the summary a second
+    // question to get right.
+    //
+    // Confirmed by mutation rather than by pairing: inverting the draft test
+    // reddens this assertion, because the draft below stops following its
+    // pointer and is named by an id instead.
     $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create(['name' => 'Whalley Range']);
 
     Blast::factory()->aimedAtSegment($segment)->create(['subject' => 'Dockside works begin']);
@@ -159,5 +171,69 @@ test('a blast aimed at a segment says which one, and never that it goes to every
         // three times, and the two assertions above would both still pass.
         ->assertDontSee('Subscribed in segment')
 
+        ->assertNoJavaScriptErrors();
+});
+
+test('a sent blast says what it went out against, not what its narrowing says now', function (): void {
+    // **The reporting half of D-27, and the only guard that reads the rendered
+    // sentence.** The server sends the frozen rule, the segment and the status
+    // whichever way the page is written; what differs is the words a campaign
+    // reads. Before this, a blast sent against M16 under the name "Whalley
+    // Range" rendered as "Subscribed in Hulme" once the segment was renamed and
+    // re-aimed -- today's narrowing presented as the one that went out, with
+    // nothing on the page suggesting anything had moved.
+    $segment = Segment::factory()->narrowedToPostcodes(['M16'])->create(['name' => 'Whalley Range']);
+
+    Blast::factory()->aimedAtSegment($segment)->sent()->create(['subject' => 'Dockside works begin']);
+
+    // **The control, on the same page in the same run.** A draft aimed at the
+    // very same segment must still follow it, because that is what pointing is
+    // for -- so this page shows one segment described two different ways, which
+    // is the whole shape of D-27(a) and cannot be asserted from one row.
+    Blast::factory()->aimedAtSegment($segment)->create(['subject' => 'Still being written']);
+
+    // The narrowing moves after the send, in both ways it can: renamed, and
+    // re-aimed somewhere disjoint.
+    $segment->update(['name' => 'Hulme', 'postcode_prefixes' => ['M15']]);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    visit('/blasts')
+        ->assertSee('Dockside works begin')
+        ->assertSee('Still being written')
+
+        // The sent blast reports what it froze, and says the narrowing has
+        // moved rather than quietly showing today's.
+        ->assertSee('Subscribed in M16 — Hulme has changed since')
+
+        // The draft follows the pointer to today's rule and today's name.
+        ->assertSee('Subscribed in Hulme')
+
+        // The sent blast is never described by the rule it did not use. This
+        // can fail and the obvious neighbour cannot: asserting the *old* name
+        // is absent would be unbreakable, because the name a segment had when
+        // a blast went out is stored nowhere and no rendering choice could put
+        // it on the page. Only the rule was frozen.
+        ->assertDontSee('Subscribed in M15')
+
+        ->assertNoJavaScriptErrors();
+});
+
+test('a sent blast whose narrowing has not moved is still named by that narrowing', function (): void {
+    // **Without this the drift wording could be shown unconditionally** and the
+    // test above would not notice -- which would make every sent blast in the
+    // product look as though its narrowing had changed, and would throw away
+    // the naming Step 4 built. Where the segment still says exactly what the
+    // blast froze, nothing has been lost and the name is the useful thing.
+    $segment = Segment::factory()->narrowedToPostcodes(['M16'])->create(['name' => 'Whalley Range']);
+
+    Blast::factory()->aimedAtSegment($segment)->sent()->create(['subject' => 'Dockside works begin']);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    visit('/blasts')
+        ->assertSee('Subscribed in Whalley Range')
+        ->assertDontSee('has changed since')
+        ->assertDontSee('Subscribed in M16')
         ->assertNoJavaScriptErrors();
 });
