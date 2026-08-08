@@ -8,6 +8,7 @@ use App\Blasts\BlastStatus;
 use App\Blasts\SendBlast;
 use App\Models\Blast;
 use App\Models\BlastRecipient;
+use App\Models\Segment;
 use App\Models\Supporter;
 use App\Models\User;
 use App\Supporters\SubscriptionStatus;
@@ -320,4 +321,94 @@ test('the counts are two aggregates rather than a query for every blast', functi
     // same as one -- where a recomputed audience size would have cost five
     // BlastAudience queries and would have been the wrong number besides.
     expect($selects)->toBe(1);
+});
+
+test('committing a segment-aimed blast freezes the rule it was aimed at', function (): void {
+    // **D-27(a) at the moment it happens.** Until this step a blast pointed at
+    // its segment for its whole life, so the campaign committing a message and
+    // the rule that message would follow were two facts that could drift apart
+    // between the commit and the worker. The commit now takes a copy.
+    Queue::fake();
+
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    Supporter::factory()->create([
+        'postcode' => 'M15 6BH',
+        'subscription_status' => SubscriptionStatus::Subscribed,
+    ]);
+    $blast = Blast::factory()->aimedAtSegment($segment)->create();
+
+    // A draft holds nothing frozen, which is what makes the assertion after the
+    // commit a change rather than a restatement.
+    expect($blast->committed_prefixes)->toBeNull();
+
+    $this->actingAs(owner())
+        ->post($this->campaignUrl('/blasts/'.$blast->getKey().'/send'))
+        ->assertRedirect(route('blasts.index'));
+
+    $committed = $blast->fresh();
+
+    expect($committed->status)->toBe(BlastStatus::Queued)
+        ->and($committed->committed_prefixes)->toBe(['M15'])
+        // The pointer stays. The frozen rule is a record of what the aim said,
+        // never a replacement for the aim -- a campaign still has to be able to
+        // say which narrowing a message was sent to, and the foreign key that
+        // stops that segment being deleted hangs off this column.
+        ->and($committed->segment_id)->toBe($segment->getKey())
+        // And the blast's own rule column is untouched, so D-26's shape is
+        // exactly where Step 4 left it.
+        ->and($committed->postcode_prefixes)->toBeNull();
+});
+
+test('editing the segment afterwards does not move what the committed blast holds', function (): void {
+    // The property the freeze buys, asserted at the row rather than through a
+    // send: the copy is a copy. The send half is BlastAudienceTest's, and the
+    // whole-path half is the Tenancy file's.
+    Queue::fake();
+
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    Supporter::factory()->create([
+        'postcode' => 'M15 6BH',
+        'subscription_status' => SubscriptionStatus::Subscribed,
+    ]);
+    $blast = Blast::factory()->aimedAtSegment($segment)->create();
+
+    $this->actingAs(owner())
+        ->post($this->campaignUrl('/blasts/'.$blast->getKey().'/send'))
+        ->assertRedirect(route('blasts.index'));
+
+    // Somebody re-aims the segment. This is a legitimate act and stays one --
+    // the alternative mechanism considered for D-27 was refusing it, which
+    // would have locked this segment for as long as the blast sat queued, and
+    // with no worker deployed anywhere that is forever.
+    $segment->update(['postcode_prefixes' => ['M1']]);
+
+    expect($blast->fresh()->committed_prefixes)->toBe(['M15'])
+        // The segment really did move, so the assertion above is a difference
+        // rather than two readings of the same unchanged row.
+        ->and($segment->fresh()->postcode_prefixes)->toBe(['M1']);
+});
+
+test('committing a blast that carries its own rule freezes nothing', function (): void {
+    // The rows this must leave alone. A blast's own prefixes are already frozen
+    // by being on its own row: nothing but its compose form can reach them, and
+    // refuseCommitted() closes that form the moment it is committed. Freezing
+    // them again would be a second copy of a rule that cannot move, which is
+    // the duplication this phase exists to remove rather than add to.
+    Queue::fake();
+
+    Supporter::factory()->create([
+        'postcode' => 'M15 6BH',
+        'subscription_status' => SubscriptionStatus::Subscribed,
+    ]);
+    $blast = Blast::factory()->narrowedToPostcodes(['M15'])->create();
+
+    $this->actingAs(owner())
+        ->post($this->campaignUrl('/blasts/'.$blast->getKey().'/send'))
+        ->assertRedirect(route('blasts.index'));
+
+    $committed = $blast->fresh();
+
+    expect($committed->status)->toBe(BlastStatus::Queued)
+        ->and($committed->committed_prefixes)->toBeNull()
+        ->and($committed->postcode_prefixes)->toBe(['M15']);
 });

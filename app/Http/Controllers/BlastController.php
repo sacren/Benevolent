@@ -304,6 +304,21 @@ class BlastController extends Controller
      * nobody is a mistake the operator cannot undo, and an aim that has simply
      * gone empty by the time the worker starts is a send of nothing rather than
      * a blast that can never be edited again.
+     *
+     * **This is also where a segment-aimed blast's rule stops moving (D-27).**
+     * Until now a blast pointed at a segment for its whole life, so editing the
+     * segment changed what an already-committed send would reach -- measured,
+     * and not only in the window before the worker starts: `SendBlast` re-reads
+     * the rule on every attempt, and `retry_after` releases any real send back
+     * to the queue, so a segment edited mid-send admitted a supporter who was
+     * never in the committed audience. The rule is therefore copied onto the
+     * blast by the same statement that commits it. A draft keeps pointing, which
+     * is the whole value of pointing; what the campaign gives up the right to
+     * change, it also stops being able to have changed for it.
+     *
+     * The copy is written here before anything reads it, which is this project's
+     * usual order -- a column and its writer are pointless apart, and the reader
+     * that prefers it is one commit away.
      */
     public function send(Request $request, Blast $blast): RedirectResponse
     {
@@ -322,16 +337,46 @@ class BlastController extends Controller
             return to_route('blasts.edit', $blast);
         }
 
+        // **The aim is read here, one statement before it is frozen (D-27).**
+        // Read through BlastAudience rather than off the segment, because the
+        // rule the send will walk and the rule frozen here have to be the same
+        // rule -- a second reading of a segment in this file would be the copy
+        // D-29 exists to prevent, and the two disagreeing is a message going
+        // somewhere the campaign did not commit it to.
+        $committedAim = BlastAudience::committedAimFor($blast);
+
         $committed = Blast::query()
             ->whereKey($blast->getKey())
             ->where('status', BlastStatus::Draft)
             ->update([
-                // Written outside mass assignment, and these three columns are
+                // Written outside mass assignment, and these four columns are
                 // absent from the model's #[Fillable] for exactly this reason:
                 // a form able to set them could mark a message sent that never
-                // went, or walk a committed blast back to draft.
+                // went, walk a committed blast back to draft, or re-aim a
+                // message that has already gone out.
                 'status' => BlastStatus::Queued,
                 'queued_at' => now(),
+
+                // **The freeze, and it is in this statement rather than beside
+                // it deliberately (D-27).** This update is already the thing
+                // that decides whether *this* request is the one that committed
+                // the blast -- the `where` on draft means a second request
+                // updates zero rows. Putting the frozen aim in the same
+                // statement makes it impossible for a blast to be committed
+                // without one, so the property holds by construction rather
+                // than by every future writer remembering. A separate write
+                // afterwards would leave a window in which a committed blast
+                // had no frozen rule, and the check constraint would refuse it
+                // -- which is the database saying the same thing.
+                //
+                // Encoded rather than handed over as an array, because this is
+                // the query builder rather than the model: Eloquent's casts run
+                // on an attribute assigned to an instance, and nothing casts a
+                // value passed to update(). The column is json and the cast on
+                // the model reads it back as a list.
+                'committed_prefixes' => $committedAim === null
+                    ? null
+                    : json_encode($committedAim, JSON_THROW_ON_ERROR),
 
                 // Who committed it, which is not who wrote it: Staff may draft a
                 // blast and only an Owner may send one, so `operator_id` answers

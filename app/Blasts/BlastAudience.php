@@ -160,6 +160,37 @@ final class BlastAudience
     }
 
     /**
+     * The rule to freeze onto this blast as the campaign commits it (D-27).
+     *
+     * **Null for a blast whose aim cannot move, and that is the whole of what
+     * this answers.** A blast carrying its own `postcode_prefixes` already has
+     * its rule on its own row, where the only thing that could change it is its
+     * own compose form -- and `refuseCommitted()` closes that the moment the
+     * blast leaves draft. A blast aimed at nothing has no rule to freeze. The
+     * one aim that can move under a committed blast is a segment's, because a
+     * segment is shared and stays editable by design, so that is the one this
+     * returns.
+     *
+     * **It is here rather than in the controller because the resolution below
+     * is the same resolution `for()` performs**, and D-29's whole finding is
+     * that a rule with two spellings is a rule its two readers are free to
+     * disagree about. A controller that read the segment itself would be a
+     * second copy of `prefixesFor()`, free to drift from the one the send uses
+     * -- and the two disagreeing is precisely a message going somewhere the
+     * campaign did not commit it to.
+     *
+     * @return list<string>|null
+     */
+    public static function committedAimFor(Blast $blast): ?array
+    {
+        if ($blast->segment_id === null) {
+            return null;
+        }
+
+        return self::prefixesFor($blast);
+    }
+
+    /**
      * How many supporters this blast would reach if it went out now.
      */
     public static function size(Blast $blast): int

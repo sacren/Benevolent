@@ -346,3 +346,99 @@ test('a segment nothing points at is still deletable', function (): void {
 
     expect(Segment::query()->count())->toBe(0);
 });
+
+test('the database refuses a draft that already carries a frozen aim', function (): void {
+    // **The direction that reads as harmless and is not.** A frozen rule on a
+    // draft is an aim recorded before the campaign committed to one, and the
+    // frozen rule is what a committed blast's audience is read from -- so a
+    // draft carrying one would quietly stop following the segment its operator
+    // is still editing. The pointer would still be on the row, the page would
+    // still name the segment, and the audience would be somebody else's.
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+
+    $refusal = refusalFrom(fn () => DB::connection('tenant')->table('blasts')->insert([
+        'subject' => 'A draft that has already made up its mind',
+        'body' => 'Refused.',
+        'segment_id' => $segment->getKey(),
+        'committed_prefixes' => json_encode(['M15']),
+        'status' => 'draft',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]));
+
+    expect($refusal)->not->toBeNull()
+        // SQLSTATE 23514 -- check violation. Asserted by code rather than by
+        // message so a reworded or translated error cannot weaken this.
+        ->and((string) $refusal->getCode())->toBe('23514');
+
+    // The positive half, made through the same table in the same run: without
+    // it this passes just as happily against a table that refuses every insert.
+    $draft = Blast::factory()->aimedAtSegment($segment)->create();
+
+    expect($draft->exists)->toBeTrue()
+        ->and($draft->committed_prefixes)->toBeNull()
+        ->and(Blast::query()->count())->toBe(1);
+});
+
+test('the database refuses a committed segment-aimed blast with no frozen aim', function (): void {
+    // **The other direction, and it is the defect the column exists to
+    // prevent** rather than the same mistake written backwards: a commit that
+    // forgot to freeze. There would be nothing for a committed blast's audience
+    // to be read from, and the only safe reading of nothing is that the blast
+    // reaches nobody -- a message the campaign committed and that silently
+    // never goes.
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+
+    $refusal = refusalFrom(fn () => DB::connection('tenant')->table('blasts')->insert([
+        'subject' => 'Committed without freezing what it was aimed at',
+        'body' => 'Refused.',
+        'segment_id' => $segment->getKey(),
+        'committed_prefixes' => null,
+        'status' => 'queued',
+        'queued_at' => now(),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]));
+
+    expect($refusal)->not->toBeNull()
+        ->and((string) $refusal->getCode())->toBe('23514');
+
+    $committed = Blast::factory()->aimedAtSegment($segment)->queued()->create();
+
+    expect($committed->exists)->toBeTrue()
+        ->and($committed->committed_prefixes)->toBe(['M15'])
+        ->and(Blast::query()->count())->toBe(1);
+});
+
+test('a committed blast that never pointed at a segment carries no frozen aim', function (): void {
+    // The rows the constraint must leave alone, named because a constraint
+    // written as "every committed blast has a frozen aim" would forbid both of
+    // them -- and that is the plausible wrong version of this rule, the same
+    // way "exactly one of the two" was for the aim itself.
+    //
+    // Neither needs freezing. A blast carrying its own prefixes has its rule on
+    // its own row, which nothing but its own compose form can reach and which
+    // refuseCommitted() closes the moment it leaves draft; a blast aimed at
+    // nobody in particular has no rule at all.
+    $carrying = Blast::factory()->narrowedToPostcodes(['M15'])->queued()->create();
+    $everyone = Blast::factory()->queued()->create();
+
+    expect($carrying->committed_prefixes)->toBeNull()
+        ->and($carrying->postcode_prefixes)->toBe(['M15'])
+        ->and($everyone->committed_prefixes)->toBeNull()
+        ->and($everyone->segment_id)->toBeNull()
+        ->and($everyone->postcode_prefixes)->toBeNull();
+});
+
+test('the frozen aim round-trips through the database as a list', function (): void {
+    // The cast, pinned the way the status enum's is. A json column read back as
+    // a string rather than a list would reach PostcodeNarrowing::apply() as
+    // something it cannot fold, and the fail-closed branch would turn a
+    // committed send into a send to nobody.
+    $segment = Segment::factory()->narrowedToPostcodes(['M15', 'M16 7'])->create();
+
+    $blast = Blast::factory()->aimedAtSegment($segment)->sent()->create();
+
+    expect(Blast::query()->whereKey($blast->getKey())->sole()->committed_prefixes)
+        ->toBe(['M15', 'M16 7']);
+});

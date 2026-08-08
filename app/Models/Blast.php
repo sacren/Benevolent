@@ -53,6 +53,16 @@ use Illuminate\Support\Carbon;
  * is the check constraint that holds it, and the migration says why an aim that
  * could be read two ways is a send hazard rather than an untidiness.
  *
+ * **A committed blast's aim stops moving, and that is a third column rather
+ * than a third way of aiming (D-27).** A segment is shared and mutable, so a
+ * blast pointing at one has an aim somebody else can change -- correctly while
+ * it is a draft, which is the whole value of pointing, and not at all once the
+ * campaign has committed it. `committed_prefixes` is what the pointer said at
+ * the moment of committing, written by the same statement that commits the
+ * blast. It is a record and never an aim: `blasts_committed_aim_is_frozen` ties
+ * it to exactly the rows that have one, and `blasts_aimed_one_way_only` is
+ * untouched because this column is not one of the two it governs.
+ *
  * **A blast that has left Draft can never return to it.** `queued_at` is the
  * moment the campaign committed the message to sending, and it is set once. The
  * database enforces the pairing with `status` as a check constraint rather than
@@ -66,6 +76,7 @@ use Illuminate\Support\Carbon;
  * @property string $body
  * @property int|null $segment_id
  * @property list<string>|null $postcode_prefixes
+ * @property list<string>|null $committed_prefixes
  * @property-read Segment|null $segment
  * @property BlastStatus $status
  * @property Carbon|null $queued_at
@@ -123,6 +134,7 @@ class Blast extends Model
     {
         return [
             'postcode_prefixes' => 'array',
+            'committed_prefixes' => 'array',
             'status' => BlastStatus::class,
             'queued_at' => 'datetime',
             'finished_at' => 'datetime',

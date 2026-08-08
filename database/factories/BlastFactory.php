@@ -39,6 +39,7 @@ class BlastFactory extends Factory
             'body' => fake()->paragraphs(3, asText: true),
             'segment_id' => null,
             'postcode_prefixes' => null,
+            'committed_prefixes' => null,
             'status' => BlastStatus::default(),
             'queued_at' => null,
             'finished_at' => null,
@@ -80,13 +81,63 @@ class BlastFactory extends Factory
      * would be refused by the database rather than produce a blast with two
      * aims. That is deliberate -- a factory able to build the bad row is a
      * factory that makes the constraint look optional.
+     *
+     * **It freezes the aim when the blast is already committed**, because
+     * `blasts_committed_aim_is_frozen` requires it and because a factory able
+     * to build a committed segment-aimed blast with no frozen rule would build
+     * exactly the row D-27 exists to prevent. Both orderings are covered: this
+     * reads the status a committing state has already set, and the four states
+     * below read the segment this one has already set.
      */
     public function aimedAtSegment(Segment $segment): static
     {
         return $this->state(fn (array $attributes) => [
             'segment_id' => $segment->getKey(),
             'postcode_prefixes' => null,
+            'committed_prefixes' => self::statusOf($attributes)->isCommitted()
+                ? $segment->postcode_prefixes
+                : null,
         ]);
+    }
+
+    /**
+     * The frozen rule a blast in a committing state owes, if it points at one.
+     *
+     * Reads the segment rather than taking it as an argument, because the four
+     * states below are reached as `aimedAtSegment($s)->queued()` and have only
+     * the id by then. A query in a factory state is worth it here: the
+     * alternative is four states that quietly build rows the database refuses.
+     *
+     * @param  array<string, mixed>  $attributes
+     * @return list<string>|null
+     */
+    private static function frozenAimFor(array $attributes): ?array
+    {
+        $segmentId = $attributes['segment_id'] ?? null;
+
+        if ($segmentId === null) {
+            return null;
+        }
+
+        // whereKey()->firstOrFail() rather than findOrFail(), which takes an
+        // array as readily as a key and is therefore typed as returning a model
+        // *or* a collection -- a distinction static analysis is right to insist
+        // on and that would reach this list as an array of segments.
+        return Segment::query()->whereKey($segmentId)->firstOrFail()->postcode_prefixes;
+    }
+
+    /**
+     * The status a blast is being built with, whichever way it was given.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private static function statusOf(array $attributes): BlastStatus
+    {
+        $status = $attributes['status'] ?? BlastStatus::default();
+
+        return $status instanceof BlastStatus
+            ? $status
+            : BlastStatus::from((string) $status);
     }
 
     /**
@@ -101,6 +152,7 @@ class BlastFactory extends Factory
         return $this->state(fn (array $attributes) => [
             'status' => BlastStatus::Queued,
             'queued_at' => now(),
+            'committed_prefixes' => self::frozenAimFor($attributes),
         ]);
     }
 
@@ -112,6 +164,7 @@ class BlastFactory extends Factory
         return $this->state(fn (array $attributes) => [
             'status' => BlastStatus::Sending,
             'queued_at' => now()->subMinute(),
+            'committed_prefixes' => self::frozenAimFor($attributes),
         ]);
     }
 
@@ -124,6 +177,7 @@ class BlastFactory extends Factory
             'status' => BlastStatus::Sent,
             'queued_at' => now()->subMinutes(5),
             'finished_at' => now(),
+            'committed_prefixes' => self::frozenAimFor($attributes),
         ]);
     }
 
@@ -139,6 +193,7 @@ class BlastFactory extends Factory
             'status' => BlastStatus::Failed,
             'queued_at' => now()->subMinutes(5),
             'finished_at' => now(),
+            'committed_prefixes' => self::frozenAimFor($attributes),
         ]);
     }
 }
