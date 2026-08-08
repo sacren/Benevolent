@@ -159,15 +159,24 @@ class SegmentController extends Controller
     /**
      * Re-aim a segment already named.
      *
-     * **What this does to a blast that used the segment is D-27's, and the
-     * question now has a subject.** Step 4 gave a blast a pointer, so re-aiming
-     * a segment re-aims every blast pointing at it -- correctly and by design
-     * for a draft, because that is the whole value of pointing rather than
-     * retyping. For a blast the campaign has already **committed** it is not
-     * correct at all: `SendBlast` reads the rule when the job runs, so a send
-     * queued against one narrowing can go out against another. Nothing here
-     * refuses that yet. It is D-27's and Step 5's, and it is named rather than
-     * quietly left as an unremarked gap.
+     * **What this does to a blast that used the segment is D-27's, and it is
+     * answered rather than named now.** Step 4 gave a blast a pointer, so
+     * re-aiming a segment re-aims every blast pointing at it -- correctly and by
+     * design for a draft, because that is the whole value of pointing rather
+     * than retyping. For a blast the campaign has already **committed** that
+     * was not correct at all, and it was measured rather than feared: the send
+     * resolves the rule on every attempt, so a segment edited after the commit
+     * put the message in front of people who were never in the committed
+     * audience.
+     *
+     * **This method is deliberately not where that was closed.** Refusing the
+     * edit here was the obvious remedy and is the wrong one: it would lock a
+     * segment for as long as any blast aimed at it stayed unsent, which with no
+     * worker deployed is forever, and it would need a check-then-write window
+     * that nothing backstops -- where the deletion refusal below at least has a
+     * foreign key behind it. So an edit stays unconditionally allowed, which is
+     * what a named narrowing is *for*, and the blast freezes what it was aimed
+     * at when the campaign committed it. See `BlastController::send()`.
      */
     public function update(NameSegmentRequest $request, Segment $segment): RedirectResponse
     {
@@ -200,11 +209,12 @@ class SegmentController extends Controller
      * inboxes. So the database refuses, and this turns its refusal into a
      * sentence an operator can act on -- without it they would see a 500.
      *
-     * **This is a sliver of D-27 and not the whole of it, and the boundary is
-     * stated so Step 5 is not read as already done.** What is answered here is
-     * only what a *deletion* does, because adding the foreign key forced a
-     * choice about it. What an *edit* does to a blast the campaign has already
-     * committed is untouched, and so is whether the trail records either.
+     * **This answers what a *deletion* does, and only that.** It was forced
+     * into Step 4 because adding the foreign key could not avoid deciding it.
+     * What an *edit* does to an already-committed blast is answered elsewhere
+     * and deliberately not here -- the blast freezes its aim at the moment it
+     * is committed, so an edit needs no refusal to be safe, while a deletion
+     * still does because it would take the record itself away.
      *
      * **The check is the message and the foreign key is the guarantee.** An
      * operator aiming a blast at this segment between the query below and the

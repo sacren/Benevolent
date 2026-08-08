@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Blasts\BlastAudience;
+use App\Blasts\BlastStatus;
 use App\Models\Blast;
 use App\Models\Segment;
 use App\Models\Supporter;
@@ -203,9 +204,10 @@ test('a segment is read when the audience is asked, never copied when the blast 
     expect(BlastAudience::size($blast))->toBe(1);
 
     // The campaign re-aims the segment. Nothing about the blast's own row
-    // changes -- and this is the whole of D-27's exposure stated as a fact
-    // rather than as a worry: for a draft it is correct and is the point, and
-    // for a committed blast it is the question Step 5 owns.
+    // changes, and for a draft that is correct and is the point. The committed
+    // case is the opposite and is asserted separately below: a blast past draft
+    // reads the rule it froze, so this liveness reaches exactly the blasts the
+    // campaign may still change.
     $segment->update(['postcode_prefixes' => ['EH8']]);
 
     expect(BlastAudience::for($blast->refresh())->pluck('id')->all())
@@ -274,6 +276,16 @@ test('a pointer that resolves to no segment reaches nobody, never everybody', fu
     $dangling = new Blast;
     $dangling->segment_id = 9_999_999;
 
+    // The status is set because this class now asks for it, and because a blast
+    // without one is a model no database row can be: the column is NOT NULL
+    // with a default. Leaving it unset made this the only Blast in the suite
+    // with a null status, which is a property of a half-built fixture rather
+    // than of anything the product can produce -- and the audience of a blast
+    // whose state is unknowable is not a question worth an answer. A draft is
+    // what a dangling pointer would actually be found on, since a committed
+    // blast reads its frozen rule and never follows the pointer at all.
+    $dangling->status = BlastStatus::Draft;
+
     // Paired with the case it must not be confused with, through the same class
     // in the same run: a blast naming no aim at all still reaches everybody, so
     // this is not passing against an audience that is simply broken.
@@ -281,4 +293,107 @@ test('a pointer that resolves to no segment reaches nobody, never everybody', fu
 
     expect(BlastAudience::size($dangling))->toBe(0)
         ->and(BlastAudience::size($everyone))->toBe(2);
+});
+
+test('a committed blast reaches the people its rule named when it was committed', function (): void {
+    // **D-27(a), and the phase's one live correctness gap closed.** Step 4 left
+    // the send resolving the pointer when the job ran, so the campaign's act of
+    // committing and the rule the message followed were two facts that could
+    // disagree by however long the blast sat in the queue.
+    $committedAudience = supporterWithPostcode('M15 6BH');
+    $strangerToTheAim = supporterWithPostcode('EH8 9YL');
+
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $blast = Blast::factory()->aimedAtSegment($segment)->queued()->create();
+
+    // The segment is re-aimed somewhere else entirely -- disjoint rather than
+    // wider, so the assertion below distinguishes "the frozen rule was used"
+    // from "the edited rule happened to include the same people".
+    $segment->update(['postcode_prefixes' => ['EH8']]);
+
+    expect(BlastAudience::for($blast->refresh())->pluck('id')->all())
+        ->toBe([$committedAudience->getKey()])
+        ->and(BlastAudience::size($blast))->toBe(1);
+
+    // Both directions, because each is a different message going astray: the
+    // person the campaign committed to reaching is still reached, and the
+    // person it never aimed at is still not.
+    expect(BlastAudience::for($blast)->pluck('id')->all())
+        ->not->toContain($strangerToTheAim->getKey());
+
+    // And the segment really did move, so this is a difference rather than two
+    // readings of an unchanged row.
+    expect($segment->fresh()->postcode_prefixes)->toBe(['EH8']);
+});
+
+test('a committed blast does not read its segment at all', function (): void {
+    // Stronger than the test above and the reason the branch is drawn on the
+    // status rather than on the frozen column being populated. Asking whether a
+    // frozen rule is present would let a committed blast that somehow lacked
+    // one fall through to the live segment, which is silently the whole defect
+    // back again. Asking the status means the segment is never consulted, so
+    // the frozen rule is the only thing that can decide who is reached.
+    supporterWithPostcode('M15 6BH');
+
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $blast = Blast::factory()->aimedAtSegment($segment)->sent()->create();
+
+    // Built through the model rather than the table, because the check
+    // constraint makes this row unrepresentable in the database -- which is the
+    // point: the guard below is what the application does if the constraint is
+    // ever dropped or a future writer forgets.
+    $blast->committed_prefixes = null;
+
+    // Nobody, rather than everybody, and rather than the segment's current
+    // rule. Over-inclusion is the direction that cannot be taken back once a
+    // send has run, so an aim that cannot be resolved fails closed.
+    expect(BlastAudience::for($blast)->pluck('id')->all())->toBe([])
+        ->and(BlastAudience::size($blast))->toBe(0);
+});
+
+test('every state past draft reads the frozen rule, not only the queued one', function (): void {
+    // The boundary is draft-versus-committed, which is where Phase 2 put
+    // irreversibility in the schema, and it is asserted across all four states
+    // rather than at the one a send happens to start in. A reader that special
+    // cased Queued would leave a send that had already begun re-reading a
+    // segment somebody was editing underneath it.
+    $named = supporterWithPostcode('M15 6BH');
+    supporterWithPostcode('EH8 9YL');
+
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+
+    $blasts = [
+        'queued' => Blast::factory()->aimedAtSegment($segment)->queued()->create(),
+        'sending' => Blast::factory()->aimedAtSegment($segment)->sending()->create(),
+        'sent' => Blast::factory()->aimedAtSegment($segment)->sent()->create(),
+        'failed' => Blast::factory()->aimedAtSegment($segment)->failed()->create(),
+    ];
+
+    $segment->update(['postcode_prefixes' => ['EH8']]);
+
+    foreach ($blasts as $state => $blast) {
+        expect(BlastAudience::for($blast->refresh())->pluck('id')->all())
+            ->toBe([$named->getKey()], "a {$state} blast read its segment instead of its frozen rule");
+    }
+});
+
+test('a draft aimed at the same segment still follows it, in the same run', function (): void {
+    // The control that stops the four assertions above being satisfied by a
+    // reader that ignores segments altogether. One segment, one edit, two
+    // opposite correct answers -- which is the whole shape of D-27(a).
+    $named = supporterWithPostcode('M15 6BH');
+    $moved = supporterWithPostcode('EH8 9YL');
+
+    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $draft = Blast::factory()->aimedAtSegment($segment)->create();
+    $committed = Blast::factory()->aimedAtSegment($segment)->queued()->create();
+
+    $segment->update(['postcode_prefixes' => ['EH8']]);
+
+    // Both assertions are positive. Saying only that the committed blast does
+    // *not* reach the draft's audience would pass just as happily against a
+    // reader that returned nobody for everything, which is the failure this
+    // class's own fail-closed branch could produce.
+    expect(BlastAudience::for($draft->refresh())->pluck('id')->all())->toBe([$moved->getKey()])
+        ->and(BlastAudience::for($committed->refresh())->pluck('id')->all())->toBe([$named->getKey()]);
 });

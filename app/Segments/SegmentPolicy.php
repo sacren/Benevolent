@@ -51,9 +51,12 @@ use App\Models\User;
  * EditBlasts is deliberately theirs, so re-aiming any draft's postcode_prefixes
  * is already unconditionally Staff's, one object along. What a segment would
  * add is *leverage* -- several drafts re-aimed by one action, where the author
- * may not notice -- and that is a consequence rather than an authority, owned
- * by D-27 at a later step. Withholding through a segment what Staff already
- * holds through the blast would be posture invented to make a test interesting.
+ * may not notice -- and that is a consequence rather than an authority. D-27
+ * answered it as a question about state rather than about who may act: a
+ * committed blast freezes what it was aimed at, so the leverage reaches drafts
+ * only, which is where it was always legitimate. Withholding through a segment
+ * what Staff already holds through the blast would be posture invented to make
+ * a test interesting.
  *
  * **The trigger for segments to take their own Permission cases** is D-26
  * giving a blast a pointer at a segment. At that moment a segment acquires a

@@ -42,13 +42,21 @@ use Illuminate\Database\Eloquent\Builder;
  * other way round would put the product one dropped constraint away from
  * mailing a campaign's entire list.
  *
- * **A segment is read, never copied.** The rule this returns is the segment's
- * rule as it stands at the moment of asking, which is what makes a pointer a
- * pointer -- an operator correcting a segment corrects every draft aimed at it.
- * The cost of that is real and is not this class's to pay: a blast queued
- * against a segment edited before the worker runs goes to a different set of
- * people, because SendBlast consumes this query when the job runs rather than
- * when the campaign committed. That is D-27's, owned by Step 5.
+ * **A draft's segment is read, never copied; a committed blast's rule was
+ * copied and is never read again (D-27).** For a draft the rule is the
+ * segment's as it stands at the moment of asking, which is what makes a pointer
+ * a pointer -- an operator correcting a segment corrects every draft aimed at
+ * it. For a blast the campaign has committed, that same liveness was a defect
+ * rather than a feature: SendBlast consumes this query when the job runs rather
+ * than when the campaign committed, so a segment edited in between sent the
+ * message to a different set of people. It re-resolves on every attempt, so the
+ * exposure was the whole life of a send and not a window at the start of it.
+ *
+ * So the aim is frozen onto the blast by the statement that commits it, and
+ * from that moment this class reads `blasts.committed_prefixes` and never the
+ * segment. The two halves are not a compromise between them: a draft is a
+ * document the campaign may still change, and everything past draft is a record
+ * of something it cannot.
  *
  * **A count taken from here is a prediction, not a promise, and any surface
  * showing one has to say so.** The rule is evaluated again when sending starts,
@@ -131,10 +139,10 @@ final class BlastAudience
      * a safety this consequential.
      *
      * **The segment is fetched through the relation's query rather than through
-     * `$blast->segment`, and the reason is that this is the one place the rule
-     * must not be cached.** The magic property memoizes on the instance, so a
-     * caller that asked once and asked again would be answered from before the
-     * segment moved. Asking the relation costs one query per blast per
+     * `$blast->segment`, and the reason is that this is the one place a draft's
+     * rule must not be cached.** The magic property memoizes on the instance,
+     * so a caller that asked once and asked again would be answered from before
+     * the segment moved. Asking the relation costs one query per blast per
      * operation, which is one, and buys the property that gives a pointer its
      * whole value.
      *
@@ -143,10 +151,23 @@ final class BlastAudience
     private static function prefixesFor(Blast $blast): array
     {
         if ($blast->segment_id !== null) {
-            // Read, never copied. The rule is the segment's as it stands at the
-            // moment of asking, which is what makes the pointer worth having
-            // and is also what D-27 has to reckon with for a blast the campaign
-            // has already committed.
+            // **A committed blast reads what it froze, and the branch is drawn
+            // on the status rather than on the column being populated (D-27).**
+            // The two are equivalent for any row the database will hold, since
+            // `blasts_committed_aim_is_frozen` ties them together -- but they
+            // fail differently, and only one of them fails safely. Asking
+            // whether a frozen rule is present would let a committed blast that
+            // somehow lacked one fall through to the live segment below, which
+            // is silently the exact defect this column exists to close. Asking
+            // the status means a committed blast never reads a segment at all,
+            // and a missing frozen rule reaches nobody instead.
+            if ($blast->status->isCommitted()) {
+                return $blast->committed_prefixes ?? [];
+            }
+
+            // Read, never copied -- for a draft, which is the only thing that
+            // still points. The rule is the segment's as it stands at the
+            // moment of asking, which is what makes the pointer worth having.
             $segment = $blast->segment()->first();
 
             if ($segment === null) {
