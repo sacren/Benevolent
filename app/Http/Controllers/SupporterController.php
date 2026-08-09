@@ -271,10 +271,21 @@ class SupporterController extends Controller
      * so producing another instance of it to solve half of it would be a poor
      * trade.
      *
-     * The cost is that the whole list is read inside one request. Today that is
-     * the same list the index action already renders whole, so a size that
-     * breaks this breaks the page first; Step 6 owns both, and they should move
-     * together.
+     * The cost is that the whole list is read inside one request. **This
+     * paragraph used to add that the index action renders the same list whole,
+     * which was true when it was written and stopped being true one step
+     * later** — that action has paginated at fifty since Phase 1 Step 6, so
+     * "the same list" named two different things for two phases.
+     *
+     * What survives the correction is the ordering, and it survives for a
+     * sharper reason than the one it was given. The page breaks first, and the
+     * two break in different currencies: the page degrades in memory, 680 MB
+     * and a 64.5 MB payload at 250,000 supporters, while SupporterExport chunks
+     * and holds flat memory at any size, degrading in wall-clock alone. They
+     * were answered in the same step and took two different answers, which is
+     * why the page pages and this still streams whole. Its own trigger is
+     * recorded on SupporterExport, and it is a request timeout rather than a
+     * row count.
      *
      * **The file follows the narrowing, and the control on the page says so.**
      * An operator who has narrowed the list to 300 people and then exports has

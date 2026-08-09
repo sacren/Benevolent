@@ -31,9 +31,20 @@ use Illuminate\Support\Str;
  * authorization on the way back out. Step 5 exists to reduce that count, not to
  * add to it.
  *
- * **Trigger to revisit:** a list too large to send inside one request, which is
- * the same list size that makes the index page stop rendering and start paging
- * (Step 6). The two questions move together and should be answered together.
+ * **Trigger to revisit:** the first campaign whose export does not finish
+ * inside the request -- a wall-clock ceiling, not a row count, and **not the
+ * page's threshold**.
+ *
+ * This sentence used to say that the two were the same size and moved together.
+ * Phase 1 Step 6 measured them and contradicted it: `chunkById` genuinely
+ * bounds what this class holds, so its memory is flat at any size and it
+ * degrades in wall-clock alone, while the page serializes every row and
+ * degrades in memory -- at 250,000 supporters the page cost 680 MB and a 64.5 MB
+ * payload while this class's memory never moved. So the page was paginated at
+ * fifty and this was correctly left streaming whole: answered in the same step,
+ * two triggers rather than one, which is what Blueprint v0.23 records. **That
+ * correction reached the Blueprint at the time and never reached this
+ * sentence**, which is why it arrives two phases late.
  */
 final class SupporterExport
 {
