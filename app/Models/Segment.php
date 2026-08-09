@@ -58,7 +58,9 @@ use Illuminate\Support\Carbon;
  * no part of any stored rule. There is likewise no name or email fragment here
  * -- searching is transient and may touch a person, segmenting is stored and
  * may not -- which is what keeps this table from becoming a sixth home for
- * supporter PII that no erasure path reaches.
+ * supporter PII that no erasure path reaches. Step 6 settled that by running an
+ * erasure rather than by this sentence, and the migration carries what it
+ * showed along with the one residual it leaves standing.
  *
  * **What the rule means, which is now the product's answer rather than an
  * incidental one.** A prefix matches a supporter when

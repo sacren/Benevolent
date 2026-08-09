@@ -60,6 +60,14 @@ use Illuminate\Support\Facades\Schema;
  * segment-aimed blast predating this migration would refuse it. There are none:
  * the only campaign holds zero blasts, and `blasts.segment_id` itself is one
  * step old. Nothing moves; one nullable column arrives.
+ *
+ * **What an erasure reaches, measured at Step 6 rather than argued.** This
+ * column copies postcode prefixes, which is the same class of value as the two
+ * columns it is copied between, so D-10's scope is untouched by it: erasing the
+ * supporter that a one-household prefix named leaves this column
+ * byte-identical, nulls `blast_recipients.supporter_id`, and leaves the frozen
+ * rule reaching nobody. The `segments` migration carries the full measurement
+ * and the one residual it leaves standing.
  */
 return new class extends Migration
 {

@@ -336,6 +336,17 @@ class SupporterController extends Controller
      * from Staff: the ordinary way to stop contacting somebody is to
      * unsubscribe them, a status kept precisely so a later import cannot put
      * them back.
+     *
+     * **What this one statement reaches, measured at Phase 3 Step 6 rather
+     * than reasoned about.** It is the whole of the platform's erasure path.
+     * It removes the supporter row; `blast_recipients` keeps its row with
+     * `supporter_id` nulled and `sent_at` intact, which is Phase 2 Step 4's
+     * answer to this same question asked of that table; and `segments` and
+     * `blasts.committed_prefixes` are untouched, because neither holds anything
+     * about a person. Both store postcode prefixes, so a segment that named the
+     * erased supporter's own household simply reaches nobody afterwards — which
+     * was run rather than asserted. The `segments` migration carries the
+     * measurement and the one residual it leaves standing.
      */
     public function destroy(Supporter $supporter): RedirectResponse
     {

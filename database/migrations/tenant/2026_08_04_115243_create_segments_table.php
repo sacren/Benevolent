@@ -67,6 +67,32 @@ use Illuminate\Support\Facades\Schema;
  * therefore not a new category. Had D-24 admitted a name fragment it would have
  * been, and the question would have been settled by running a deletion rather
  * than by this paragraph.
+ *
+ * **Step 6 ran the deletion, because the paragraph above says that is what
+ * would settle it.** The case chosen was the narrowest a segment can express:
+ * NameSegmentRequest caps the whole typed line at 1,000 characters and puts no
+ * limit on any single prefix, so an operator may type a full postcode and
+ * narrow to one household. A segment at `["M15 6BH"]` matching exactly one
+ * supporter, a sent blast aimed at it, one `blast_recipients` row -- then the
+ * supporter erased. `segments.postcode_prefixes` and
+ * `blasts.committed_prefixes` come back byte-identical,
+ * `blast_recipients.supporter_id` is nulled and its `sent_at` kept, and the
+ * segment goes from matching one supporter to matching none. **Nothing stored
+ * here is about the person: what is stored is the place, and the erasure
+ * simply leaves it reaching nobody.** No sixth home, measured rather than
+ * argued.
+ *
+ * **One residual survives, it is older than this table, and it is recorded
+ * rather than smoothed.** A blast frozen at a one-household prefix and its
+ * surviving recipient row together say *somebody at M15 6BH was mailed on this
+ * date*, and no erasure reaches that. It is not segmentation's doing:
+ * `blasts.postcode_prefixes` has been able to hold a full postcode since
+ * Phase 2 and D-10 did not count it as a home, so this column and
+ * `blasts.committed_prefixes` are the second and third copies of a class of
+ * value the platform already had rather than a new category. **Trigger to
+ * revisit:** the first reason to treat a narrow geographic predicate as
+ * identifying a person, which would reopen D-10 for all three columns at once
+ * rather than for this one.
  */
 return new class extends Migration
 {
