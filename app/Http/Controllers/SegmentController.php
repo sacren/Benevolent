@@ -76,6 +76,38 @@ class SegmentController extends Controller
      * an operator naming one by hand, which is the half of the blast list's
      * original trigger that was measuring the right quantity.
      *
+     * **Step 6 re-checked that trigger on all three of the things a trigger can
+     * get wrong, and it failed on a fourth nobody had named.** Its *condition*
+     * has not arrived: store() below is the only writer of a segment outside
+     * the test suite, and no seeder makes one. Its *premise* is true and is now
+     * measured rather than reasoned about -- this action runs exactly **one
+     * query at every size**, from ten segments to a thousand, so unlike the
+     * blast list this page's cost really is its rows. Its *quantity* is right,
+     * because what grows is segments and segments are what it counts.
+     *
+     * **What is wrong is the surface, and that is v0.28's failure one axis
+     * over: not the wrong noun, the wrong page.**
+     * `Segment::query()->orderBy('name')->get()` -- the whole table,
+     * unpaginated -- runs on four pages rather than one: here,
+     * SupporterController::index(), and BlastController's create and edit
+     * through its segments(). The prop is byte-identical on all four -- 1,622 B
+     * at ten segments, 16,293 B at a hundred, 163,894 B at a thousand -- and
+     * across those sizes this page costs 12.6 ms, 42.3 ms and 328.4 ms while
+     * the supporter list costs 31.2 ms, 61.6 ms and 357.5 ms, both on one query
+     * for the segments however many there are. At a thousand, the *supporter*
+     * list ships 163,894 B of segments against roughly 18,600 B of everything
+     * else: nine times more segment data than supporter data, on the page
+     * Phase 1 Step 6 paginated precisely to bound its payload.
+     *
+     * **So the trigger is recorded on the one surface where its own remedy
+     * would work.** Paging helps a list; on the other three the segments arrive
+     * as `<option>`s in a select, and half a dropdown is not a smaller dropdown
+     * but a control that silently cannot reach some of the campaign's own
+     * narrowings. **The trigger above therefore governs all four surfaces, and
+     * when it fires the first question is what the select does rather than what
+     * this table does.** Nothing is built for it: a thousand segments is not
+     * reachable by an operator typing, which is the condition itself.
+     *
      * **D-28 resolved: no size beside a segment, in none of its three shapes,
      * and what decides it is not the cost.** Measured against a throwaway
      * campaign of 250,000 supporters, one count per segment -- the shape a

@@ -116,6 +116,20 @@ class SupporterController extends Controller
      * action — the two abilities agree today, both answering from
      * ViewSupporters, and asking is what keeps them from drifting apart in
      * silence.
+     *
+     * **Every segment, unpaginated, on the one page in this application that is
+     * paginated at all — and Step 6 measured what that will cost.** This action
+     * bounds the supporters it sends at fifty and bounds the segments at
+     * nothing, so the two halves of what it returns grow under different
+     * rules. At a thousand segments the prop is 163,894 B against
+     * roughly 18,600 B for the fifty supporters and the rest of the page: nine
+     * times more segment data than supporter data, here, where reading the
+     * whole list cost 680 MB and is what forced paging in the first place. It
+     * is one query at every size, so the cost is the serialising rather than
+     * the reading. **Nothing is built for it, and the trigger is not this
+     * page's own** — it is SegmentController::index()'s, the first thing that
+     * creates segments other than an operator naming one by hand, recorded
+     * there and governing this page too.
      */
     public function index(Request $request): Response
     {

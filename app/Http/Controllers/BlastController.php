@@ -432,6 +432,16 @@ class BlastController extends Controller
      * `segments` is a secret, which is a property of today's columns and is
      * stated in that controller rather than restated here.
      *
+     * **Unbounded, on both pages that call this, and this is the arm of the
+     * fan-out that paging could not fix.** Step 6 measured this same query on
+     * all four surfaces that run it and found one query at every size with a
+     * byte-identical payload -- 1,622 B at ten segments, 163,894 B at a
+     * thousand. On the segment list the remedy would be paging; here the
+     * segments are `<option>`s an operator chooses from, and half a dropdown is
+     * a control that silently cannot reach some of the campaign's own
+     * narrowings. So the trigger recorded in SegmentController::index() governs
+     * this call too, and what it asks here is a different question from paging.
+     *
      * @return Collection<int, Segment>
      */
     private function segments(): Collection
