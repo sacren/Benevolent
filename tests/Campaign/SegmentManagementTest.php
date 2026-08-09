@@ -222,7 +222,18 @@ test('a segment a blast is aimed at is not removed, and the operator is told why
         // segment exists and the operator may remove segments; what has changed
         // is that something points at this one -- which is the same division
         // BlastController::refuseCommitted() makes for a committed blast.
-        ->assertRedirect(route('segments.index'));
+        ->assertRedirect(route('segments.index'))
+        // **The sentence, not just the redirect.** Until Step 6 this test's
+        // name promised the operator was told why and nothing here read what
+        // they were told, so the wording was free to say anything. The advice
+        // is real in this case -- every blast aimed here is a draft, and
+        // re-aiming one is a thing the application permits -- so it is asserted
+        // word for word, and the committed case below asserts that this
+        // sentence is *not* the one used there.
+        ->assertInertiaFlash(
+            'toast.message',
+            'A blast is aimed at that segment, so it cannot be removed. Re-aim that blast first.',
+        );
 
     // The claim, rather than the status code: nothing was removed and nothing
     // was re-aimed.
@@ -285,8 +296,45 @@ test('a sent blast still holds its segment, so the record cannot be tidied away'
 
     $this->actingAs(User::factory()->create())
         ->delete($this->campaignUrl("/segments/{$segment->getKey()}"))
-        ->assertRedirect(route('segments.index'));
+        ->assertRedirect(route('segments.index'))
+        // **The defect this closes, asserted rather than described.** The
+        // refusal used to tell every operator to re-aim the blast first, and
+        // BlastController::refuseCommitted() turns that away for exactly the
+        // blast this branch exists to protect -- so the application instructed
+        // somebody to do something it refuses. This case is permanent: no act
+        // frees this segment, ever, which is why the sentence describes the
+        // state instead of naming a remedy.
+        ->assertInertiaFlash(
+            'toast.message',
+            'A blast the campaign has committed is aimed at that segment, '
+            .'so it stays: it is the record of what that message was aimed at.',
+        );
 
     expect(Segment::query()->count())->toBe(1)
         ->and($blast->fresh()->segment_id)->toBe($segment->getKey());
+});
+
+test('a draft alongside a committed blast does not soften what the operator is told', function (): void {
+    // The mixed case, and it is the one that decides which count the message
+    // reports. Re-aiming the draft is possible and frees nothing, because the
+    // committed blast still holds the segment -- so a message naming two would
+    // send an operator to move a blast that was never the obstacle, and then
+    // leave them exactly where they started.
+    $segment = Segment::factory()->create();
+    Blast::factory()->aimedAtSegment($segment)->create();
+    Blast::factory()->aimedAtSegment($segment)->sent()->create();
+
+    $this->actingAs(User::factory()->create())
+        ->delete($this->campaignUrl("/segments/{$segment->getKey()}"))
+        ->assertRedirect(route('segments.index'))
+        // Singular, and the count is one rather than two. Both halves can fail:
+        // counting every aimed blast reads "2 blasts ... are aimed", and
+        // dropping the committed branch reads the re-aim advice instead.
+        ->assertInertiaFlash(
+            'toast.message',
+            'A blast the campaign has committed is aimed at that segment, '
+            .'so it stays: it is the record of what that message was aimed at.',
+        );
+
+    expect(Segment::query()->count())->toBe(1);
 });

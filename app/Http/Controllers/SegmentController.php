@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Http\Requests\Segments\NameSegmentRequest;
+use App\Models\Blast;
 use App\Models\Segment;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\RedirectResponse;
@@ -298,18 +299,55 @@ class SegmentController extends Controller
      * rather than defended against, because the alternative -- catching a bare
      * QueryException around the delete -- would swallow refusals that have
      * nothing to do with this one.
+     *
+     * **Two messages, because one of them was advice nobody could take.** This
+     * refusal used to say "Re-aim that blast first" whatever was aimed here,
+     * and BlastController::refuseCommitted() makes that impossible for a blast
+     * the campaign has committed -- so an operator holding a segment that a
+     * sent message names was told to perform an act the application refuses,
+     * and SegmentManagementTest proves that case is permanent rather than
+     * transient. Step 6 split it. Where every blast aimed here is still a
+     * draft the advice is real and is kept word for word. Where any is
+     * committed, no re-aiming frees the segment and repeating the advice would
+     * be a second unfollowable instruction, so the message says what is true
+     * instead: the segment stays, because it is the record of what an
+     * already-committed message was aimed at.
+     *
+     * **The second message reports the committed count and not the total.** A
+     * segment held by one committed blast and three drafts is held by exactly
+     * one thing the operator cannot move, and naming four would send them off
+     * to re-aim three blasts that were never the obstacle.
+     *
+     * **Only `id` and `status` are read.** A whole Blast per row would ship
+     * each one's `body` into a request that renders none of it -- the standing
+     * residual on the blast list -- and none of it is needed to tell two states
+     * apart.
      */
     public function destroy(Segment $segment): RedirectResponse
     {
         $this->authorize('delete', $segment);
 
-        $aimedHere = $segment->blasts()->count();
+        $aimedHere = $segment->blasts()->get(['id', 'status']);
 
-        if ($aimedHere > 0) {
+        $committedHere = $aimedHere
+            ->filter(static fn (Blast $blast): bool => $blast->status->isCommitted())
+            ->count();
+
+        if ($committedHere > 0) {
+            Inertia::flash('toast', ['type' => 'error', 'message' => trans_choice(
+                '{1} A blast the campaign has committed is aimed at that segment, so it stays: it is the record of what that message was aimed at.'
+                .'|[2,*] :count blasts the campaign has committed are aimed at that segment, so it stays: it is the record of what those messages were aimed at.',
+                $committedHere,
+            )]);
+
+            return to_route('segments.index');
+        }
+
+        if ($aimedHere->isNotEmpty()) {
             Inertia::flash('toast', ['type' => 'error', 'message' => trans_choice(
                 '{1} A blast is aimed at that segment, so it cannot be removed. Re-aim that blast first.'
                 .'|[2,*] :count blasts are aimed at that segment, so it cannot be removed. Re-aim them first.',
-                $aimedHere,
+                $aimedHere->count(),
             )]);
 
             return to_route('segments.index');

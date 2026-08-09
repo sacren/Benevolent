@@ -34,8 +34,13 @@ use Illuminate\Support\Facades\Schema;
  * (Finding A), `queued` is a state nothing leaves, so "until the send
  * finishes" would mean "forever" in the environment this product actually runs
  * in. `SegmentController::destroy()` already shows what that costs: its refusal
- * tells the operator to re-aim the blast first, which `refuseCommitted()` makes
+ * told the operator to re-aim the blast first, which `refuseCommitted()` makes
  * impossible for exactly the committed blast the refusal is protecting.
+ * (**Step 6 fixed that message** and the tense above is corrected with it: the
+ * refusal now says the segment stays as the record of what a committed message
+ * was aimed at, rather than naming an act nobody can perform. The argument this
+ * paragraph makes is untouched -- it turned on a refusal having to hold for the
+ * whole life of a send, never on the wording.)
  *
  * **Why this is a column of its own rather than a write to `postcode_prefixes`,
  * and the database is what decided it.** The plan's candidate was "copy the
