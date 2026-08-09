@@ -68,13 +68,56 @@ class SegmentController extends Controller
      * list was left unpaginated under the trigger "the first campaign whose list
      * needs more than one screen", which counts rows on the page, while its cost
      * lived in an aggregate over another table entirely. This page has no such
-     * cost -- it is one select over one small table, with no subquery per row and
-     * deliberately no audience count beside each segment (D-28) -- so here the
-     * rows on the page genuinely are the quantity that grows. What could make it
-     * grow fast is not an operator typing. **Trigger to revisit:** the first
-     * thing that creates segments other than an operator naming one by hand,
-     * which is the half of the blast list's original trigger that was measuring
-     * the right quantity.
+     * cost -- it is one select over one small table, with no subquery per row
+     * and deliberately no audience count beside each segment, which D-28
+     * resolves below -- so here the rows on the page genuinely are the quantity
+     * that grows. What could make it grow fast is not an operator typing.
+     * **Trigger to revisit:** the first thing that creates segments other than
+     * an operator naming one by hand, which is the half of the blast list's
+     * original trigger that was measuring the right quantity.
+     *
+     * **D-28 resolved: no size beside a segment, in none of its three shapes,
+     * and what decides it is not the cost.** Measured against a throwaway
+     * campaign of 250,000 supporters, one count per segment -- the shape a
+     * `@foreach` produces -- costs 270.4 ms at one row, 825.9 ms at three and
+     * 2,752.5 ms at ten, where this page as it stands costs 1.4 ms. The single
+     * statement anybody would reach for instead, one correlated subquery per
+     * row, is **worse at every size**: 739.1 ms, 1,039.8 ms and 3,165.3 ms,
+     * because an `exists` over `jsonb_array_elements_text` costs more per
+     * supporter row than a plain folded comparison. Ten segments would already
+     * be dearer than the blast list at ten blasts, which Phase 2 Step 6 called
+     * "already over a second". That is v0.28's finding reached by a second
+     * mechanism: there pagination was slower than none, here the tidy query is
+     * slower than the untidy one.
+     *
+     * **No index closes it, and that is structural rather than a tuning gap.**
+     * With an expression index on `left(replace(lower(postcode), ' ', ''), 3)`,
+     * a length-3 prefix takes a Bitmap Heap Scan at 20.0 ms and a length-4
+     * prefix takes a parallel sequential scan at 103.2 ms -- the index is
+     * simply not used. D-24 admits prefixes of any length and
+     * App\Supporters\PostcodeNarrowing binds `mb_strlen($prefix)` per prefix,
+     * so no fixed set of indexes serves the product. Those two lines are the
+     * answer to "add an index", rather than an argument.
+     *
+     * **The deciding reason is that one number here cannot mean both things,
+     * and unlike a cost it does not expire.** Over the same 250,000
+     * supporters, one segment narrows the *supporter list* to 250,000 while a
+     * *blast* aimed at it reaches 187,615 -- a gap of 62,385, exactly the
+     * seeded 25% unsubscribed rate. Step 3 established that the list may
+     * legitimately show somebody who unsubscribed and that hiding them would be
+     * wrong; App\Blasts\BlastAudience enforces subscribed-only by its shape
+     * rather than by a parameter. So whichever of the two a size were computed
+     * for, it would misinform the other reader by the whole of the campaign's
+     * unsubscribed rate. Hardware improves; that does not.
+     *
+     * **The third shape -- a stored count something refreshes -- is refused
+     * against Finding B by name rather than merely left out.** What would
+     * refresh it is a scheduled task, and no scheduler runs anywhere:
+     * `schedule:list` already reports four declarations, one of them the
+     * retention D-10's stated justification depends on and which therefore
+     * never happens. A fifth would be a fifth unguarded claim on infrastructure
+     * that does not exist, and a count refreshed by nothing is worse than no
+     * count, because it reads as current.
      *
      * **Whole models go to the browser, and that is safe today rather than
      * guaranteed.** `toArray()` returns every column, so anything added to

@@ -14,11 +14,18 @@ defineProps<{
  * How a segment describes who it narrows to, in a list with no room for a
  * count.
  *
- * **Deliberately a summary of the rule and not a size**, which is the blast
- * list's own choice for the same reason and is D-28's question rather than this
- * page's: a number beside each row is one query per row, and Phase 2 Step 6
- * measured what that costs on the list next door — 1,146 ms at ten rows, with
- * pagination making it worse rather than better.
+ * **Deliberately a summary of the rule and not a size, and D-28 resolved that
+ * as the answer rather than as this page's convenience.** A number beside each
+ * row is one query per row: against 250,000 supporters that is 270.4 ms at one
+ * segment, 825.9 ms at three and 2,752.5 ms at ten, where this page as it
+ * stands costs 1.4 ms — and the single-statement form anybody would reach for
+ * instead is worse at every one of those sizes. The reason that settles it is
+ * not the cost, though, because a cost expires and this does not: the supporter
+ * list narrowed by one segment and a blast aimed at the same segment answer
+ * 250,000 and 187,615, so one number here would misinform whichever of its two
+ * readers it was not computed for, by the whole of the campaign's unsubscribed
+ * rate. SegmentController::index() carries the measurements and the third shape
+ * this refuses — a stored count, which nothing exists to refresh.
  *
  * There is no "everyone" branch here, unlike the blast list's version of this
  * function. A blast's rule may be null and null means the whole contactable
