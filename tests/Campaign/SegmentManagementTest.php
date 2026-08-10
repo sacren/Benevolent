@@ -19,6 +19,31 @@ use Inertia\Testing\AssertableInertia as Assert;
  * different from "inspected".
  */
 
+test('an operator opens the form for naming a segment', function (): void {
+    // **Added at the Phase 3 exit, where criterion 1 was found unmet on exactly
+    // this route.** Every other route in this module had a test issuing its verb
+    // at its path *and* asserting the success side; `GET /segments/create` had
+    // only the 403 row in the authorization dataset below, and the browser suite
+    // covers the list and the edit form but not this page. So the one route a
+    // campaign uses to name its *first* segment -- the entry point of the whole
+    // feature -- had no proof it renders for anybody.
+    //
+    // **The tell is the one Phase 2's exit recorded: adjacent proofs summing to
+    // something that reads like the missing one.** SegmentAuthorizationTest
+    // asserts `Gate::allows('create', Segment::class)` for both roles but issues
+    // no request; the dataset below drives the route but asserts only that it
+    // can be refused; and the sibling edit form does render and is tested. Read
+    // together those look like coverage of this page, and none of them touches
+    // it.
+    //
+    // This is also L-16's allow half for `create` at the HTTP boundary, paired
+    // with the deny below through the same call.
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/segments/create'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->component('segments/Create'));
+});
+
 test('an operator names a segment and it appears on the list', function (): void {
     $operator = User::factory()->create();
 
