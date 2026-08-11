@@ -330,9 +330,9 @@ test('committing a segment-aimed blast freezes the rule it was aimed at', functi
     // between the commit and the worker. The commit now takes a copy.
     Queue::fake();
 
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create();
     Supporter::factory()->create([
-        'postcode' => 'M15 6BH',
+        'postcode' => '90210',
         'subscription_status' => SubscriptionStatus::Subscribed,
     ]);
     $blast = Blast::factory()->aimedAtSegment($segment)->create();
@@ -348,7 +348,7 @@ test('committing a segment-aimed blast freezes the rule it was aimed at', functi
     $committed = $blast->fresh();
 
     expect($committed->status)->toBe(BlastStatus::Queued)
-        ->and($committed->committed_prefixes)->toBe(['M15'])
+        ->and($committed->committed_prefixes)->toBe(['902'])
         // The pointer stays. The frozen rule is a record of what the aim said,
         // never a replacement for the aim -- a campaign still has to be able to
         // say which narrowing a message was sent to, and the foreign key that
@@ -365,9 +365,9 @@ test('editing the segment afterwards does not move what the committed blast hold
     // whole-path half is the Tenancy file's.
     Queue::fake();
 
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create();
     Supporter::factory()->create([
-        'postcode' => 'M15 6BH',
+        'postcode' => '90210',
         'subscription_status' => SubscriptionStatus::Subscribed,
     ]);
     $blast = Blast::factory()->aimedAtSegment($segment)->create();
@@ -380,12 +380,12 @@ test('editing the segment afterwards does not move what the committed blast hold
     // the alternative mechanism considered for D-27 was refusing it, which
     // would have locked this segment for as long as the blast sat queued, and
     // with no worker deployed anywhere that is forever.
-    $segment->update(['postcode_prefixes' => ['M1']]);
+    $segment->update(['postcode_prefixes' => ['90']]);
 
-    expect($blast->fresh()->committed_prefixes)->toBe(['M15'])
+    expect($blast->fresh()->committed_prefixes)->toBe(['902'])
         // The segment really did move, so the assertion above is a difference
         // rather than two readings of the same unchanged row.
-        ->and($segment->fresh()->postcode_prefixes)->toBe(['M1']);
+        ->and($segment->fresh()->postcode_prefixes)->toBe(['90']);
 });
 
 test('committing a blast that carries its own rule freezes nothing', function (): void {
@@ -397,10 +397,10 @@ test('committing a blast that carries its own rule freezes nothing', function ()
     Queue::fake();
 
     Supporter::factory()->create([
-        'postcode' => 'M15 6BH',
+        'postcode' => '90210',
         'subscription_status' => SubscriptionStatus::Subscribed,
     ]);
-    $blast = Blast::factory()->narrowedToPostcodes(['M15'])->create();
+    $blast = Blast::factory()->narrowedToPostcodes(['902'])->create();
 
     $this->actingAs(owner())
         ->post($this->campaignUrl('/blasts/'.$blast->getKey().'/send'))
@@ -410,5 +410,5 @@ test('committing a blast that carries its own rule freezes nothing', function ()
 
     expect($committed->status)->toBe(BlastStatus::Queued)
         ->and($committed->committed_prefixes)->toBeNull()
-        ->and($committed->postcode_prefixes)->toBe(['M15']);
+        ->and($committed->postcode_prefixes)->toBe(['902']);
 });

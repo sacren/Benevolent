@@ -58,7 +58,7 @@ test('an owner downloads the campaign list as a csv', function (): void {
     $rows = array_map('str_getcsv', array_filter(explode("\n", $response->streamedContent())));
 
     expect($rows[0])->toBe([
-        'Name', 'Given name', 'Family name', 'Email', 'Postcode', 'Subscription status', 'Added on',
+        'Name', 'Given name', 'Family name', 'Email', 'ZIP code', 'Subscription status', 'Added on',
     ]);
 
     // The address is exported with the casing the campaign recorded, not folded
@@ -188,11 +188,11 @@ test('a narrowed export holds what the narrowed page held, and says so in its na
     // answer -- export everything and say so on the page -- was available and
     // was not taken, because only this one keeps the file and the screen
     // answering the same question.
-    Supporter::factory()->create(['email' => 'inside@example.test', 'postcode' => 'M15 6BH']);
-    Supporter::factory()->create(['email' => 'also-inside@example.test', 'postcode' => 'm156bh']);
-    Supporter::factory()->create(['email' => 'outside@example.test', 'postcode' => 'EH8 9YL']);
+    Supporter::factory()->create(['email' => 'inside@example.test', 'postcode' => '90210']);
+    Supporter::factory()->create(['email' => 'also-inside@example.test', 'postcode' => '90210 1234']);
+    Supporter::factory()->create(['email' => 'outside@example.test', 'postcode' => '02139']);
 
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create(['name' => 'Hulme & Moss Side']);
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create(['name' => 'Cambridge & Somerville']);
 
     $response = $this->actingAs(User::factory()->owner()->create())
         ->get($this->campaignUrl('/supporters/export?segment='.$segment->getKey()))
@@ -213,14 +213,14 @@ test('a narrowed export holds what the narrowed page held, and says so in its na
     // Slugged rather than raw, because the name is a string an operator typed
     // and can hold a slash or a quote.
     expect($response->headers->get('content-disposition'))
-        ->toContain('supporters-hulme-moss-side-');
+        ->toContain('supporters-cambridge-somerville-');
 });
 
 test('an export naming no segment is still the whole list', function (): void {
-    Supporter::factory()->create(['email' => 'inside@example.test', 'postcode' => 'M15 6BH']);
-    Supporter::factory()->create(['email' => 'outside@example.test', 'postcode' => 'EH8 9YL']);
+    Supporter::factory()->create(['email' => 'inside@example.test', 'postcode' => '90210']);
+    Supporter::factory()->create(['email' => 'outside@example.test', 'postcode' => '02139']);
 
-    Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    Segment::factory()->narrowedToPostcodes(['902'])->create();
 
     $response = $this->actingAs(User::factory()->owner()->create())
         ->get($this->campaignUrl('/supporters/export'))

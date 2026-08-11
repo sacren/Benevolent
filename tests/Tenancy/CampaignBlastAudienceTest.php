@@ -56,17 +56,17 @@ test('an audience worked out in one campaign cannot see another campaign\'s supp
     // list writes it. Nothing distinguishes these rows except which database
     // they are in, so the prefix below is correct for either campaign.
     tenancy()->initialize($harbor);
-    Supporter::factory()->create(['email' => 'harbor-one@example.test', 'postcode' => 'M15 6BH']);
-    Supporter::factory()->create(['email' => 'harbor-two@example.test', 'postcode' => 'm156bh']);
+    Supporter::factory()->create(['email' => 'harbor-one@example.test', 'postcode' => '90210']);
+    Supporter::factory()->create(['email' => 'harbor-two@example.test', 'postcode' => '90210 1234']);
 
     tenancy()->end();
     tenancy()->initialize($ridge);
-    Supporter::factory()->create(['email' => 'ridge-one@example.test', 'postcode' => 'M15 6BH']);
+    Supporter::factory()->create(['email' => 'ridge-one@example.test', 'postcode' => '90210']);
 
     // Asked in Ridge first, deliberately: a value captured once and served to
     // every campaign after is captured by whichever campaign ran first, so the
     // second campaign is where that defect shows.
-    $ridgeBlast = Blast::factory()->narrowedToPostcodes(['M15'])->create();
+    $ridgeBlast = Blast::factory()->narrowedToPostcodes(['902'])->create();
 
     expect(BlastAudience::for($ridgeBlast)->pluck('email')->all())->toBe(['ridge-one@example.test'])
         ->and(BlastAudience::size($ridgeBlast))->toBe(1);
@@ -74,7 +74,7 @@ test('an audience worked out in one campaign cannot see another campaign\'s supp
     tenancy()->end();
     tenancy()->initialize($harbor);
 
-    $harborBlast = Blast::factory()->narrowedToPostcodes(['M15'])->create();
+    $harborBlast = Blast::factory()->narrowedToPostcodes(['902'])->create();
 
     expect(BlastAudience::for($harborBlast)->pluck('email')->all())
         ->toEqualCanonicalizing(['harbor-one@example.test', 'harbor-two@example.test'])
@@ -100,7 +100,7 @@ test('unsubscribing in one campaign does not withdraw the same person from anoth
     tenancy()->initialize($harbor);
     Supporter::factory()->create([
         'email' => 'both@example.test',
-        'postcode' => 'M15 6BH',
+        'postcode' => '90210',
         'subscription_status' => SubscriptionStatus::Unsubscribed,
     ]);
 
@@ -108,7 +108,7 @@ test('unsubscribing in one campaign does not withdraw the same person from anoth
     tenancy()->initialize($ridge);
     Supporter::factory()->create([
         'email' => 'both@example.test',
-        'postcode' => 'M15 6BH',
+        'postcode' => '90210',
         'subscription_status' => SubscriptionStatus::Subscribed,
     ]);
 

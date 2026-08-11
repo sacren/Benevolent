@@ -11,16 +11,21 @@ use Illuminate\Database\Eloquent\Builder;
  * Narrowing a query over supporters to the postcodes a campaign named.
  *
  * **The product's matching rule, in the one place it is written down (D-24,
- * D-29).** A prefix matches a supporter when
- * `left(replace(lower(postcode), ' ', ''), n)` equals it. Until this class
- * existed that spelling lived inside App\Blasts\BlastAudience, where it was an
+ * D-29, amended by D-33).** A prefix matches a supporter when
+ * `left(replace(postcode, ' ', ''), n)` equals it. Until this class existed
+ * that spelling lived inside App\Blasts\BlastAudience, where it was an
  * implementation detail of one class; D-24 promoted it to what a postcode
  * prefix *means* in this product, and a meaning with two spellings is a meaning
- * the two readers are free to disagree about. That is not hypothetical: the day
- * this product chooses a jurisdiction, the fold changes, and a second copy is
- * the one nobody edits -- after which "everyone in M15" names two different
- * sets of people depending on which surface asked. D-8 closed exactly that shape
- * for addresses.
+ * the two readers are free to disagree about.
+ *
+ * **The prediction this docblock used to carry came true, which is why the rule
+ * above is shorter than it was.** It said: *the day this product chooses a
+ * jurisdiction, the fold changes, and a second copy is the one nobody edits.*
+ * The jurisdiction was chosen at Phase 4 -- the United States, congressional
+ * districts -- and the fold did change. Because there was only ever one copy,
+ * the change was one constant and one method. That is D-29 paying out, and it
+ * is recorded here rather than in a plan because this is where the next reader
+ * stands.
  *
  * **This is the *matcher*, and it is deliberately not the *storage*.** Where a
  * rule is kept was D-26, answered at Step 4 as shape (b): a blast points at a
@@ -52,11 +57,12 @@ final class PostcodeNarrowing
      * The stored postcode, folded so that two spellings of one postcode match.
      *
      * **This is not a `like` pattern, and that is a correctness decision rather
-     * than a stylistic one.** Measured against postcodes written the four ways
-     * a real list writes them:
+     * than a stylistic one.**
      *
-     *   - `where postcode like 'M15%'` finds `M15 6BH` and `M156BH` and misses
-     *     `m15 6bh` entirely; `'m15%'` finds only the lowercase one.
+     *   - `where postcode like '90210%'` misses `90210 1234` and `90210-1234`
+     *     entirely, because the space and the hyphen sit where the pattern
+     *     expects digits. Folding first and comparing a fixed number of leading
+     *     characters catches all three spellings.
      *   - An operator who types `%` selects **every supporter with a
      *     postcode** -- a control whose whole purpose is to narrow, quietly
      *     widening to the entire list. `_` matches any single character in the
@@ -81,8 +87,36 @@ final class PostcodeNarrowing
      * it is -- so completeness was never on the table and the choice was which
      * incomplete rule to pay five times over for. **Trigger to revisit:** the
      * first list whose postcodes are separated by something other than a space.
+     *
+     * **The space fold survives the jurisdiction change on a different
+     * justification, and that was measured rather than assumed (D-33).** It was
+     * added because a UK postcode carries an internal space. A US ZIP does not
+     * -- but a ZIP+4 is written `90210 1234` as readily as `90210-1234`, and a
+     * list arrives with surrounding whitespace either way. Folded, all of
+     * `90210 1234`, `902101234` and `  90210  1234 ` become `902101234`, so one
+     * prefix reaches every spelling. The hyphen needs no folding at all,
+     * because `left(..., 5)` recovers the ZIP-5 from `90210-1234` regardless.
+     *
+     * **`lower()` was removed here, and it was removed on a measurement rather
+     * than on tidiness (D-33).** It earned its place against UK postcodes, which
+     * carry letters. A US ZIP is five digits, and `lower('90210')` is `90210`
+     * for every input the product can now hold -- so the call could not change
+     * an outcome and no test could ever have made it fail. Deleting it from
+     * both halves while the UK corpus was still in place reddened 10 of 497
+     * tests, every one of them narrowing against a letter-bearing postcode;
+     * deleting it after the corpus became US ZIPs reddens nothing, which is the
+     * proof that nothing was carrying it. **A limb of the product's own
+     * definitional rule that cannot fail is worse than most**, because the next
+     * reader assumes it was measured.
+     *
+     * **What this gives up, stated rather than smoothed:** a stored value that
+     * does contain letters -- a Canadian postal code in a border district's
+     * list, or a typo -- no longer matches a prefix spelled in the other case.
+     * The product is US-only and has no fixture for that, which is exactly why
+     * the line could not be tested; **trigger to revisit: the first list this
+     * product is asked to hold whose postcodes are not US ZIPs.**
      */
-    private const string FOLDED_POSTCODE = "replace(lower(postcode), ' ', '')";
+    private const string FOLDED_POSTCODE = "replace(postcode, ' ', '')";
 
     /**
      * Narrow a supporter query to the supporters those prefixes name.
@@ -163,6 +197,6 @@ final class PostcodeNarrowing
      */
     private static function fold(string $prefix): string
     {
-        return str_replace(' ', '', mb_strtolower($prefix));
+        return str_replace(' ', '', $prefix);
     }
 }

@@ -20,7 +20,7 @@ use Inertia\Testing\AssertableInertia as Assert;
  */
 
 test('an operator sees the narrowings this campaign has named', function (): void {
-    Segment::factory()->create(['name' => 'Harbour ward']);
+    Segment::factory()->create(['name' => 'Harbor precinct']);
     Segment::factory()->create(['name' => 'Dockside streets']);
 
     $this->actingAs(User::factory()->create())
@@ -35,9 +35,9 @@ test('an operator sees the narrowings this campaign has named', function (): voi
 test('the segments are ordered by name, which is already a total order', function (): void {
     // Named out of order and created out of order, so neither arrival nor
     // insertion could produce this result by accident.
-    Segment::factory()->create(['name' => 'Whitfield']);
-    Segment::factory()->create(['name' => 'Ardwick']);
-    Segment::factory()->create(['name' => 'Moss Side']);
+    Segment::factory()->create(['name' => 'Westwood']);
+    Segment::factory()->create(['name' => 'Pasadena']);
+    Segment::factory()->create(['name' => 'Somerville']);
 
     // No tie-break is asserted because there is nothing to tie: `segments.name`
     // carries a unique index, so ordering by it is total. That is the property
@@ -46,14 +46,14 @@ test('the segments are ordered by name, which is already a total order', functio
     $this->actingAs(User::factory()->create())
         ->get($this->campaignUrl('/segments'))
         ->assertInertia(fn (Assert $page) => $page
-            ->where('segments.0.name', 'Ardwick')
-            ->where('segments.1.name', 'Moss Side')
-            ->where('segments.2.name', 'Whitfield')
+            ->where('segments.0.name', 'Pasadena')
+            ->where('segments.1.name', 'Somerville')
+            ->where('segments.2.name', 'Westwood')
         );
 });
 
 test('the page carries the rule as a list, because that is what the page is for', function (): void {
-    Segment::factory()->narrowedToPostcodes(['M15', 'sw1a'])->create();
+    Segment::factory()->narrowedToPostcodes(['902', '6060'])->create();
 
     $this->actingAs(User::factory()->create())
         ->get($this->campaignUrl('/segments'))
@@ -63,7 +63,7 @@ test('the page carries the rule as a list, because that is what the page is for'
             // has to be able to say that a rule naming nothing reaches nobody,
             // and it cannot tell that from a rule naming something if it is
             // handed words either way.
-            ->where('segments.0.postcode_prefixes', ['M15', 'sw1a'])
+            ->where('segments.0.postcode_prefixes', ['902', '6060'])
         );
 });
 

@@ -70,7 +70,7 @@ final class StagedImport
             nameMode: NameColumnMode::Split,
             givenName: 'First',
             familyName: 'Last',
-            postcode: 'Postcode',
+            postcode: 'ZIP',
         ))->toArray();
     }
 

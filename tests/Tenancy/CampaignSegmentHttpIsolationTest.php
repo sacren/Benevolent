@@ -65,7 +65,7 @@ afterEach(function (): void {
 /**
  * Put one Owner, one segment and two supporters into a campaign.
  *
- * Both campaigns get a supporter in M15 and one in EH8, and a segment under the
+ * Both campaigns get a supporter in 902 and one in 021, and a segment under the
  * *same name* narrowing to a different one of the two. So the name cannot say
  * which campaign answered and the id cannot either -- only the rows can, which
  * is what makes a leak in either direction visible rather than plausible.
@@ -85,11 +85,11 @@ function stockSegments(Tenant $campaign, string $operatorEmail, string $prefix):
 
     Supporter::factory()->create([
         'email' => 'manchester@'.$campaign->slug.'.test',
-        'postcode' => 'M15 6BH',
+        'postcode' => '90210',
     ]);
     Supporter::factory()->create([
         'email' => 'edinburgh@'.$campaign->slug.'.test',
-        'postcode' => 'EH8 9YL',
+        'postcode' => '02139',
     ]);
 
     $segment = Segment::factory()
@@ -105,8 +105,8 @@ test('a signed-in operator is served their own campaign segments and never anoth
     $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
     $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
 
-    [, $harborSegment] = stockSegments($harbor, 'operator@harbor-cleanup.test', 'M15');
-    [, $ridgeSegment] = stockSegments($ridge, 'operator@ridge-restoration.test', 'EH8');
+    [, $harborSegment] = stockSegments($harbor, 'operator@harbor-cleanup.test', '902');
+    [, $ridgeSegment] = stockSegments($ridge, 'operator@ridge-restoration.test', '021');
 
     // The premise the later tests rest on, asserted rather than assumed: the two
     // segments really do share an id, so a URL carrying a bare id is ambiguous
@@ -133,7 +133,7 @@ test('a signed-in operator is served their own campaign segments and never anoth
         ->assertInertia(fn ($page) => $page
             ->component('segments/Index')
             ->has('segments', 1)
-            ->where('segments.0.postcode_prefixes', ['M15'])
+            ->where('segments.0.postcode_prefixes', ['902'])
             ->where('auth.user.email', 'operator@harbor-cleanup.test')
         );
 
@@ -141,15 +141,15 @@ test('a signed-in operator is served their own campaign segments and never anoth
     // count of one is also what a page showing the wrong single segment has --
     // and here the name is identical, so the rule is the only thing that differs.
     $this->get('http://harbor-cleanup.test/segments')
-        ->assertDontSee('EH8');
+        ->assertDontSee('021');
 });
 
 test('a segment addressed by an id both campaigns use resolves against the host, never across the two', function (): void {
     $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
     $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
 
-    [, $harborSegment] = stockSegments($harbor, 'operator@harbor-cleanup.test', 'M15');
-    [, $ridgeSegment] = stockSegments($ridge, 'operator@ridge-restoration.test', 'EH8');
+    [, $harborSegment] = stockSegments($harbor, 'operator@harbor-cleanup.test', '902');
+    [, $ridgeSegment] = stockSegments($ridge, 'operator@ridge-restoration.test', '021');
 
     expect($harborSegment->getKey())->toBe($ridgeSegment->getKey());
 
@@ -162,9 +162,9 @@ test('a segment addressed by an id both campaigns use resolves against the host,
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('segments/Edit')
-            ->where('segment.postcode_prefixes', ['M15'])
+            ->where('segment.postcode_prefixes', ['902'])
         )
-        ->assertDontSee('EH8');
+        ->assertDontSee('021');
 
     // **The same id, on the other campaign's host, answered as that campaign.**
     // Two in-process artifacts stack here and only one is obvious. The session
@@ -183,9 +183,9 @@ test('a segment addressed by an id both campaigns use resolves against the host,
             // Answered as the other campaign's own operator, not as the one who
             // signed in. The identity did not travel; only the id did.
             ->where('auth.user.email', 'operator@ridge-restoration.test')
-            ->where('segment.postcode_prefixes', ['EH8'])
+            ->where('segment.postcode_prefixes', ['021'])
         )
-        ->assertDontSee('M15');
+        ->assertDontSee('902');
 
     // And what a real browser gets, since it never sends that cookie here.
     $this->flushSession();
@@ -203,15 +203,15 @@ test('a narrowed supporter list is narrowed by the host campaign\'s own rule, on
     // **The claim this step exists to make, and the one no adjacent test
     // reaches.** The segment id arrives as a query parameter on *another
     // module's* page, where it decides which supporters come back. Both
-    // campaigns hold a supporter in M15 and one in EH8, and segment 1 means
+    // campaigns hold a supporter in 902 and one in 021, and segment 1 means
     // something different in each -- so a list narrowed by the wrong campaign's
     // rule returns the wrong person rather than no people, and is visible as a
     // row rather than as a count.
     $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
     $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
 
-    [, $harborSegment] = stockSegments($harbor, 'operator@harbor-cleanup.test', 'M15');
-    [, $ridgeSegment] = stockSegments($ridge, 'operator@ridge-restoration.test', 'EH8');
+    [, $harborSegment] = stockSegments($harbor, 'operator@harbor-cleanup.test', '902');
+    [, $ridgeSegment] = stockSegments($ridge, 'operator@ridge-restoration.test', '021');
 
     expect($harborSegment->getKey())->toBe($ridgeSegment->getKey());
 
@@ -253,8 +253,8 @@ test('a narrowed export carries the host campaign\'s own people and nobody else\
     $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
     $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
 
-    [, $harborSegment] = stockSegments($harbor, 'operator@harbor-cleanup.test', 'M15');
-    [, $ridgeSegment] = stockSegments($ridge, 'operator@ridge-restoration.test', 'EH8');
+    [, $harborSegment] = stockSegments($harbor, 'operator@harbor-cleanup.test', '902');
+    [, $ridgeSegment] = stockSegments($ridge, 'operator@ridge-restoration.test', '021');
 
     expect($harborSegment->getKey())->toBe($ridgeSegment->getKey());
 

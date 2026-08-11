@@ -37,7 +37,7 @@ test('a pruned upload stops naming the people the campaign already deleted', fun
     // Before the prune, the file still names both. Afterwards it names neither,
     // and the campaign's account of the import is untouched.
     $import = StagedImport::of(
-        "Email,First,Last,Postcode\n"
+        "Email,First,Last,ZIP\n"
         ."jean@example.test,Jean,Sacren,80202\n"
         ."not-an-address,Alex,Roe,80203\n",
         StagedImport::splitMapping(),
@@ -79,7 +79,7 @@ test('a pruned upload stops naming the people the campaign already deleted', fun
         ->and($import->supporters_added)->toBe(1)
         ->and($import->rows_skipped)->toBe(1)
         ->and($import->original_filename)->toBe('supporters.csv')
-        ->and($import->headers)->toBe(['Email', 'First', 'Last', 'Postcode']);
+        ->and($import->headers)->toBe(['Email', 'First', 'Last', 'ZIP']);
 });
 
 test('an upload inside the window is left alone', function (): void {
@@ -125,7 +125,7 @@ test('an abandoned upload is pruned although nothing ever read it', function ():
     // import nobody ever mapped holds a whole list on disk that was never
     // consumed -- the worst of the four states, not an edge of them -- and a
     // command that skipped unfinished imports would keep it forever.
-    $import = StagedImport::of("Email,First,Last,Postcode\nabandoned@example.test,Jean,Sacren,80202\n");
+    $import = StagedImport::of("Email,First,Last,ZIP\nabandoned@example.test,Jean,Sacren,80202\n");
 
     expect($import->status)->toBe(ImportStatus::AwaitingMapping);
 
@@ -187,7 +187,7 @@ test('nothing prunes the import record itself', function (): void {
     // counts, the mapping and the file's header row, and the header row is
     // column names rather than people, so there is nothing in it to expire.
     $import = StagedImport::of(
-        "Email,First,Last,Postcode\nkept@example.test,Jean,Sacren,80202\n",
+        "Email,First,Last,ZIP\nkept@example.test,Jean,Sacren,80202\n",
         StagedImport::splitMapping(),
     );
 
@@ -197,5 +197,5 @@ test('nothing prunes the import record itself', function (): void {
     Artisan::call('model:prune');
 
     expect(SupporterImport::query()->whereKey($import->getKey())->exists())->toBeTrue()
-        ->and($import->refresh()->headers)->toBe(['Email', 'First', 'Last', 'Postcode']);
+        ->and($import->refresh()->headers)->toBe(['Email', 'First', 'Last', 'ZIP']);
 });

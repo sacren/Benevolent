@@ -111,7 +111,7 @@ function messagesSent(): ArrayObject
  *
  * @param  list<string>  $addresses
  */
-function committedBlastFor(array $addresses, string $subject = 'Save the harbour'): Blast
+function committedBlastFor(array $addresses, string $subject = 'Save the harbor'): Blast
 {
     foreach ($addresses as $address) {
         Supporter::factory()->create([
@@ -141,7 +141,7 @@ test('a send reaches only its own campaign, and signs and answers as that campai
     $ridge = sendingCampaign('ridge-restoration');
 
     tenancy()->initialize($harbor);
-    $harborBlast = committedBlastFor(['ama@harbor.test', 'bo@harbor.test'], 'Harbour meeting');
+    $harborBlast = committedBlastFor(['ama@harbor.test', 'bo@harbor.test'], 'Harbor meeting');
     SendBlast::dispatch($harborBlast, (string) $harbor->getKey());
 
     tenancy()->initialize($ridge);
@@ -181,7 +181,7 @@ test('a send reaches only its own campaign, and signs and answers as that campai
         ->and($harborMessage->getFrom()[0]->getName())->not->toBe($ridgeMessage->getFrom()[0]->getName())
         ->and($harborMessage->getReplyTo()[0]->getAddress())->toBe('crew@harbor-cleanup.test')
         ->and($ridgeMessage->getReplyTo()[0]->getAddress())->toBe('trail@ridge-restoration.test')
-        ->and($harborMessage->getSubject())->toBe('Harbour meeting')
+        ->and($harborMessage->getSubject())->toBe('Harbor meeting')
         ->and($ridgeMessage->getSubject())->toBe('Ridge meeting');
 
     // The from *address* is the platform's for both, which is D-15's other half:
@@ -723,18 +723,18 @@ test('a second attempt at the same send cannot widen who it reaches', function (
 
     $inTheCommittedAim = Supporter::factory()->create([
         'email' => 'ama@harbor.test',
-        'postcode' => 'M15 6BH',
+        'postcode' => '90210',
         'subscription_status' => SubscriptionStatus::Subscribed,
     ]);
 
     // Never in the committed audience, and admitted only by the edit below.
     Supporter::factory()->create([
         'email' => 'bo@harbor.test',
-        'postcode' => 'EH8 9YL',
+        'postcode' => '02139',
         'subscription_status' => SubscriptionStatus::Subscribed,
     ]);
 
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create(['name' => 'Dockside streets']);
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create(['name' => 'Dockside streets']);
     $blast = Blast::factory()->aimedAtSegment($segment)->queued()->create(['subject' => 'Dockside works begin']);
 
     SendBlast::dispatch($blast, (string) $harbor->getKey());
@@ -748,7 +748,7 @@ test('a second attempt at the same send cannot widen who it reaches', function (
     // an ordinary, permitted act, which is the whole reason the blast had to
     // keep its own copy rather than the edit being refused.
     tenancy()->initialize($harbor);
-    $segment->update(['postcode_prefixes' => ['EH8']]);
+    $segment->update(['postcode_prefixes' => ['021']]);
 
     // The second attempt. Not a double-click, which the controller makes
     // impossible: this is what the queue itself does to a long send.
@@ -769,6 +769,6 @@ test('a second attempt at the same send cannot widen who it reaches', function (
         ->and(DB::table('blast_recipients')->value('supporter_id'))->toBe($inTheCommittedAim->getKey())
         // And the segment really did move, so this is a difference rather than
         // two readings of an unchanged row.
-        ->and($segment->fresh()->postcode_prefixes)->toBe(['EH8'])
-        ->and($blast->fresh()->committed_prefixes)->toBe(['M15']);
+        ->and($segment->fresh()->postcode_prefixes)->toBe(['021'])
+        ->and($blast->fresh()->committed_prefixes)->toBe(['902']);
 });

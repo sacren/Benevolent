@@ -28,7 +28,7 @@ use Illuminate\Support\Carbon;
  * consequential line here, and the plausible mistake has a flavour of its own:
  * a *rule* looks like configuration rather than like data, and configuration
  * sounds central. Naming a connection would pool every campaign's segments into
- * one table -- and "everyone in M15" names a different set of human beings in
+ * one table -- and "everyone in 902" names a different set of human beings in
  * each campaign, so the pooled row would be read by campaigns that share
  * nothing but a postcode. Naming none means a segment follows the default
  * connection tenancy has already switched onto the campaign serving the

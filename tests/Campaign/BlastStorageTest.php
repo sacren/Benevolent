@@ -34,12 +34,12 @@ test('the campaign database carries the blasts the campaign has written', functi
 });
 
 test('a blast written in campaign context lands in the campaign database', function (): void {
-    Blast::factory()->create(['subject' => 'Save the harbour']);
+    Blast::factory()->create(['subject' => 'Save the harbor']);
 
     expect(DB::connection()->getDatabaseName())
         ->toBe($this->campaign->database()->getName());
 
-    $this->assertDatabaseHas('blasts', ['subject' => 'Save the harbour'], 'tenant');
+    $this->assertDatabaseHas('blasts', ['subject' => 'Save the harbor'], 'tenant');
 });
 
 test('the factory builds a valid blast, and it is a draft addressed to everyone', function (): void {
@@ -65,11 +65,11 @@ test('the audience is a rule the blast stores, and only the operator-chosen half
     //
     // Written as an operator would type them, unevenly, because the column they
     // will be matched against holds postcodes exactly as their source gave them.
-    $blast = Blast::factory()->narrowedToPostcodes(['M15', 'sw1a'])->create();
+    $blast = Blast::factory()->narrowedToPostcodes(['902', '6060'])->create();
 
     $reloaded = Blast::query()->whereKey($blast->getKey())->sole();
 
-    expect($reloaded->postcode_prefixes)->toBe(['M15', 'sw1a']);
+    expect($reloaded->postcode_prefixes)->toBe(['902', '6060']);
 
     // The half that is deliberately absent, asserted as an absence because its
     // absence is the guarantee. Subscribed-only is the condition the product
@@ -247,7 +247,7 @@ test('a blast can be aimed at a segment the campaign has named', function (): vo
     // D-26 as data, and the shape of the answer is that both columns are here:
     // a blast points at a segment *or* carries its own rule, so the pointer was
     // added without taking the rule away.
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create();
 
     $blast = Blast::factory()->aimedAtSegment($segment)->create();
 
@@ -260,7 +260,7 @@ test('a blast can be aimed at a segment the campaign has named', function (): vo
         // Copying would be the shape §7 names as an illegitimate way to satisfy
         // this phase's fifth criterion.
         ->and($reloaded->segment?->getKey())->toBe($segment->getKey())
-        ->and($reloaded->segment?->postcode_prefixes)->toBe(['M15']);
+        ->and($reloaded->segment?->postcode_prefixes)->toBe(['902']);
 });
 
 test('the database refuses a blast that names two aims at once', function (): void {
@@ -274,7 +274,7 @@ test('the database refuses a blast that names two aims at once', function (): vo
         'subject' => 'Aimed two ways',
         'body' => 'Refused.',
         'segment_id' => $segment->getKey(),
-        'postcode_prefixes' => json_encode(['M15']),
+        'postcode_prefixes' => json_encode(['902']),
         'created_at' => now(),
         'updated_at' => now(),
     ]));
@@ -288,7 +288,7 @@ test('the database refuses a blast that names two aims at once', function (): vo
     // without them this passes just as happily against a table that refuses
     // every insert (L-19).
     $pointing = Blast::factory()->aimedAtSegment($segment)->create();
-    $carrying = Blast::factory()->narrowedToPostcodes(['M15'])->create();
+    $carrying = Blast::factory()->narrowedToPostcodes(['902'])->create();
 
     // Neither column set, which is the ordinary blast to everybody the campaign
     // may contact and is this module's only widening branch. It is named here
@@ -354,13 +354,13 @@ test('the database refuses a draft that already carries a frozen aim', function 
     // draft carrying one would quietly stop following the segment its operator
     // is still editing. The pointer would still be on the row, the page would
     // still name the segment, and the audience would be somebody else's.
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create();
 
     $refusal = refusalFrom(fn () => DB::connection('tenant')->table('blasts')->insert([
         'subject' => 'A draft that has already made up its mind',
         'body' => 'Refused.',
         'segment_id' => $segment->getKey(),
-        'committed_prefixes' => json_encode(['M15']),
+        'committed_prefixes' => json_encode(['902']),
         'status' => 'draft',
         'created_at' => now(),
         'updated_at' => now(),
@@ -387,7 +387,7 @@ test('the database refuses a committed segment-aimed blast with no frozen aim', 
     // to be read from, and the only safe reading of nothing is that the blast
     // reaches nobody -- a message the campaign committed and that silently
     // never goes.
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create();
 
     $refusal = refusalFrom(fn () => DB::connection('tenant')->table('blasts')->insert([
         'subject' => 'Committed without freezing what it was aimed at',
@@ -406,7 +406,7 @@ test('the database refuses a committed segment-aimed blast with no frozen aim', 
     $committed = Blast::factory()->aimedAtSegment($segment)->queued()->create();
 
     expect($committed->exists)->toBeTrue()
-        ->and($committed->committed_prefixes)->toBe(['M15'])
+        ->and($committed->committed_prefixes)->toBe(['902'])
         ->and(Blast::query()->count())->toBe(1);
 });
 
@@ -420,11 +420,11 @@ test('a committed blast that never pointed at a segment carries no frozen aim', 
     // its own row, which nothing but its own compose form can reach and which
     // refuseCommitted() closes the moment it leaves draft; a blast aimed at
     // nobody in particular has no rule at all.
-    $carrying = Blast::factory()->narrowedToPostcodes(['M15'])->queued()->create();
+    $carrying = Blast::factory()->narrowedToPostcodes(['902'])->queued()->create();
     $everyone = Blast::factory()->queued()->create();
 
     expect($carrying->committed_prefixes)->toBeNull()
-        ->and($carrying->postcode_prefixes)->toBe(['M15'])
+        ->and($carrying->postcode_prefixes)->toBe(['902'])
         ->and($everyone->committed_prefixes)->toBeNull()
         ->and($everyone->segment_id)->toBeNull()
         ->and($everyone->postcode_prefixes)->toBeNull();
@@ -435,10 +435,10 @@ test('the frozen aim round-trips through the database as a list', function (): v
     // a string rather than a list would reach PostcodeNarrowing::apply() as
     // something it cannot fold, and the fail-closed branch would turn a
     // committed send into a send to nobody.
-    $segment = Segment::factory()->narrowedToPostcodes(['M15', 'M16 7'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902', '911 0'])->create();
 
     $blast = Blast::factory()->aimedAtSegment($segment)->sent()->create();
 
     expect(Blast::query()->whereKey($blast->getKey())->sole()->committed_prefixes)
-        ->toBe(['M15', 'M16 7']);
+        ->toBe(['902', '911 0']);
 });

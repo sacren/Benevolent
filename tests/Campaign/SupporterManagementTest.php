@@ -27,7 +27,7 @@ test('an operator adds a supporter', function (): void {
             'given_name' => 'Ama',
             'family_name' => 'Boateng',
             'email' => 'Ama.Boateng@Example.test',
-            'postcode' => 'M15 6BH',
+            'postcode' => '90210',
         ])
         ->assertRedirect(route('supporters.index'))
         ->assertSessionHasNoErrors();
@@ -37,7 +37,7 @@ test('an operator adds a supporter', function (): void {
     expect($added->name)->toBe('Ama Boateng')
         ->and($added->given_name)->toBe('Ama')
         ->and($added->family_name)->toBe('Boateng')
-        ->and($added->postcode)->toBe('M15 6BH')
+        ->and($added->postcode)->toBe('90210')
         // Stored exactly as typed. Only the *match* folds case, which is the
         // same asymmetry the postcode and the name parts follow.
         ->and($added->email)->toBe('Ama.Boateng@Example.test')
@@ -115,14 +115,14 @@ test('an operator corrects a supporter', function (): void {
             'given_name' => 'Inês',
             'family_name' => 'Duarte',
             'email' => 'ines.duarte@example.test',
-            'postcode' => '1250-096',
+            'postcode' => '73301',
             'subscription_status' => SubscriptionStatus::Subscribed->value,
         ])
         ->assertRedirect(route('supporters.index'))
         ->assertSessionHasNoErrors();
 
     expect($supporter->fresh()->name)->toBe('Inês Duarte')
-        ->and($supporter->fresh()->postcode)->toBe('1250-096');
+        ->and($supporter->fresh()->postcode)->toBe('73301');
 });
 
 test('editing a supporter without changing their address is not refused as a duplicate', function (): void {

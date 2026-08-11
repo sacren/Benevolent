@@ -115,8 +115,8 @@ test('the compose form offers the host campaign\'s segments and never another ca
     $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
     $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
 
-    [, $harborSegment] = stockBlastSegments($harbor, 'operator@harbor-cleanup.test', 'M15', ['M15 6BH', 'M15 9AA', 'EH8 9YL']);
-    [, $ridgeSegment] = stockBlastSegments($ridge, 'operator@ridge-restoration.test', 'EH8', ['M15 6BH', 'EH8 9YL', 'EH8 1AB', 'EH8 2CD']);
+    [, $harborSegment] = stockBlastSegments($harbor, 'operator@harbor-cleanup.test', '902', ['90210', '90211', '02139']);
+    [, $ridgeSegment] = stockBlastSegments($ridge, 'operator@ridge-restoration.test', '021', ['90210', '02139', '02138', '02141']);
 
     // The premise the rest of the file rests on, asserted rather than assumed.
     // Were the ids ever to stop colliding, every test below would keep passing
@@ -133,12 +133,12 @@ test('the compose form offers the host campaign\'s segments and never another ca
         ->assertInertia(fn ($page) => $page
             ->component('blasts/Create')
             ->has('segments', 1)
-            ->where('segments.0.postcode_prefixes', ['M15'])
+            ->where('segments.0.postcode_prefixes', ['902'])
             ->where('auth.user.email', 'operator@harbor-cleanup.test')
         )
         // Asserted on the rule rather than the name, because the name is
         // identical in both campaigns and would prove nothing.
-        ->assertDontSee('EH8');
+        ->assertDontSee('021');
 
     signInAt('ridge-restoration.test', 'operator@ridge-restoration.test');
 
@@ -146,10 +146,10 @@ test('the compose form offers the host campaign\'s segments and never another ca
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->has('segments', 1)
-            ->where('segments.0.postcode_prefixes', ['EH8'])
+            ->where('segments.0.postcode_prefixes', ['021'])
             ->where('auth.user.email', 'operator@ridge-restoration.test')
         )
-        ->assertDontSee('M15');
+        ->assertDontSee('902');
 });
 
 test('a blast aimed by an id both campaigns use reaches the host campaign\'s own people', function (): void {
@@ -161,8 +161,8 @@ test('a blast aimed by an id both campaigns use reaches the host campaign\'s own
     $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
     $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
 
-    [, $harborSegment] = stockBlastSegments($harbor, 'operator@harbor-cleanup.test', 'M15', ['M15 6BH', 'M15 9AA', 'EH8 9YL']);
-    [, $ridgeSegment] = stockBlastSegments($ridge, 'operator@ridge-restoration.test', 'EH8', ['M15 6BH', 'EH8 9YL', 'EH8 1AB', 'EH8 2CD']);
+    [, $harborSegment] = stockBlastSegments($harbor, 'operator@harbor-cleanup.test', '902', ['90210', '90211', '02139']);
+    [, $ridgeSegment] = stockBlastSegments($ridge, 'operator@ridge-restoration.test', '021', ['90210', '02139', '02138', '02141']);
 
     expect($harborSegment->getKey())->toBe($ridgeSegment->getKey());
 
@@ -178,7 +178,7 @@ test('a blast aimed by an id both campaigns use reaches the host campaign\'s own
     $harborBlast = Blast::query()->sole();
     tenancy()->end();
 
-    // Two supporters in M15, not the three this campaign holds and not the
+    // Two supporters in 902, not the three this campaign holds and not the
     // three the *other* campaign's rule would have selected from its own list.
     $this->get('http://harbor-cleanup.test/blasts/'.$harborBlast->getKey().'/edit')
         ->assertOk()
@@ -204,7 +204,7 @@ test('a blast aimed by an id both campaigns use reaches the host campaign\'s own
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->where('auth.user.email', 'operator@ridge-restoration.test')
-            // Three in EH8. Different from the two above, so this cannot be
+            // Three in 021. Different from the two above, so this cannot be
             // satisfied by an audience that resolved the wrong campaign's rule.
             ->where('audienceSize', 3)
         );
@@ -214,8 +214,8 @@ test('the blast list names the host campaign\'s own narrowing, never the other\'
     $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
     $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
 
-    [, $harborSegment] = stockBlastSegments($harbor, 'operator@harbor-cleanup.test', 'M15', ['M15 6BH', 'M15 9AA', 'EH8 9YL']);
-    [, $ridgeSegment] = stockBlastSegments($ridge, 'operator@ridge-restoration.test', 'EH8', ['M15 6BH', 'EH8 9YL', 'EH8 1AB', 'EH8 2CD']);
+    [, $harborSegment] = stockBlastSegments($harbor, 'operator@harbor-cleanup.test', '902', ['90210', '90211', '02139']);
+    [, $ridgeSegment] = stockBlastSegments($ridge, 'operator@ridge-restoration.test', '021', ['90210', '02139', '02138', '02141']);
 
     expect($harborSegment->getKey())->toBe($ridgeSegment->getKey());
 
@@ -236,9 +236,9 @@ test('the blast list names the host campaign\'s own narrowing, never the other\'
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->has('blasts', 1)
-            ->where('blasts.0.segment.postcode_prefixes', ['M15'])
+            ->where('blasts.0.segment.postcode_prefixes', ['902'])
         )
-        ->assertDontSee('EH8')
+        ->assertDontSee('021')
         ->assertDontSee('Ridge path closure');
 
     signInAt('ridge-restoration.test', 'operator@ridge-restoration.test');
@@ -247,9 +247,9 @@ test('the blast list names the host campaign\'s own narrowing, never the other\'
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->has('blasts', 1)
-            ->where('blasts.0.segment.postcode_prefixes', ['EH8'])
+            ->where('blasts.0.segment.postcode_prefixes', ['021'])
         )
-        ->assertDontSee('M15')
+        ->assertDontSee('902')
         ->assertDontSee('Dockside works begin');
 });
 
@@ -263,8 +263,8 @@ test('a segment one campaign has a blast aimed at is still removable in the othe
     $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
     $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
 
-    [, $harborSegment] = stockBlastSegments($harbor, 'operator@harbor-cleanup.test', 'M15', ['M15 6BH', 'M15 9AA', 'EH8 9YL']);
-    [, $ridgeSegment] = stockBlastSegments($ridge, 'operator@ridge-restoration.test', 'EH8', ['M15 6BH', 'EH8 9YL', 'EH8 1AB', 'EH8 2CD']);
+    [, $harborSegment] = stockBlastSegments($harbor, 'operator@harbor-cleanup.test', '902', ['90210', '90211', '02139']);
+    [, $ridgeSegment] = stockBlastSegments($ridge, 'operator@ridge-restoration.test', '021', ['90210', '02139', '02138', '02141']);
 
     expect($harborSegment->getKey())->toBe($ridgeSegment->getKey());
 
@@ -312,16 +312,16 @@ test('committing a blast freezes the host campaign\'s rule, never the other camp
     $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
     $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
 
-    [, $harborSegment] = stockBlastSegments($harbor, 'operator@harbor-cleanup.test', 'M15', ['M15 6BH', 'M15 9AA', 'EH8 9YL']);
-    [, $ridgeSegment] = stockBlastSegments($ridge, 'operator@ridge-restoration.test', 'EH8', ['M15 6BH', 'EH8 9YL', 'EH8 1AB', 'EH8 2CD']);
+    [, $harborSegment] = stockBlastSegments($harbor, 'operator@harbor-cleanup.test', '902', ['90210', '90211', '02139']);
+    [, $ridgeSegment] = stockBlastSegments($ridge, 'operator@ridge-restoration.test', '021', ['90210', '02139', '02138', '02141']);
 
     // The premise, asserted rather than assumed: were the ids to stop
     // colliding this would keep passing while testing nothing.
     expect($harborSegment->getKey())->toBe($ridgeSegment->getKey());
 
     foreach ([
-        ['harbor-cleanup', $harbor, $harborSegment, 'M15'],
-        ['ridge-restoration', $ridge, $ridgeSegment, 'EH8'],
+        ['harbor-cleanup', $harbor, $harborSegment, '902'],
+        ['ridge-restoration', $ridge, $ridgeSegment, '021'],
     ] as [$slug, $campaign, $segment, $ownPrefix]) {
         signInAt($slug.'.test', 'operator@'.$slug.'.test');
 
@@ -354,11 +354,11 @@ test('committing a blast freezes the host campaign\'s rule, never the other camp
     // one campaign's rule appearing on the other's blast and a per-campaign
     // assertion in a loop can pass twice against a value captured once.
     tenancy()->initialize($harbor);
-    expect(Blast::query()->sole()->committed_prefixes)->toBe(['M15']);
+    expect(Blast::query()->sole()->committed_prefixes)->toBe(['902']);
     tenancy()->end();
 
     tenancy()->initialize($ridge);
-    expect(Blast::query()->sole()->committed_prefixes)->toBe(['EH8']);
+    expect(Blast::query()->sole()->committed_prefixes)->toBe(['021']);
     tenancy()->end();
 });
 
@@ -372,8 +372,8 @@ test('editing one campaign\'s segment leaves the other campaign\'s frozen blast 
     $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
     $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
 
-    [, $harborSegment] = stockBlastSegments($harbor, 'operator@harbor-cleanup.test', 'M15', ['M15 6BH', 'M15 9AA', 'EH8 9YL']);
-    [, $ridgeSegment] = stockBlastSegments($ridge, 'operator@ridge-restoration.test', 'EH8', ['M15 6BH', 'EH8 9YL', 'EH8 1AB', 'EH8 2CD']);
+    [, $harborSegment] = stockBlastSegments($harbor, 'operator@harbor-cleanup.test', '902', ['90210', '90211', '02139']);
+    [, $ridgeSegment] = stockBlastSegments($ridge, 'operator@ridge-restoration.test', '021', ['90210', '02139', '02138', '02141']);
 
     expect($harborSegment->getKey())->toBe($ridgeSegment->getKey());
 
@@ -390,17 +390,17 @@ test('editing one campaign\'s segment leaves the other campaign\'s frozen blast 
 
     $this->patch('http://harbor-cleanup.test/segments/'.$harborSegment->getKey(), [
         'name' => 'Dockside streets',
-        'postcode_prefixes' => 'SW1A',
+        'postcode_prefixes' => '6060',
     ])->assertRedirect();
 
     tenancy()->initialize($harbor);
-    expect(Segment::query()->sole()->postcode_prefixes)->toBe(['SW1A'])
+    expect(Segment::query()->sole()->postcode_prefixes)->toBe(['6060'])
         // Harbor's sent blast still says what it went out against.
-        ->and($harborBlast->fresh()->committed_prefixes)->toBe(['M15']);
+        ->and($harborBlast->fresh()->committed_prefixes)->toBe(['902']);
     tenancy()->end();
 
     tenancy()->initialize($ridge);
-    expect(Segment::query()->sole()->postcode_prefixes)->toBe(['EH8'])
-        ->and($ridgeBlast->fresh()->committed_prefixes)->toBe(['EH8']);
+    expect(Segment::query()->sole()->postcode_prefixes)->toBe(['021'])
+        ->and($ridgeBlast->fresh()->committed_prefixes)->toBe(['021']);
     tenancy()->end();
 });

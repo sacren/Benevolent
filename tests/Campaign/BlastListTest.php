@@ -58,7 +58,7 @@ test('the newest message is first, with the id breaking a tie', function (): voi
 });
 
 test('the page carries the audience rule and the state, because that is what the list is for', function (): void {
-    Blast::factory()->narrowedToPostcodes(['M15', 'sw1a'])->create();
+    Blast::factory()->narrowedToPostcodes(['902', '6060'])->create();
 
     $this->actingAs(User::factory()->create())
         ->get($this->campaignUrl('/blasts'))
@@ -67,7 +67,7 @@ test('the page carries the audience rule and the state, because that is what the
             // arrive as the list they are rather than as a rendered string the
             // server decided on: the page says what null means in words, and it
             // cannot do that if it is handed words either way.
-            ->where('blasts.0.postcode_prefixes', ['M15', 'sw1a'])
+            ->where('blasts.0.postcode_prefixes', ['902', '6060'])
             ->where('blasts.0.status', BlastStatus::Draft->value)
         );
 });
@@ -120,7 +120,7 @@ test('the list says which named narrowing a blast is aimed at', function (): voi
     // The page renders this cell from what arrives here, so what arrives has to
     // be the segment rather than only the pointer: `segment_id` is an id and
     // names nothing an operator can read.
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create(['name' => 'Whalley Range']);
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create(['name' => 'Beverly Hills']);
 
     Blast::factory()->aimedAtSegment($segment)->create();
 
@@ -128,7 +128,7 @@ test('the list says which named narrowing a blast is aimed at', function (): voi
         ->get($this->campaignUrl('/blasts'))
         ->assertInertia(fn (Assert $page) => $page
             ->where('blasts.0.segment_id', $segment->getKey())
-            ->where('blasts.0.segment.name', 'Whalley Range')
+            ->where('blasts.0.segment.name', 'Beverly Hills')
             // And the blast carries no rule of its own, which is the pair that
             // makes the page's ordering matter: a summary reading the column
             // first would call this blast "everyone subscribed".
@@ -141,8 +141,8 @@ test('the narrowing is loaded once for the page, not once per blast', function (
     // An audience count per row is refused here on a measurement; a segment per
     // row would be the same shape one table along, and eager loading is what
     // makes it one query for the whole list however many blasts there are.
-    $first = Segment::factory()->create(['name' => 'Ardwick']);
-    $second = Segment::factory()->create(['name' => 'Whalley Range']);
+    $first = Segment::factory()->create(['name' => 'Pasadena']);
+    $second = Segment::factory()->create(['name' => 'Beverly Hills']);
 
     Blast::factory()->aimedAtSegment($first)->create();
     Blast::factory()->aimedAtSegment($second)->create();
@@ -176,28 +176,28 @@ test('the page carries what a committed blast froze, alongside the segment as it
     // blast from it would report the wrong narrowing as the one that went out.
     // The frozen rule is what it actually reached, so the server has to send
     // it rather than leaving the page to infer the aim from a live row.
-    $segment = Segment::factory()->narrowedToPostcodes(['M16'])->create(['name' => 'Whalley Range']);
+    $segment = Segment::factory()->narrowedToPostcodes(['911'])->create(['name' => 'Beverly Hills']);
 
     $blast = Blast::factory()->aimedAtSegment($segment)->sent()->create();
 
     // The narrowing moves after the send, in both of the ways it can: renamed,
     // and re-aimed somewhere disjoint.
-    $segment->update(['name' => 'Hulme', 'postcode_prefixes' => ['M15']]);
+    $segment->update(['name' => 'Cambridge', 'postcode_prefixes' => ['902']]);
 
     $this->actingAs(User::factory()->create())
         ->get($this->campaignUrl('/blasts'))
         ->assertInertia(fn (Assert $page) => $page
-            ->where('blasts.0.committed_prefixes', ['M16'])
+            ->where('blasts.0.committed_prefixes', ['911'])
             // The pointer and the segment still arrive, because "which
             // narrowing did we use" is a question the campaign still asks and
             // the answer is still on the row. What the page must not do is
             // treat them as the audience.
             ->where('blasts.0.segment_id', $segment->getKey())
-            ->where('blasts.0.segment.name', 'Hulme')
-            ->where('blasts.0.segment.postcode_prefixes', ['M15'])
+            ->where('blasts.0.segment.name', 'Cambridge')
+            ->where('blasts.0.segment.postcode_prefixes', ['902'])
         );
 
-    expect($blast->fresh()->committed_prefixes)->toBe(['M16']);
+    expect($blast->fresh()->committed_prefixes)->toBe(['911']);
 });
 
 test('a draft carries no frozen rule to the page, so the list keeps naming its segment', function (): void {
@@ -205,7 +205,7 @@ test('a draft carries no frozen rule to the page, so the list keeps naming its s
     // that sends a frozen rule for everything, which would make the list stop
     // following a pointer that is still live -- the opposite defect, and the one
     // that would quietly undo what pointing at a segment is for.
-    $segment = Segment::factory()->narrowedToPostcodes(['M16'])->create(['name' => 'Whalley Range']);
+    $segment = Segment::factory()->narrowedToPostcodes(['911'])->create(['name' => 'Beverly Hills']);
 
     Blast::factory()->aimedAtSegment($segment)->create();
 
@@ -213,6 +213,6 @@ test('a draft carries no frozen rule to the page, so the list keeps naming its s
         ->get($this->campaignUrl('/blasts'))
         ->assertInertia(fn (Assert $page) => $page
             ->where('blasts.0.committed_prefixes', null)
-            ->where('blasts.0.segment.name', 'Whalley Range')
+            ->where('blasts.0.segment.name', 'Beverly Hills')
         );
 });

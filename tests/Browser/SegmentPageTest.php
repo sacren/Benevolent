@@ -59,8 +59,8 @@ afterEach(function (): void {
 
 test('the segment pages mount, including the one whose layout reads its own props', function (): void {
     $segment = Segment::factory()
-        ->narrowedToPostcodes(['M15', 'M16'])
-        ->create(['name' => 'Hulme and Moss Side']);
+        ->narrowedToPostcodes(['902', '911'])
+        ->create(['name' => 'Cambridge and Somerville']);
 
     $this->actingAs(User::factory()->owner()->create());
 
@@ -68,8 +68,8 @@ test('the segment pages mount, including the one whose layout reads its own prop
         // Vue mounted and the server's data reached the template. Everything
         // else is evidence only because of this: an empty page would satisfy
         // every "this is absent" claim perfectly.
-        ->assertSee('Hulme and Moss Side')
-        ->assertSee('M15, M16')
+        ->assertSee('Cambridge and Somerville')
+        ->assertSee('902, 911')
         ->assertPresent('table > tbody')
         // The app shell, which is the default arm of app.ts's layout resolver.
         // A campaign page *wants* AppLayout, so no resolver arm was added for
@@ -84,20 +84,20 @@ test('the segment pages mount, including the one whose layout reads its own prop
     // static defineOptions() here would throw before either happened, leaving a
     // blank page behind a 200.
     visit('/segments/'.$segment->getKey().'/edit')
-        ->assertSee('Hulme and Moss Side')
+        ->assertSee('Cambridge and Somerville')
         // Read back into the field as one line, which is where the stored list
         // becomes the text an operator typed again.
-        ->assertValue('#postcode_prefixes', 'M15, M16')
+        ->assertValue('#postcode_prefixes', '902, 911')
         ->assertNoJavaScriptErrors();
 });
 
 test('narrowing the list is a client-side visit, and it reaches the export control', function (): void {
-    Supporter::factory()->create(['email' => 'inside@example.test', 'postcode' => 'M15 6BH']);
-    Supporter::factory()->create(['email' => 'outside@example.test', 'postcode' => 'EH8 9YL']);
+    Supporter::factory()->create(['email' => 'inside@example.test', 'postcode' => '90210']);
+    Supporter::factory()->create(['email' => 'outside@example.test', 'postcode' => '02139']);
 
     $segment = Segment::factory()
-        ->narrowedToPostcodes(['M15'])
-        ->create(['name' => 'Hulme']);
+        ->narrowedToPostcodes(['902'])
+        ->create(['name' => 'Cambridge']);
 
     $this->actingAs(User::factory()->owner()->create());
 
@@ -111,7 +111,7 @@ test('narrowing the list is a client-side visit, and it reaches the export contr
     // Before narrowing, the export control asks for the whole list. Asserted so
     // that the assertion after narrowing is a *change* rather than a value that
     // might always have been there.
-    $page->assertDontSee('Export Hulme');
+    $page->assertDontSee('Export Cambridge');
 
     // Defect class 2, the consequence half. A full document load destroys the
     // JavaScript context and takes this variable with it, so its survival after
@@ -128,7 +128,7 @@ test('narrowing the list is a client-side visit, and it reaches the export contr
         ->assertQueryStringHas('segment', (string) $segment->getKey())
         // The rows actually narrowed, in the browser, which is the whole point
         // of the control existing.
-        ->assertSee('1 person in Hulme')
+        ->assertSee('1 person in Cambridge')
         ->assertSee('inside@example.test')
         ->assertDontSee('outside@example.test')
         ->assertNoJavaScriptErrors();
@@ -136,7 +136,7 @@ test('narrowing the list is a client-side visit, and it reaches the export contr
     // Defect class 3. The href is built in the page from `narrowedTo`, so this
     // is the only place the two halves of "the file follows the screen" are
     // ever seen to agree. Read off the anchor rather than inferred from its
-    // label, because a label saying "Export Hulme" over an href asking for
+    // label, because a label saying "Export Cambridge" over an href asking for
     // everybody is exactly the failure worth catching.
     $page->assertScript(
         'document.querySelector(\'[data-test="export-supporters"]\').getAttribute("href").includes("segment='.$segment->getKey().'")'
@@ -165,6 +165,6 @@ test('narrowing the list is a client-side visit, and it reaches the export contr
         });
     JAVASCRIPT);
 
-    $page->click('Export Hulme')
+    $page->click('Export Cambridge')
         ->assertScript('window.__exportClickIntercepted === false');
 });

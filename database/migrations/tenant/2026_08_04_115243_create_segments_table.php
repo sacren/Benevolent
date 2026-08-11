@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Schema;
  * `supporter_imports` do (D-1): a segment names one campaign's own people. The
  * mistake available here has its own flavour and is worth saying out loud -- a
  * *rule* looks like configuration rather than like data, and configuration
- * sounds central. It is not. "Everyone in M15" means a different set of human
+ * sounds central. It is not. "Everyone in 902" means a different set of human
  * beings in every campaign, so a central segments table would be one row read
  * by campaigns that share nothing but a postcode.
  *
@@ -72,7 +72,7 @@ use Illuminate\Support\Facades\Schema;
  * would settle it.** The case chosen was the narrowest a segment can express:
  * NameSegmentRequest caps the whole typed line at 1,000 characters and puts no
  * limit on any single prefix, so an operator may type a full postcode and
- * narrow to one household. A segment at `["M15 6BH"]` matching exactly one
+ * narrow to one household. A segment at `["90210"]` matching exactly one
  * supporter, a sent blast aimed at it, one `blast_recipients` row -- then the
  * supporter erased. `segments.postcode_prefixes` and
  * `blasts.committed_prefixes` come back byte-identical,
@@ -84,7 +84,7 @@ use Illuminate\Support\Facades\Schema;
  *
  * **One residual survives, it is older than this table, and it is recorded
  * rather than smoothed.** A blast frozen at a one-household prefix and its
- * surviving recipient row together say *somebody at M15 6BH was mailed on this
+ * surviving recipient row together say *somebody at 90210 was mailed on this
  * date*, and no erasure reaches that. It is not segmentation's doing:
  * `blasts.postcode_prefixes` has been able to hold a full postcode since
  * Phase 2 and D-10 did not count it as a home, so this column and
@@ -120,8 +120,8 @@ return new class extends Migration
             // (a): a narrowing an operator can recognise and come back to.
             //
             // Unique, because the failure it prevents is aiming at the wrong
-            // group -- two segments called "Chorlton" are indistinguishable at
-            // the moment somebody picks one, and the message has gone by the
+            // group -- two segments called "Culver City" are
+            // indistinguishable at the moment somebody picks one, and the message has gone by the
             // time anybody notices which was picked.
             //
             // **A plain unique index rather than the case-insensitive form on

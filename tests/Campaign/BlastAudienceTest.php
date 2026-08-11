@@ -35,8 +35,8 @@ function supporterWithPostcode(?string $postcode, SubscriptionStatus $status = S
 }
 
 test('a blast with no narrowing reaches everyone the campaign may contact, and nobody else', function (): void {
-    $reachable = supporterWithPostcode('M15 6BH');
-    supporterWithPostcode('M15 6BH', SubscriptionStatus::Unsubscribed);
+    $reachable = supporterWithPostcode('90210');
+    supporterWithPostcode('90210', SubscriptionStatus::Unsubscribed);
     $noPostcode = supporterWithPostcode(null);
 
     $blast = Blast::factory()->create();
@@ -58,11 +58,11 @@ test('somebody who asked not to be contacted is left out, and no blast can ask f
     // no argument that turns it off, and `blasts` carries no column that could
     // record the intention -- so this is asserted through the only entry point
     // there is.
-    supporterWithPostcode('M15 6BH', SubscriptionStatus::Unsubscribed);
-    supporterWithPostcode('M15 9AA', SubscriptionStatus::Unsubscribed);
+    supporterWithPostcode('90210', SubscriptionStatus::Unsubscribed);
+    supporterWithPostcode('90211', SubscriptionStatus::Unsubscribed);
 
     $everyone = Blast::factory()->create();
-    $narrowed = Blast::factory()->narrowedToPostcodes(['M15'])->create();
+    $narrowed = Blast::factory()->narrowedToPostcodes(['902'])->create();
 
     expect(BlastAudience::size($everyone))->toBe(0)
         ->and(BlastAudience::size($narrowed))->toBe(0);
@@ -72,43 +72,43 @@ test('a postcode prefix matches however the source spelled the postcode', functi
     // The four spellings one real list carries. Phase 1 stored the postcode
     // exactly as given, on the grounds that a normalized value is recoverable
     // from the raw and not the reverse; this is where that bill arrives.
-    $spellings = ['M15 6BH', 'm15 6bh', 'M156BH', '  m15  6bh '];
+    $spellings = ['90210', '90210 1234', '90210', '  90210  1234 '];
 
     foreach ($spellings as $spelling) {
         supporterWithPostcode($spelling);
     }
 
     // And two that must not be swept in with them.
-    supporterWithPostcode('M16 7AB');
-    supporterWithPostcode('EH8 9YL');
+    supporterWithPostcode('91101');
+    supporterWithPostcode('02139');
 
-    $blast = Blast::factory()->narrowedToPostcodes(['M15'])->create();
+    $blast = Blast::factory()->narrowedToPostcodes(['902'])->create();
 
     expect(BlastAudience::size($blast))->toBe(count($spellings));
 });
 
 test('the operator\'s own prefix is folded the same way the column is', function (): void {
-    supporterWithPostcode('M156BH');
+    supporterWithPostcode('90210 1234');
 
     // The prefix carries a space the stored postcode does not, which is the
     // mirror of the previous test: folding only the column would leave this
     // matching nothing while looking perfectly correct.
-    $spaced = Blast::factory()->narrowedToPostcodes(['m15 6'])->create();
-    $shouted = Blast::factory()->narrowedToPostcodes(['M15 6BH'])->create();
+    $spaced = Blast::factory()->narrowedToPostcodes(['90210 1'])->create();
+    $plain = Blast::factory()->narrowedToPostcodes(['90210'])->create();
 
     expect(BlastAudience::size($spaced))->toBe(1)
-        ->and(BlastAudience::size($shouted))->toBe(1);
+        ->and(BlastAudience::size($plain))->toBe(1);
 });
 
 test('several prefixes widen the aim, and only to what they name', function (): void {
-    supporterWithPostcode('M15 6BH');
-    supporterWithPostcode('EH8 9YL');
-    supporterWithPostcode('SW1A 1AA');
+    supporterWithPostcode('90210');
+    supporterWithPostcode('02139');
+    supporterWithPostcode('60601');
 
-    $blast = Blast::factory()->narrowedToPostcodes(['M15', 'eh8'])->create();
+    $blast = Blast::factory()->narrowedToPostcodes(['902', '021'])->create();
 
     expect(BlastAudience::for($blast)->pluck('postcode')->all())
-        ->toEqualCanonicalizing(['M15 6BH', 'EH8 9YL']);
+        ->toEqualCanonicalizing(['90210', '02139']);
 });
 
 test('a supporter with no postcode is out of a narrowed blast and in an unnarrowed one', function (): void {
@@ -117,7 +117,7 @@ test('a supporter with no postcode is out of a narrowed blast and in an unnarrow
     // They just cannot be aimed at by postcode.
     supporterWithPostcode(null);
 
-    $narrowed = Blast::factory()->narrowedToPostcodes(['M15'])->create();
+    $narrowed = Blast::factory()->narrowedToPostcodes(['902'])->create();
     $everyone = Blast::factory()->create();
 
     expect(BlastAudience::size($narrowed))->toBe(0)
@@ -133,8 +133,8 @@ test('a wildcard character is a character, not a wildcard', function (): void {
     //
     // These are metacharacters in the pattern rather than input to it, and the
     // query builder escapes neither.
-    supporterWithPostcode('M15 6BH');
-    supporterWithPostcode('EH8 9YL');
+    supporterWithPostcode('90210');
+    supporterWithPostcode('02139');
     supporterWithPostcode('%oddly enough');
 
     $percent = Blast::factory()->narrowedToPostcodes(['%'])->create();
@@ -158,8 +158,8 @@ test('an aim that names nothing usable reaches nobody, never everybody', functio
     // form would never produce, because the column is the input: a seeder, a
     // factory or a hand-written row reaches the audience without passing
     // through a form.
-    supporterWithPostcode('M15 6BH');
-    supporterWithPostcode('EH8 9YL');
+    supporterWithPostcode('90210');
+    supporterWithPostcode('02139');
 
     $blank = Blast::factory()->narrowedToPostcodes(['   '])->create();
     $empty = Blast::factory()->narrowedToPostcodes([])->create();
@@ -177,10 +177,10 @@ test('an aim that names nothing usable reaches nobody, never everybody', functio
 });
 
 test('a blast aimed at a segment reaches the people that segment names', function (): void {
-    $inside = supporterWithPostcode('M15 6BH');
-    supporterWithPostcode('EH8 9YL');
+    $inside = supporterWithPostcode('90210');
+    supporterWithPostcode('02139');
 
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create();
     $blast = Blast::factory()->aimedAtSegment($segment)->create();
 
     // The same two directions the unnarrowed test asserts together, so a later
@@ -195,10 +195,10 @@ test('a segment is read when the audience is asked, never copied when the blast 
     // convenience that copied the segment's prefixes onto the blast would pass
     // the test above and fail this one, while leaving the product with the two
     // narrowing mechanisms this phase exists to join up.
-    supporterWithPostcode('M15 6BH');
-    $moved = supporterWithPostcode('EH8 9YL');
+    supporterWithPostcode('90210');
+    $moved = supporterWithPostcode('02139');
 
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create();
     $blast = Blast::factory()->aimedAtSegment($segment)->create();
 
     expect(BlastAudience::size($blast))->toBe(1);
@@ -208,7 +208,7 @@ test('a segment is read when the audience is asked, never copied when the blast 
     // case is the opposite and is asserted separately below: a blast past draft
     // reads the rule it froze, so this liveness reaches exactly the blasts the
     // campaign may still change.
-    $segment->update(['postcode_prefixes' => ['EH8']]);
+    $segment->update(['postcode_prefixes' => ['021']]);
 
     expect(BlastAudience::for($blast->refresh())->pluck('id')->all())
         ->toBe([$moved->getKey()]);
@@ -222,11 +222,11 @@ test('a segment cannot widen a blast past the people who may be contacted', func
     // unsubscribed. This is the third: reaching the rule through a segment does
     // not carry the list's permission with it, because subscribed-only is this
     // class's shape rather than a parameter anything passes.
-    supporterWithPostcode('M15 6BH', SubscriptionStatus::Unsubscribed);
-    supporterWithPostcode('M15 9AA', SubscriptionStatus::Unsubscribed);
-    $reachable = supporterWithPostcode('M15 1AA');
+    supporterWithPostcode('90210', SubscriptionStatus::Unsubscribed);
+    supporterWithPostcode('90211', SubscriptionStatus::Unsubscribed);
+    $reachable = supporterWithPostcode('90212');
 
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create();
     $blast = Blast::factory()->aimedAtSegment($segment)->create();
 
     // The same segment narrows a supporter list to all three of these people,
@@ -242,8 +242,8 @@ test('a segment naming nothing usable reaches nobody, never everybody', function
     // only one of them was ever tested. A segment whose rule folds away is the
     // pointer's version of the wildcard: the aim names nothing `left()` can
     // use, and the safe answer is nobody.
-    supporterWithPostcode('M15 6BH');
-    supporterWithPostcode('EH8 9YL');
+    supporterWithPostcode('90210');
+    supporterWithPostcode('02139');
 
     $blank = Segment::factory()->narrowedToPostcodes(['   '])->create();
     $blast = Blast::factory()->aimedAtSegment($blank)->create();
@@ -270,8 +270,8 @@ test('a pointer that resolves to no segment reaches nobody, never everybody', fu
     // widening branch and reach every supporter the campaign may contact. The
     // difference is the entire list, and the direction that cannot be taken
     // back is the one a dropped constraint would open.
-    supporterWithPostcode('M15 6BH');
-    supporterWithPostcode('EH8 9YL');
+    supporterWithPostcode('90210');
+    supporterWithPostcode('02139');
 
     $dangling = new Blast;
     $dangling->segment_id = 9_999_999;
@@ -300,16 +300,16 @@ test('a committed blast reaches the people its rule named when it was committed'
     // the send resolving the pointer when the job ran, so the campaign's act of
     // committing and the rule the message followed were two facts that could
     // disagree by however long the blast sat in the queue.
-    $committedAudience = supporterWithPostcode('M15 6BH');
-    $strangerToTheAim = supporterWithPostcode('EH8 9YL');
+    $committedAudience = supporterWithPostcode('90210');
+    $strangerToTheAim = supporterWithPostcode('02139');
 
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create();
     $blast = Blast::factory()->aimedAtSegment($segment)->queued()->create();
 
     // The segment is re-aimed somewhere else entirely -- disjoint rather than
     // wider, so the assertion below distinguishes "the frozen rule was used"
     // from "the edited rule happened to include the same people".
-    $segment->update(['postcode_prefixes' => ['EH8']]);
+    $segment->update(['postcode_prefixes' => ['021']]);
 
     expect(BlastAudience::for($blast->refresh())->pluck('id')->all())
         ->toBe([$committedAudience->getKey()])
@@ -323,7 +323,7 @@ test('a committed blast reaches the people its rule named when it was committed'
 
     // And the segment really did move, so this is a difference rather than two
     // readings of an unchanged row.
-    expect($segment->fresh()->postcode_prefixes)->toBe(['EH8']);
+    expect($segment->fresh()->postcode_prefixes)->toBe(['021']);
 });
 
 test('a committed blast does not read its segment at all', function (): void {
@@ -333,9 +333,9 @@ test('a committed blast does not read its segment at all', function (): void {
     // one fall through to the live segment, which is silently the whole defect
     // back again. Asking the status means the segment is never consulted, so
     // the frozen rule is the only thing that can decide who is reached.
-    supporterWithPostcode('M15 6BH');
+    supporterWithPostcode('90210');
 
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create();
     $blast = Blast::factory()->aimedAtSegment($segment)->sent()->create();
 
     // Built through the model rather than the table, because the check
@@ -357,10 +357,10 @@ test('every state past draft reads the frozen rule, not only the queued one', fu
     // rather than at the one a send happens to start in. A reader that special
     // cased Queued would leave a send that had already begun re-reading a
     // segment somebody was editing underneath it.
-    $named = supporterWithPostcode('M15 6BH');
-    supporterWithPostcode('EH8 9YL');
+    $named = supporterWithPostcode('90210');
+    supporterWithPostcode('02139');
 
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create();
 
     $blasts = [
         'queued' => Blast::factory()->aimedAtSegment($segment)->queued()->create(),
@@ -369,7 +369,7 @@ test('every state past draft reads the frozen rule, not only the queued one', fu
         'failed' => Blast::factory()->aimedAtSegment($segment)->failed()->create(),
     ];
 
-    $segment->update(['postcode_prefixes' => ['EH8']]);
+    $segment->update(['postcode_prefixes' => ['021']]);
 
     foreach ($blasts as $state => $blast) {
         expect(BlastAudience::for($blast->refresh())->pluck('id')->all())
@@ -381,14 +381,14 @@ test('a draft aimed at the same segment still follows it, in the same run', func
     // The control that stops the four assertions above being satisfied by a
     // reader that ignores segments altogether. One segment, one edit, two
     // opposite correct answers -- which is the whole shape of D-27(a).
-    $named = supporterWithPostcode('M15 6BH');
-    $moved = supporterWithPostcode('EH8 9YL');
+    $named = supporterWithPostcode('90210');
+    $moved = supporterWithPostcode('02139');
 
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create();
     $draft = Blast::factory()->aimedAtSegment($segment)->create();
     $committed = Blast::factory()->aimedAtSegment($segment)->queued()->create();
 
-    $segment->update(['postcode_prefixes' => ['EH8']]);
+    $segment->update(['postcode_prefixes' => ['021']]);
 
     // Both assertions are positive. Saying only that the committed blast does
     // *not* reach the draft's audience would pass just as happily against a

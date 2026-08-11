@@ -43,7 +43,7 @@ test('uploading a list records it, reads its headers, and asks for nothing else 
         ->post($this->campaignUrl('/supporters/import'), [
             'file' => UploadedFile::fake()->createWithContent(
                 'members.csv',
-                "First,Last,Email,Postcode\nAma,Boateng,ama.boateng@example.test,M15 6BH\n",
+                "First,Last,Email,ZIP\nAma,Boateng,ama.boateng@example.test,90210\n",
             ),
         ])
         ->assertRedirect();
@@ -52,7 +52,7 @@ test('uploading a list records it, reads its headers, and asks for nothing else 
 
     // The headers are read and kept so the operator can be shown their own
     // file's columns. Nothing has decided what any of them *mean*.
-    expect($import->headers)->toBe(['First', 'Last', 'Email', 'Postcode'])
+    expect($import->headers)->toBe(['First', 'Last', 'Email', 'ZIP'])
         ->and($import->status)->toBe(ImportStatus::AwaitingMapping)
         ->and($import->mapping)->toBeNull()
         ->and($import->original_filename)->toBe('members.csv');
@@ -169,7 +169,7 @@ test('accepting the mapping queues the reading rather than doing it in the reque
     $central = (string) config('tenancy.database.central_connection');
     DB::connection($central)->table('jobs')->delete();
 
-    $import = StagedImport::of("First,Last,Email,Postcode\nAma,Boateng,ama.boateng@example.test,M15 6BH\n");
+    $import = StagedImport::of("First,Last,Email,ZIP\nAma,Boateng,ama.boateng@example.test,90210\n");
 
     $this->actingAs(User::factory()->create())
         ->post($this->campaignUrl('/supporters/imports/'.$import->getKey()), [
@@ -177,7 +177,7 @@ test('accepting the mapping queues the reading rather than doing it in the reque
             'name_mode' => NameColumnMode::Split->value,
             'given_name' => 'First',
             'family_name' => 'Last',
-            'postcode' => 'Postcode',
+            'postcode' => 'ZIP',
         ])
         ->assertRedirect(route('supporters.imports.show', $import));
 
@@ -226,7 +226,7 @@ test('an import already given its instructions will not take them twice', functi
 
 test('the import page reports what the run did', function (): void {
     $import = StagedImport::of(
-        "First,Last,Email,Postcode\nAma,Boateng,ama.boateng@example.test,M15 6BH\n",
+        "First,Last,Email,ZIP\nAma,Boateng,ama.boateng@example.test,90210\n",
         StagedImport::splitMapping(),
     );
 

@@ -130,7 +130,7 @@ test('the central database does not carry who a campaign has written to', functi
 test('the central database does not carry a campaign\'s segments', function (): void {
     // The same claim again, for the module whose mistake has its own flavour: a
     // segment stores a *rule*, a rule looks like configuration rather than like
-    // data, and configuration sounds central. It is not. "Everyone in M15" names
+    // data, and configuration sounds central. It is not. "Everyone in 902" names
     // a different set of human beings in every campaign, so a central segments
     // table would be one row read by campaigns that share nothing but a
     // postcode -- and each of them would be able to see, and edit, the aim

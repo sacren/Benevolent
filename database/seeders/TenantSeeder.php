@@ -150,7 +150,7 @@ class TenantSeeder extends Seeder
                 'given_name' => 'Ama',
                 'family_name' => 'Boateng',
                 'email' => 'ama.boateng@example.test',
-                'postcode' => 'M15 6BH',
+                'postcode' => '90210',
                 'subscription_status' => SubscriptionStatus::Subscribed,
             ],
             [
@@ -166,7 +166,7 @@ class TenantSeeder extends Seeder
                 'given_name' => null,
                 'family_name' => null,
                 'email' => 'petition-signer@example.test',
-                'postcode' => 'EH8 9YL',
+                'postcode' => '02139',
                 'subscription_status' => SubscriptionStatus::Subscribed,
             ],
             [
@@ -174,7 +174,7 @@ class TenantSeeder extends Seeder
                 'given_name' => 'Ines',
                 'family_name' => 'Duarte',
                 'email' => 'Ines.Duarte@Example.test',
-                'postcode' => '1250-096',
+                'postcode' => '73301',
                 'subscription_status' => SubscriptionStatus::Unsubscribed,
             ],
         ];

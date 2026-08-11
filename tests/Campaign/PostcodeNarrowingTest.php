@@ -29,16 +29,16 @@ test('the matcher narrows on postcode and on nothing else', function (): void {
     // able to find them. One rule, two readers, two different guarantees around
     // it -- so the matcher must carry neither.
     $subscribed = Supporter::factory()->create([
-        'postcode' => 'M15 6BH',
+        'postcode' => '90210',
         'subscription_status' => SubscriptionStatus::Subscribed,
     ]);
     $unsubscribed = Supporter::factory()->create([
-        'postcode' => 'm156bh',
+        'postcode' => '90210 1234',
         'subscription_status' => SubscriptionStatus::Unsubscribed,
     ]);
-    Supporter::factory()->create(['postcode' => 'EH8 9YL']);
+    Supporter::factory()->create(['postcode' => '02139']);
 
-    $narrowed = PostcodeNarrowing::apply(Supporter::query(), ['M15']);
+    $narrowed = PostcodeNarrowing::apply(Supporter::query(), ['902']);
 
     // Both directions in one assertion, so a later edit cannot drop the half
     // that does the work: the unsubscribed supporter is in because status is
@@ -49,24 +49,24 @@ test('the matcher narrows on postcode and on nothing else', function (): void {
 });
 
 test('a prefix matches however the source spelled the postcode', function (): void {
-    // The four spellings one real list carries. Phase 1 stored the postcode
+    // The four spellings one real list carries of a single ZIP+4. Phase 1 stored the postcode
     // exactly as given, on the grounds that a normalized value is recoverable
     // from the raw and not the reverse; this is the rule that pays that bill,
     // and it is asserted here rather than only through a blast because it is
     // now what a prefix *means* in this product rather than how one module
     // happens to query.
-    foreach (['M15 6BH', 'm15 6bh', 'M156BH', '  m15  6bh '] as $spelling) {
+    foreach (['90210 1234', '902101234', ' 90210 1234 ', '90210  1234'] as $spelling) {
         Supporter::factory()->create(['postcode' => $spelling]);
     }
 
-    Supporter::factory()->create(['postcode' => 'M16 7AB']);
+    Supporter::factory()->create(['postcode' => '91101']);
     Supporter::factory()->create(['postcode' => null]);
 
     // The operator's prefix carries a space the stored postcodes do not, which
     // is the mirror of the same claim: folding only the column would leave this
     // matching nothing while looking perfectly correct.
-    expect(PostcodeNarrowing::apply(Supporter::query(), ['m15 6'])->count())->toBe(4)
-        ->and(PostcodeNarrowing::apply(Supporter::query(), ['M15', 'm16'])->count())->toBe(5);
+    expect(PostcodeNarrowing::apply(Supporter::query(), ['90210 1'])->count())->toBe(4)
+        ->and(PostcodeNarrowing::apply(Supporter::query(), ['902', '911'])->count())->toBe(5);
 });
 
 test('a wildcard character is a character, not a wildcard', function (): void {
@@ -76,7 +76,7 @@ test('a wildcard character is a character, not a wildcard', function (): void {
     // widen to the whole list. `_` does the same for a single character. These
     // are metacharacters in the pattern rather than input to it, and the query
     // builder escapes neither.
-    Supporter::factory()->create(['postcode' => 'M15 6BH']);
+    Supporter::factory()->create(['postcode' => '90210']);
     Supporter::factory()->create(['postcode' => '%oddly enough']);
 
     // The percent matches the one postcode that genuinely starts with a percent
@@ -97,9 +97,9 @@ test('a rule that names nothing usable narrows to nobody, never to everybody', f
     // cannot construct: there, an over-inclusive result is still bounded by
     // subscribed-only, so the failure would show as "every contactable
     // supporter" rather than as "everybody". Here it would be everybody.
-    Supporter::factory()->create(['postcode' => 'M15 6BH']);
+    Supporter::factory()->create(['postcode' => '90210']);
     Supporter::factory()->create([
-        'postcode' => 'EH8 9YL',
+        'postcode' => '02139',
         'subscription_status' => SubscriptionStatus::Unsubscribed,
     ]);
 
@@ -108,5 +108,5 @@ test('a rule that names nothing usable narrows to nobody, never to everybody', f
         // Paired with the case it must not be confused with, in the same run,
         // so that a matcher which narrowed to nobody unconditionally could not
         // pass this file.
-        ->and(PostcodeNarrowing::apply(Supporter::query(), ['M15'])->count())->toBe(1);
+        ->and(PostcodeNarrowing::apply(Supporter::query(), ['902'])->count())->toBe(1);
 });

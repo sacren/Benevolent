@@ -212,7 +212,7 @@ defineOptions({
             </div>
 
             <div class="grid gap-2">
-                <Label for="postcode_prefixes">Postcodes (optional)</Label>
+                <Label for="postcode_prefixes">ZIP codes (optional)</Label>
                 <!--
                     Joined back into the one line the operator typed, rather
                     than rendered as a list: this is the same field they wrote
@@ -225,13 +225,13 @@ defineOptions({
                     id="postcode_prefixes"
                     name="postcode_prefixes"
                     autocomplete="off"
-                    placeholder="M15, EH8"
+                    placeholder="902, 021"
                     :default-value="(blast.postcode_prefixes ?? []).join(', ')"
                 />
                 <p class="text-sm text-muted-foreground">
-                    Narrow the blast to supporters whose postcode starts with
-                    one of these. Leave it empty to write to everyone. Case and
-                    spacing do not matter.
+                    Narrow the blast to supporters whose ZIP code starts with
+                    one of these. Leave it empty to write to everyone. Spacing
+                    does not matter.
                     <template v-if="segments.length > 0">
                         Choose a segment or type postcodes, not both.
                     </template>

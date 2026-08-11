@@ -49,18 +49,18 @@ test('an operator names a segment and it appears on the list', function (): void
 
     $this->actingAs($operator)
         ->post($this->campaignUrl('/segments'), [
-            'name' => 'Harbour ward',
-            'postcode_prefixes' => 'M15, eh8',
+            'name' => 'Harbor precinct',
+            'postcode_prefixes' => '902, 021',
         ])
         ->assertRedirect(route('segments.index'));
 
     $segment = Segment::query()->sole();
 
-    expect($segment->name)->toBe('Harbour ward')
+    expect($segment->name)->toBe('Harbor precinct')
         // Stored as typed, unfolded, because the fold happens at match time
         // against a column that is itself unfolded. Storing them folded would
         // show an operator back a prefix they did not write.
-        ->and($segment->postcode_prefixes)->toBe(['M15', 'eh8'])
+        ->and($segment->postcode_prefixes)->toBe(['902', '021'])
         // Authorship comes from the signed-in operator rather than from the
         // form, which is what keeps it out of #[Fillable].
         ->and($segment->operator_id)->toBe($operator->getKey());
@@ -72,8 +72,8 @@ test('a form cannot claim that somebody else named a segment', function (): void
 
     $this->actingAs($operator)
         ->post($this->campaignUrl('/segments'), [
-            'name' => 'Harbour ward',
-            'postcode_prefixes' => 'M15',
+            'name' => 'Harbor precinct',
+            'postcode_prefixes' => '902',
             'operator_id' => $someoneElse->getKey(),
         ])
         ->assertRedirect(route('segments.index'));
@@ -116,12 +116,12 @@ test('a segment must name at least one postcode, and separators are not postcode
 });
 
 test('two segments cannot share a name, and the refusal is the form\'s rather than the database\'s', function (): void {
-    Segment::factory()->create(['name' => 'Harbour ward']);
+    Segment::factory()->create(['name' => 'Harbor precinct']);
 
     $this->actingAs(User::factory()->create())
         ->post($this->campaignUrl('/segments'), [
-            'name' => 'Harbour ward',
-            'postcode_prefixes' => 'M15',
+            'name' => 'Harbor precinct',
+            'postcode_prefixes' => '902',
         ])
         ->assertInvalid(['name']);
 
@@ -136,11 +136,11 @@ test('two segments cannot share a name, and the refusal is the form\'s rather th
 });
 
 test('a segment name differing only in case is a different name, in the form and in the database', function (): void {
-    Segment::factory()->create(['name' => 'Chorlton']);
+    Segment::factory()->create(['name' => 'Culver City']);
 
     $this->actingAs(User::factory()->create())
         ->post($this->campaignUrl('/segments'), [
-            'name' => 'chorlton',
+            'name' => 'culver city',
             'postcode_prefixes' => 'M21',
         ])
         ->assertValid();
@@ -151,11 +151,11 @@ test('a segment name differing only in case is a different name, in the form and
     // is *visible* -- both rows appear in the list somebody is reading at the
     // moment they choose -- where a duplicate address is silent.
     expect(Segment::query()->pluck('name')->sort()->values()->all())
-        ->toBe(['Chorlton', 'chorlton']);
+        ->toBe(['Culver City', 'culver city']);
 });
 
 test('an operator re-aims a segment, and the form is shown what is stored', function (): void {
-    $segment = Segment::factory()->narrowedToPostcodes(['M15', 'M16'])->create(['name' => 'Old name']);
+    $segment = Segment::factory()->narrowedToPostcodes(['902', '911'])->create(['name' => 'Old name']);
 
     $this->actingAs(User::factory()->create())
         ->get($this->campaignUrl("/segments/{$segment->getKey()}/edit"))
@@ -163,22 +163,22 @@ test('an operator re-aims a segment, and the form is shown what is stored', func
         ->assertInertia(fn (Assert $page) => $page
             ->component('segments/Edit')
             ->where('segment.name', 'Old name')
-            ->where('segment.postcode_prefixes', ['M15', 'M16'])
+            ->where('segment.postcode_prefixes', ['902', '911'])
         );
 
     $this->actingAs(User::factory()->create())
         ->patch($this->campaignUrl("/segments/{$segment->getKey()}"), [
             'name' => 'New name',
-            'postcode_prefixes' => 'SW1A',
+            'postcode_prefixes' => '6060',
         ])
         ->assertRedirect(route('segments.index'));
 
     expect($segment->refresh()->name)->toBe('New name')
-        ->and($segment->postcode_prefixes)->toBe(['SW1A']);
+        ->and($segment->postcode_prefixes)->toBe(['6060']);
 });
 
 test('re-aiming a segment without renaming it is not refused by its own name', function (): void {
-    $segment = Segment::factory()->create(['name' => 'Harbour ward']);
+    $segment = Segment::factory()->create(['name' => 'Harbor precinct']);
 
     // Without ignore(), the uniqueness rule would refuse this because the name
     // already belongs to a segment -- namely this one. The supporter module hit
@@ -186,12 +186,12 @@ test('re-aiming a segment without renaming it is not refused by its own name', f
     // answers it here because nothing else about the two forms differs.
     $this->actingAs(User::factory()->create())
         ->patch($this->campaignUrl("/segments/{$segment->getKey()}"), [
-            'name' => 'Harbour ward',
-            'postcode_prefixes' => 'M15, M16',
+            'name' => 'Harbor precinct',
+            'postcode_prefixes' => '902, 911',
         ])
         ->assertValid();
 
-    expect($segment->refresh()->postcode_prefixes)->toBe(['M15', 'M16']);
+    expect($segment->refresh()->postcode_prefixes)->toBe(['902', '911']);
 });
 
 test('an operator removes a segment', function (): void {
@@ -221,7 +221,7 @@ test('every action refuses an operator who has lost the grant', function (string
     $this->actingAs(User::factory()->create())
         ->call($verb, $this->campaignUrl(str_replace('{id}', (string) $segment->getKey(), $path)), [
             'name' => 'Renamed',
-            'postcode_prefixes' => 'M15',
+            'postcode_prefixes' => '902',
         ])
         ->assertForbidden();
 })->with([
@@ -238,7 +238,7 @@ test('a segment a blast is aimed at is not removed, and the operator is told why
     // the two alternatives are both wrong in ways nothing reports -- nulling
     // would widen the blast to every supporter the campaign may contact, and
     // cascading would destroy the record of a message already sent.
-    $segment = Segment::factory()->create(['name' => 'Whalley Range']);
+    $segment = Segment::factory()->create(['name' => 'Beverly Hills']);
     $blast = Blast::factory()->aimedAtSegment($segment)->create();
 
     $this->actingAs(User::factory()->create())
@@ -296,7 +296,7 @@ test('a segment is removable again once the blast aimed at it has been re-aimed'
         ->patch($this->campaignUrl('/blasts/'.$blast->getKey()), [
             'subject' => 'Aimed by postcode now',
             'body' => 'Re-aimed so the segment can go.',
-            'postcode_prefixes' => 'M15',
+            'postcode_prefixes' => '902',
         ])
         ->assertSessionHasNoErrors();
 
@@ -307,7 +307,7 @@ test('a segment is removable again once the blast aimed at it has been re-aimed'
     expect(Segment::query()->count())->toBe(0)
         // And the blast is still there, carrying the aim it was moved to. A
         // cascade would have taken it with the segment.
-        ->and($blast->fresh()->postcode_prefixes)->toBe(['M15']);
+        ->and($blast->fresh()->postcode_prefixes)->toBe(['902']);
 });
 
 test('a sent blast still holds its segment, so the record cannot be tidied away', function (): void {

@@ -55,17 +55,17 @@ defineOptions({
                     validation error. An empty rule on a blast means everyone;
                     a segment that narrows to nothing is not a segment.
                 -->
-                <Label for="postcode_prefixes">Postcodes</Label>
+                <Label for="postcode_prefixes">ZIP codes</Label>
                 <Input
                     id="postcode_prefixes"
                     name="postcode_prefixes"
                     required
                     autocomplete="off"
-                    placeholder="M15, EH8"
+                    placeholder="902, 021"
                 />
                 <p class="text-sm text-muted-foreground">
-                    Supporters whose postcode starts with one of these. Case and
-                    spacing do not matter.
+                    Supporters whose ZIP code starts with one of these. Spacing
+                    does not matter.
                 </p>
                 <InputError :message="errors.postcode_prefixes" />
             </div>

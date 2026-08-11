@@ -59,18 +59,18 @@ test('an owner sees who a draft would reach, and the draft itself, in the fields
     // Two spellings of one postcode area, which is what the campaign's list
     // really holds -- so a count that renders is also a count that is right
     // about the folding, rather than merely present.
-    Supporter::factory()->create(['postcode' => 'M15 6BH']);
-    Supporter::factory()->create(['postcode' => 'm156bh']);
+    Supporter::factory()->create(['postcode' => '90210']);
+    Supporter::factory()->create(['postcode' => '90210 1234']);
 
     // And two the aim must exclude: another area, and somebody in the right
     // area who asked not to be contacted.
-    Supporter::factory()->create(['postcode' => 'EH8 9YL']);
+    Supporter::factory()->create(['postcode' => '02139']);
     Supporter::factory()->create([
-        'postcode' => 'M15 9AA',
+        'postcode' => '90211',
         'subscription_status' => SubscriptionStatus::Unsubscribed,
     ]);
 
-    $blast = Blast::factory()->narrowedToPostcodes(['M15', 'sw1a'])->create([
+    $blast = Blast::factory()->narrowedToPostcodes(['902', '6060'])->create([
         'subject' => 'Object before Friday',
         'body' => "The consultation closes at five.\n\nPlease write in.",
     ]);
@@ -121,7 +121,7 @@ test('an owner sees who a draft would reach, and the draft itself, in the fields
 
     // And the aim reads back as the one line it was typed on, rather than as
     // whatever the server stored it as.
-    $page->assertScript('document.getElementById("postcode_prefixes").value === "M15, sw1a"');
+    $page->assertScript('document.getElementById("postcode_prefixes").value === "902, 6060"');
 });
 
 test('a campaign with nobody to write to says so in a number rather than by rendering nothing', function (): void {
@@ -184,11 +184,11 @@ test('an operator who may not send is not offered the control', function (): voi
 test('the segment a draft is aimed at is the one the control shows', function (): void {
     // **Two segments, and the aim is the second**, because a control that
     // simply shows its first option would be right by accident with one.
-    Segment::factory()->narrowedToPostcodes(['EH8'])->create(['name' => 'Ardwick']);
-    $aim = Segment::factory()->narrowedToPostcodes(['M15'])->create(['name' => 'Whalley Range']);
+    Segment::factory()->narrowedToPostcodes(['021'])->create(['name' => 'Pasadena']);
+    $aim = Segment::factory()->narrowedToPostcodes(['902'])->create(['name' => 'Beverly Hills']);
 
-    Supporter::factory()->create(['postcode' => 'M15 6BH']);
-    Supporter::factory()->create(['postcode' => 'EH8 9YL']);
+    Supporter::factory()->create(['postcode' => '90210']);
+    Supporter::factory()->create(['postcode' => '02139']);
 
     $blast = Blast::factory()->aimedAtSegment($aim)->create(['subject' => 'Dockside works begin']);
 
@@ -203,13 +203,13 @@ test('the segment a draft is aimed at is the one the control shows', function ()
         //
         // **Asserted through the DOM rather than with assertSee, and that is a
         // measurement rather than a preference.** An <option>'s label is not
-        // visible text until the list is opened, so assertSee('Whalley Range')
+        // visible text until the list is opened, so assertSee('Beverly Hills')
         // fails on a page where the option is present and correct -- which it
         // did, on the first run of this test.
         ->assertPresent('[data-test="aim-at-segment"]')
         ->assertScript(
             "Array.from(document.querySelectorAll('#segment_id option'))"
-            ."   .map(o => o.textContent.trim()).join('|') === 'No segment|Ardwick|Whalley Range'"
+            ."   .map(o => o.textContent.trim()).join('|') === 'No segment|Beverly Hills|Pasadena'"
         )
 
         // **The assertion this test exists for.** Read off the control's own
@@ -220,12 +220,12 @@ test('the segment a draft is aimed at is the one the control shows', function ()
         ->assertValue('#segment_id', (string) $aim->getKey())
         ->assertScript(
             "document.querySelector('#segment_id').selectedOptions[0]"
-            .".textContent.trim() === 'Whalley Range'"
+            .".textContent.trim() === 'Beverly Hills'"
         )
 
         // And the count is computed through the pointer rather than from a rule
         // on the blast's own row, which is what makes the aim real rather than
-        // decorative: one supporter in M15, not the two on the list.
+        // decorative: one supporter in 902, not the two on the list.
         ->assertSee('1 supporter matches this blast right now')
 
         // The postcode field is empty, because the two aims are mutually
@@ -241,9 +241,9 @@ test('a campaign that has named no narrowings is offered no control for them', f
     // control that is always present: the select is rendered only when there is
     // something to choose, which is the supporter list's argument for the same
     // control one module along.
-    Supporter::factory()->create(['postcode' => 'M15 6BH']);
+    Supporter::factory()->create(['postcode' => '90210']);
 
-    $blast = Blast::factory()->narrowedToPostcodes(['M15'])->create(['subject' => 'Aimed by hand']);
+    $blast = Blast::factory()->narrowedToPostcodes(['902'])->create(['subject' => 'Aimed by hand']);
 
     $this->actingAs(User::factory()->owner()->create());
 
@@ -253,6 +253,6 @@ test('a campaign that has named no narrowings is offered no control for them', f
 
         // The page an operator has always had is unchanged: they aim by
         // postcode, and the field reads back the line they typed.
-        ->assertValue('#postcode_prefixes', 'M15')
+        ->assertValue('#postcode_prefixes', '902')
         ->assertNoJavaScriptErrors();
 });

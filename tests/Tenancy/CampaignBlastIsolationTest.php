@@ -109,7 +109,7 @@ test('two campaigns may write the same message, because a blast belongs to one c
     // send. A central table would hand each campaign both, and every assertion
     // about a *missing* table would stay green while it did.
     tenancy()->initialize($harbor);
-    Blast::factory()->narrowedToPostcodes(['M15'])->create(['subject' => 'Object before Friday']);
+    Blast::factory()->narrowedToPostcodes(['902'])->create(['subject' => 'Object before Friday']);
 
     tenancy()->end();
     tenancy()->initialize($ridge);
@@ -130,7 +130,7 @@ test('two campaigns may write the same message, because a blast belongs to one c
     // postcode. Stated as one assertion so a later edit cannot drop half of it.
     expect($harborBlast->subject)->toBe($ridgeBlast->subject)
         ->and($harborBlast->status)->toBe(BlastStatus::Draft)
-        ->and($harborBlast->postcode_prefixes)->toBe(['M15'])
+        ->and($harborBlast->postcode_prefixes)->toBe(['902'])
         ->and($harborBlast->queued_at)->toBeNull();
 });
 

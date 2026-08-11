@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\DB;
  * says to them. This proves it for the *aim* — which is the one a reader would
  * most reasonably guess is shared, because a segment stores a rule, a rule
  * looks like configuration rather than like data, and configuration sounds
- * central. It is not: "everyone in M15" names a different set of human beings
+ * central. It is not: "everyone in 902" names a different set of human beings
  * in every campaign. Nothing enforces the isolation separately — it falls out
  * of `App\Models\Segment` naming no connection, so the model follows the
  * default one tenancy has switched onto the campaign serving the request.
@@ -59,7 +59,7 @@ use Illuminate\Support\Facades\DB;
  * others lacked: `segments.name` is unique, so a pooled table would not leak
  * quietly — it would **refuse** the second campaign the right to name a segment
  * the first had already used. Two campaigns lobbying two different councils
- * would compete for the word "Chorlton", and the loser would be told their own
+ * would compete for the word "Culver City", and the loser would be told their own
  * campaign already had one. That is a defect no assertion about a missing
  * relation could ever report, and it is the reason this file asserts the
  * uniqueness is *per campaign* rather than merely that it exists.
@@ -94,7 +94,7 @@ test('each campaign keeps the segments it has named in its own database', functi
     $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
 
     tenancy()->initialize($harbor);
-    Segment::factory()->narrowedToPostcodes(['M15'])->create(['name' => 'Dockside streets']);
+    Segment::factory()->narrowedToPostcodes(['902'])->create(['name' => 'Dockside streets']);
 
     tenancy()->end();
 
@@ -131,10 +131,10 @@ test('two campaigns may name the same segment, because the name is unique within
     // campaign to aim at a place both are working in would be refused the right
     // to name it -- told, in effect, that a campaign it has never heard of has
     // already used the word. Two campaigns lobbying two different councils both
-    // have a Chorlton, and each owns its own, with its own postcodes and its own
+    // have a Culver City, and each owns its own, with its own postcodes and its own
     // author.
     tenancy()->initialize($harbor);
-    Segment::factory()->narrowedToPostcodes(['M21'])->create(['name' => 'Chorlton']);
+    Segment::factory()->narrowedToPostcodes(['M21'])->create(['name' => 'Culver City']);
 
     tenancy()->end();
     tenancy()->initialize($ridge);
@@ -142,7 +142,7 @@ test('two campaigns may name the same segment, because the name is unique within
     // Refused under a pooled table; correct here. Written as the first
     // assertion because it is the one the defect reports as an error rather
     // than as a wrong answer.
-    $ridgeSegment = Segment::factory()->narrowedToPostcodes(['ch3', 'CH4'])->create(['name' => 'Chorlton']);
+    $ridgeSegment = Segment::factory()->narrowedToPostcodes(['ch3', 'CH4'])->create(['name' => 'Culver City']);
 
     expect($ridgeSegment->exists)->toBeTrue()
         ->and(Segment::query()->count())->toBe(1);
@@ -154,7 +154,7 @@ test('two campaigns may name the same segment, because the name is unique within
     $refusal = null;
 
     try {
-        Segment::factory()->narrowedToPostcodes(['CH1'])->create(['name' => 'Chorlton']);
+        Segment::factory()->narrowedToPostcodes(['CH1'])->create(['name' => 'Culver City']);
     } catch (QueryException $caught) {
         $refusal = $caught;
     }

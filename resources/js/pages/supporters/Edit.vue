@@ -106,7 +106,7 @@ defineOptions({
             </fieldset>
 
             <div class="grid gap-2">
-                <Label for="postcode">Postcode</Label>
+                <Label for="postcode">ZIP code</Label>
                 <Input
                     id="postcode"
                     name="postcode"

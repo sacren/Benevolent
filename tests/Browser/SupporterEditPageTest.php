@@ -46,7 +46,7 @@ test('the edit form mounts, with the supporter in the fields and in the breadcru
     $supporter = Supporter::factory()->create([
         'name' => 'Ama Boateng',
         'email' => 'ama.boateng@example.test',
-        'postcode' => 'M15 6BH',
+        'postcode' => '90210',
     ]);
 
     $this->actingAs(User::factory()->owner()->create());
@@ -73,5 +73,5 @@ test('the edit form mounts, with the supporter in the fields and in the breadcru
     // And the field values, which are properties rather than page text and so
     // appear in no markup assertion the server or the DOM text could make.
     $page->assertScript('document.getElementById("email").value === "ama.boateng@example.test"');
-    $page->assertScript('document.getElementById("postcode").value === "M15 6BH"');
+    $page->assertScript('document.getElementById("postcode").value === "90210"');
 });

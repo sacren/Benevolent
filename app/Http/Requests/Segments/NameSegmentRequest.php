@@ -67,7 +67,7 @@ class NameSegmentRequest extends FormRequest
             ],
 
             // The operator types postcodes the way they would say them --
-            // "M15, EH8" -- so what arrives is one line rather than a list. It
+            // "902, 021" -- so what arrives is one line rather than a list. It
             // is validated as the string it is and parsed by prefixes() below,
             // which keeps the error messages about the field the operator can
             // actually see: validating a parsed array would report errors

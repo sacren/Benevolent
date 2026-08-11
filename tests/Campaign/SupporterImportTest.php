@@ -27,8 +27,8 @@ use Tests\Support\StagedImport;
 
 test('a file with two name columns records both parts and joins the display name', function (): void {
     $import = StagedImport::of(<<<'CSV'
-        First,Last,Email,Postcode
-        Ama,Boateng,ama.boateng@example.test,M15 6BH
+        First,Last,Email,ZIP
+        Ama,Boateng,ama.boateng@example.test,90210
         CSV, StagedImport::splitMapping());
 
     (new ImportSupporters($import))->handle();
@@ -40,7 +40,7 @@ test('a file with two name columns records both parts and joins the display name
     expect($supporter->given_name)->toBe('Ama')
         ->and($supporter->family_name)->toBe('Boateng')
         ->and($supporter->name)->toBe('Ama Boateng')
-        ->and($supporter->postcode)->toBe('M15 6BH')
+        ->and($supporter->postcode)->toBe('90210')
         ->and($supporter->subscription_status)->toBe(SubscriptionStatus::Subscribed);
 
     expect($import->fresh())
@@ -102,11 +102,11 @@ test('a supporter already on the list is corrected in place, keeping the casing 
         'given_name' => 'Ines',
         'family_name' => 'Duarte',
         'email' => 'Ines.Duarte@Example.test',
-        'postcode' => '1250-096',
+        'postcode' => '73301',
     ]);
 
     $import = StagedImport::of(<<<'CSV'
-        First,Last,Email,Postcode
+        First,Last,Email,ZIP
         Ines,Duarte,ines.duarte@example.test,1000-001
         CSV, StagedImport::splitMapping());
 
@@ -135,11 +135,11 @@ test('a blank cell means the file did not say, never forget what you knew', func
         'given_name' => 'Ama',
         'family_name' => 'Boateng',
         'email' => 'ama.boateng@example.test',
-        'postcode' => 'M15 6BH',
+        'postcode' => '90210',
     ]);
 
     $import = StagedImport::of(<<<'CSV'
-        First,Last,Email,Postcode
+        First,Last,Email,ZIP
         ,,ama.boateng@example.test,
         CSV, StagedImport::splitMapping());
 
@@ -150,7 +150,7 @@ test('a blank cell means the file did not say, never forget what you knew', func
     expect($reloaded->name)->toBe('Ama Boateng')
         ->and($reloaded->given_name)->toBe('Ama')
         ->and($reloaded->family_name)->toBe('Boateng')
-        ->and($reloaded->postcode)->toBe('M15 6BH');
+        ->and($reloaded->postcode)->toBe('90210');
 });
 
 test('an import cannot put back somebody who asked not to be contacted', function (): void {
@@ -164,7 +164,7 @@ test('an import cannot put back somebody who asked not to be contacted', functio
     ]);
 
     $import = StagedImport::of(<<<'CSV'
-        First,Last,Email,Postcode
+        First,Last,Email,ZIP
         Quiet,Person,quiet@example.test,
         CSV, StagedImport::splitMapping());
 
@@ -181,9 +181,9 @@ test('two rows differing only in the case of the address are one person, not a c
     // addresses inside one export are ordinary, so without the fold the first
     // realistic file an operator uploads fails outright.
     $import = StagedImport::of(<<<'CSV'
-        First,Last,Email,Postcode
+        First,Last,Email,ZIP
         Jean,Sacren,dup@example.test,
-        Jean,Sacren,DUP@Example.test,SW1A 1AA
+        Jean,Sacren,DUP@Example.test,60601
         CSV, StagedImport::splitMapping());
 
     (new ImportSupporters($import))->handle();
@@ -193,7 +193,7 @@ test('two rows differing only in the case of the address are one person, not a c
     // The last occurrence wins, for the same reason a later file wins over an
     // earlier one: it is the more recent thing the campaign was told.
     expect($supporter->email)->toBe('DUP@Example.test')
-        ->and($supporter->postcode)->toBe('SW1A 1AA');
+        ->and($supporter->postcode)->toBe('60601');
 
     expect($import->fresh())
         ->status->toBe(ImportStatus::Completed)
@@ -207,7 +207,7 @@ test('a row that names nobody is skipped and counted rather than refusing the fi
     // row without a usable one names nobody -- but throwing away the other rows
     // over it would be far worse, and a silent drop worse still.
     $import = StagedImport::of(<<<'CSV'
-        First,Last,Email,Postcode
+        First,Last,Email,ZIP
         Real,Person,real.person@example.test,
         No,Address,,
         Bad,Address,not-an-address,
@@ -248,7 +248,7 @@ test('a blank line in the file is not a person', function (): void {
     // not. (A file merely ending in a single newline is a different thing and
     // produces no row at all, which is why this uses two.)
     $import = StagedImport::of(
-        "First,Last,Email,Postcode\nReal,Person,real.person@example.test,\n\nAlso,Real,also.real@example.test,\n\n",
+        "First,Last,Email,ZIP\nReal,Person,real.person@example.test,\n\nAlso,Real,also.real@example.test,\n\n",
         StagedImport::splitMapping(),
     );
 

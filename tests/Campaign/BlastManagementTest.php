@@ -37,7 +37,7 @@ test('writing a blast stores it as a draft and records who wrote it', function (
         ->post($this->campaignUrl('/blasts'), [
             'subject' => 'Object before Friday',
             'body' => 'The consultation closes at five.',
-            'postcode_prefixes' => 'M15, EH8',
+            'postcode_prefixes' => '902, 021',
         ])
         ->assertRedirect();
 
@@ -45,7 +45,7 @@ test('writing a blast stores it as a draft and records who wrote it', function (
 
     expect($blast->subject)->toBe('Object before Friday')
         ->and($blast->body)->toBe('The consultation closes at five.')
-        ->and($blast->postcode_prefixes)->toBe(['M15', 'EH8'])
+        ->and($blast->postcode_prefixes)->toBe(['902', '021'])
         // A blast arrives in the only state it can be edited or sent from, and
         // the timestamp that would say otherwise is absent -- the pairing the
         // table's check constraint holds.
@@ -149,22 +149,22 @@ test('blank entries between real postcodes are dropped', function (): void {
         ->post($this->campaignUrl('/blasts'), [
             'subject' => 'Two areas',
             'body' => 'Narrowed.',
-            'postcode_prefixes' => 'M15, , EH8,',
+            'postcode_prefixes' => '902, , 021,',
         ]);
 
-    expect(Blast::query()->sole()->postcode_prefixes)->toBe(['M15', 'EH8']);
+    expect(Blast::query()->sole()->postcode_prefixes)->toBe(['902', '021']);
 });
 
 test('the edit page shows the draft and how many supporters it currently matches', function (): void {
-    Supporter::factory()->create(['postcode' => 'M15 6BH']);
-    Supporter::factory()->create(['postcode' => 'm156bh']);
-    Supporter::factory()->create(['postcode' => 'EH8 9YL']);
+    Supporter::factory()->create(['postcode' => '90210']);
+    Supporter::factory()->create(['postcode' => '90210 1234']);
+    Supporter::factory()->create(['postcode' => '02139']);
     Supporter::factory()->create([
-        'postcode' => 'M15 9AA',
+        'postcode' => '90211',
         'subscription_status' => SubscriptionStatus::Unsubscribed,
     ]);
 
-    $blast = Blast::factory()->narrowedToPostcodes(['M15'])->create();
+    $blast = Blast::factory()->narrowedToPostcodes(['902'])->create();
 
     $this->actingAs(User::factory()->create())
         ->get($this->campaignUrl('/blasts/'.$blast->getKey().'/edit'))
@@ -179,22 +179,22 @@ test('the edit page shows the draft and how many supporters it currently matches
 });
 
 test('changing a draft re-aims it, and the count follows the new aim', function (): void {
-    Supporter::factory()->create(['postcode' => 'M15 6BH']);
-    Supporter::factory()->create(['postcode' => 'EH8 9YL']);
+    Supporter::factory()->create(['postcode' => '90210']);
+    Supporter::factory()->create(['postcode' => '02139']);
 
-    $blast = Blast::factory()->narrowedToPostcodes(['M15'])->create();
+    $blast = Blast::factory()->narrowedToPostcodes(['902'])->create();
 
     $this->actingAs(User::factory()->create())
         ->patch($this->campaignUrl('/blasts/'.$blast->getKey()), [
             'subject' => 'Now aimed at Edinburgh',
             'body' => 'Rewritten.',
-            'postcode_prefixes' => 'eh8',
+            'postcode_prefixes' => '021',
         ])
         // Back to the same page, so the count is recomputed against the aim
         // just saved rather than the one it replaced.
         ->assertRedirect(route('blasts.edit', $blast));
 
-    expect($blast->fresh()->postcode_prefixes)->toBe(['eh8']);
+    expect($blast->fresh()->postcode_prefixes)->toBe(['021']);
 
     $this->actingAs(User::factory()->create())
         ->get($this->campaignUrl('/blasts/'.$blast->getKey().'/edit'))
@@ -296,8 +296,8 @@ test('a guest is sent to sign in rather than shown the compose form', function (
 });
 
 test('the compose form is handed the campaign\'s own segments to aim at', function (): void {
-    Segment::factory()->create(['name' => 'Whalley Range']);
-    Segment::factory()->create(['name' => 'Ardwick']);
+    Segment::factory()->create(['name' => 'Beverly Hills']);
+    Segment::factory()->create(['name' => 'Pasadena']);
 
     $this->actingAs(User::factory()->create())
         ->get($this->campaignUrl('/blasts/create'))
@@ -307,17 +307,17 @@ test('the compose form is handed the campaign\'s own segments to aim at', functi
             // Ordered by name, matching the segment list an operator has just
             // been reading: the same segments in a second order would look like
             // different segments.
-            ->where('segments.0.name', 'Ardwick')
-            ->where('segments.1.name', 'Whalley Range')
+            ->where('segments.0.name', 'Beverly Hills')
+            ->where('segments.1.name', 'Pasadena')
             ->count('segments', 2)
         );
 });
 
 test('a blast can be aimed at a segment from the form', function (): void {
-    Supporter::factory()->create(['postcode' => 'M15 6BH']);
-    Supporter::factory()->create(['postcode' => 'EH8 9YL']);
+    Supporter::factory()->create(['postcode' => '90210']);
+    Supporter::factory()->create(['postcode' => '02139']);
 
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create();
 
     $this->actingAs(User::factory()->create())
         ->post($this->campaignUrl('/blasts'), [
@@ -357,7 +357,7 @@ test('a form cannot aim a blast two ways at once', function (): void {
             'subject' => 'Aimed two ways',
             'body' => 'Refused.',
             'segment_id' => (string) $segment->getKey(),
-            'postcode_prefixes' => 'M15',
+            'postcode_prefixes' => '902',
         ])
         ->assertSessionHasErrors('segment_id');
 
@@ -398,10 +398,10 @@ test('a blast cannot be aimed at a segment that does not exist here', function (
 });
 
 test('re-aiming a draft from a segment to postcodes clears the pointer, and back again', function (): void {
-    Supporter::factory()->create(['postcode' => 'M15 6BH']);
-    Supporter::factory()->create(['postcode' => 'EH8 9YL']);
+    Supporter::factory()->create(['postcode' => '90210']);
+    Supporter::factory()->create(['postcode' => '02139']);
 
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create();
     $blast = Blast::factory()->aimedAtSegment($segment)->create();
 
     // **Both directions, because only one of them can fail quietly.** Switching
@@ -414,14 +414,14 @@ test('re-aiming a draft from a segment to postcodes clears the pointer, and back
         ->patch($this->campaignUrl('/blasts/'.$blast->getKey()), [
             'subject' => 'Now aimed by postcode',
             'body' => 'Rewritten.',
-            'postcode_prefixes' => 'eh8',
+            'postcode_prefixes' => '021',
         ])
         ->assertSessionHasNoErrors();
 
     $blast->refresh();
 
     expect($blast->segment_id)->toBeNull()
-        ->and($blast->postcode_prefixes)->toBe(['eh8']);
+        ->and($blast->postcode_prefixes)->toBe(['021']);
 
     $this->actingAs(User::factory()->create())
         ->patch($this->campaignUrl('/blasts/'.$blast->getKey()), [
@@ -448,7 +448,7 @@ test('an operator who may not read segments still gets the compose page, without
     // Both roles hold ViewSupporters today, so the refusal has to be built
     // rather than found: the grant is withdrawn for the length of this test,
     // the same way the compose-route test above withdraws EditBlasts.
-    Segment::factory()->create(['name' => 'Whalley Range']);
+    Segment::factory()->create(['name' => 'Beverly Hills']);
 
     $operator = User::factory()->create();
 

@@ -24,12 +24,12 @@ use Inertia\Testing\AssertableInertia as Assert;
  */
 
 test('the list narrows to the segment the request names', function (): void {
-    $inside = Supporter::factory()->create(['postcode' => 'M15 6BH']);
-    $alsoInside = Supporter::factory()->create(['postcode' => 'm156bh']);
-    Supporter::factory()->create(['postcode' => 'EH8 9YL']);
+    $inside = Supporter::factory()->create(['postcode' => '90210']);
+    $alsoInside = Supporter::factory()->create(['postcode' => '90210 1234']);
+    Supporter::factory()->create(['postcode' => '02139']);
     Supporter::factory()->create(['postcode' => null]);
 
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create(['name' => 'Hulme']);
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create(['name' => 'Cambridge']);
 
     $this->actingAs(User::factory()->create())
         ->get($this->campaignUrl('/supporters?segment='.$segment->getKey()))
@@ -56,15 +56,15 @@ test('a narrowed list still shows somebody who unsubscribed', function (): void 
     // them would be *wrong* rather than safe -- and it is the mistake a reader
     // makes by assuming one stored rule means the same thing to both consumers.
     Supporter::factory()->create([
-        'postcode' => 'M15 6BH',
+        'postcode' => '90210',
         'subscription_status' => SubscriptionStatus::Unsubscribed,
     ]);
     Supporter::factory()->create([
-        'postcode' => 'M15 9AA',
+        'postcode' => '90211',
         'subscription_status' => SubscriptionStatus::Subscribed,
     ]);
 
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create();
 
     $this->actingAs(User::factory()->create())
         ->get($this->campaignUrl('/supporters?segment='.$segment->getKey()))
@@ -72,10 +72,10 @@ test('a narrowed list still shows somebody who unsubscribed', function (): void 
 });
 
 test('the list is not narrowed when the request names no segment', function (): void {
-    Supporter::factory()->create(['postcode' => 'M15 6BH']);
-    Supporter::factory()->create(['postcode' => 'EH8 9YL']);
+    Supporter::factory()->create(['postcode' => '90210']);
+    Supporter::factory()->create(['postcode' => '02139']);
 
-    Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    Segment::factory()->narrowedToPostcodes(['902'])->create();
 
     $this->actingAs(User::factory()->create())
         ->get($this->campaignUrl('/supporters'))
@@ -93,8 +93,8 @@ test('a segment whose rule names nothing usable narrows to nobody, never to ever
     // this shape, so the row is built directly -- which is the point: the column
     // is the input, and a seeder, a factory or a hand-written row reaches the
     // page without passing through a form at all.
-    Supporter::factory()->create(['postcode' => 'M15 6BH']);
-    Supporter::factory()->create(['postcode' => 'EH8 9YL']);
+    Supporter::factory()->create(['postcode' => '90210']);
+    Supporter::factory()->create(['postcode' => '02139']);
 
     $blank = Segment::factory()->narrowedToPostcodes(['   '])->create(['name' => 'Typed only spaces']);
     $empty = Segment::factory()->narrowedToPostcodes([])->create(['name' => 'Named nothing']);
@@ -150,10 +150,10 @@ test('the narrowing survives paging, on the links the page actually carries', fu
     // link rather than by constructing a URL. `withQueryString()` was already on
     // this action before the step; what is new is that it now carries something,
     // and "already there" is not evidence that it works.
-    Supporter::factory()->count(60)->create(['postcode' => 'M15 6BH']);
-    Supporter::factory()->count(10)->create(['postcode' => 'EH8 9YL']);
+    Supporter::factory()->count(60)->create(['postcode' => '90210']);
+    Supporter::factory()->count(10)->create(['postcode' => '02139']);
 
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create();
 
     $nextPage = null;
 

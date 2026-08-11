@@ -59,7 +59,7 @@ defineOptions({
             </div>
 
             <div class="grid gap-2">
-                <Label for="postcode_prefixes">Postcodes</Label>
+                <Label for="postcode_prefixes">ZIP codes</Label>
                 <!--
                     Joined with ", " because that is how the field is read back:
                     the server stores the prefixes as a list of what the operator
@@ -75,8 +75,8 @@ defineOptions({
                     :default-value="segment.postcode_prefixes.join(', ')"
                 />
                 <p class="text-sm text-muted-foreground">
-                    Supporters whose postcode starts with one of these. Case and
-                    spacing do not matter.
+                    Supporters whose ZIP code starts with one of these. Spacing
+                    does not matter.
                 </p>
                 <InputError :message="errors.postcode_prefixes" />
             </div>

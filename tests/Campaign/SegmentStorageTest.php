@@ -28,12 +28,12 @@ test('the campaign database carries the segments the campaign has named', functi
 });
 
 test('a segment named in campaign context lands in the campaign database', function (): void {
-    Segment::factory()->create(['name' => 'Harbour ward']);
+    Segment::factory()->create(['name' => 'Harbor precinct']);
 
     expect(DB::connection()->getDatabaseName())
         ->toBe($this->campaign->database()->getName());
 
-    $this->assertDatabaseHas('segments', ['name' => 'Harbour ward'], 'tenant');
+    $this->assertDatabaseHas('segments', ['name' => 'Harbor precinct'], 'tenant');
 });
 
 test('the factory builds a valid segment, and it narrows to something', function (): void {
@@ -48,7 +48,7 @@ test('the factory builds a valid segment, and it narrows to something', function
         // nothing is not a segment. A factory defaulting to an empty list would
         // satisfy the column and produce exactly the row the column shape was
         // chosen to make meaningless.
-        ->and($reloaded->postcode_prefixes)->toBe(['M15']);
+        ->and($reloaded->postcode_prefixes)->toBe(['902']);
 });
 
 test('the rule a segment stores is postcodes, and only postcodes', function (): void {
@@ -57,10 +57,10 @@ test('the rule a segment stores is postcodes, and only postcodes', function (): 
     //
     // Written as an operator would type them, unevenly, because the column they
     // will be matched against holds postcodes exactly as their source gave them.
-    $segment = Segment::factory()->narrowedToPostcodes(['M15', 'sw1a'])->create();
+    $segment = Segment::factory()->narrowedToPostcodes(['902', '6060'])->create();
 
     expect(Segment::query()->whereKey($segment->getKey())->sole()->postcode_prefixes)
-        ->toBe(['M15', 'sw1a']);
+        ->toBe(['902', '6060']);
 
     $columns = Schema::getColumnListing('segments');
 
@@ -110,13 +110,13 @@ test('a segment records who named it, and keeps the record when they leave', fun
 });
 
 test('the database refuses two segments with the same name', function (): void {
-    Segment::factory()->create(['name' => 'Chorlton']);
+    Segment::factory()->create(['name' => 'Culver City']);
 
     // The failure this prevents is aiming at the wrong group: two segments
     // called the same thing are indistinguishable at the moment somebody picks
     // one, and the message has gone by the time anybody works out which was
     // picked.
-    $refusal = refusalFrom(fn () => Segment::factory()->create(['name' => 'Chorlton']));
+    $refusal = refusalFrom(fn () => Segment::factory()->create(['name' => 'Culver City']));
 
     expect($refusal)->not->toBeNull()
         // SQLSTATE 23505 -- unique violation. Asserted by code rather than by
@@ -125,7 +125,7 @@ test('the database refuses two segments with the same name', function (): void {
 
     // The positive half, made through the same call in the same run: without it
     // this passes just as happily against a table that refuses every insert.
-    $second = Segment::factory()->create(['name' => 'Whalley Range']);
+    $second = Segment::factory()->create(['name' => 'Beverly Hills']);
 
     expect($second->exists)->toBeTrue()
         ->and(Segment::query()->count())->toBe(2);
@@ -145,13 +145,13 @@ test('the uniqueness is on the name exactly, and case variants are two segments'
     //
     // If a later step decides otherwise, this is the line that goes red and
     // says where the decision was made.
-    Segment::factory()->create(['name' => 'Chorlton']);
+    Segment::factory()->create(['name' => 'Culver City']);
 
-    $variant = Segment::factory()->create(['name' => 'chorlton']);
+    $variant = Segment::factory()->create(['name' => 'culver city']);
 
     expect($variant->exists)->toBeTrue()
         ->and(Segment::query()->pluck('name')->sort()->values()->all())
-        ->toBe(['Chorlton', 'chorlton']);
+        ->toBe(['Culver City', 'culver city']);
 });
 
 test('the database refuses a segment that narrows nothing at all', function (): void {

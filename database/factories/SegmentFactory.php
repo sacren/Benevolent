@@ -39,7 +39,7 @@ class SegmentFactory extends Factory
         return [
             'operator_id' => null,
             'name' => fake()->unique()->city(),
-            'postcode_prefixes' => ['M15'],
+            'postcode_prefixes' => ['902'],
         ];
     }
 

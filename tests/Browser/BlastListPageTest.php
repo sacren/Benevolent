@@ -137,13 +137,13 @@ test('a blast aimed at a segment says which one, and never that it goes to every
     // Confirmed by mutation rather than by pairing: inverting the draft test
     // reddens this assertion, because the draft below stops following its
     // pointer and is named by an id instead.
-    $segment = Segment::factory()->narrowedToPostcodes(['M15'])->create(['name' => 'Whalley Range']);
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create(['name' => 'Beverly Hills']);
 
     Blast::factory()->aimedAtSegment($segment)->create(['subject' => 'Dockside works begin']);
 
     // The two neighbours it must not be confused with, on the same page in the
     // same run: one aimed by its own rule, one aimed at nobody in particular.
-    Blast::factory()->narrowedToPostcodes(['EH8'])->create(['subject' => 'Ridge path closure']);
+    Blast::factory()->narrowedToPostcodes(['021'])->create(['subject' => 'Ridge path closure']);
     Blast::factory()->create(['subject' => 'Everyone, then']);
 
     $this->actingAs(User::factory()->owner()->create());
@@ -156,11 +156,11 @@ test('a blast aimed at a segment says which one, and never that it goes to every
         // The segment-aimed blast is named by its narrowing rather than by an
         // id, which is why the page is handed the whole segment and not just
         // the pointer.
-        ->assertSee('Subscribed in Whalley Range')
+        ->assertSee('Subscribed in Beverly Hills')
 
         // The blast carrying its own rule is unchanged, so this is not passing
         // against a summary that renders one thing for everything...
-        ->assertSee('Subscribed in EH8')
+        ->assertSee('Subscribed in 021')
 
         // ...and a blast that really does go to the whole list still says so,
         // which is what makes the assertion below a statement about the
@@ -178,11 +178,11 @@ test('a sent blast says what it went out against, not what its narrowing says no
     // **The reporting half of D-27, and the only guard that reads the rendered
     // sentence.** The server sends the frozen rule, the segment and the status
     // whichever way the page is written; what differs is the words a campaign
-    // reads. Before this, a blast sent against M16 under the name "Whalley
-    // Range" rendered as "Subscribed in Hulme" once the segment was renamed and
+    // reads. Before this, a blast sent against 911 under the name "Beverly
+    // Range" rendered as "Subscribed in Cambridge" once the segment was renamed and
     // re-aimed -- today's narrowing presented as the one that went out, with
     // nothing on the page suggesting anything had moved.
-    $segment = Segment::factory()->narrowedToPostcodes(['M16'])->create(['name' => 'Whalley Range']);
+    $segment = Segment::factory()->narrowedToPostcodes(['911'])->create(['name' => 'Beverly Hills']);
 
     Blast::factory()->aimedAtSegment($segment)->sent()->create(['subject' => 'Dockside works begin']);
 
@@ -194,7 +194,7 @@ test('a sent blast says what it went out against, not what its narrowing says no
 
     // The narrowing moves after the send, in both ways it can: renamed, and
     // re-aimed somewhere disjoint.
-    $segment->update(['name' => 'Hulme', 'postcode_prefixes' => ['M15']]);
+    $segment->update(['name' => 'Cambridge', 'postcode_prefixes' => ['902']]);
 
     $this->actingAs(User::factory()->owner()->create());
 
@@ -204,17 +204,17 @@ test('a sent blast says what it went out against, not what its narrowing says no
 
         // The sent blast reports what it froze, and says the narrowing has
         // moved rather than quietly showing today's.
-        ->assertSee('Subscribed in M16 — Hulme has changed since')
+        ->assertSee('Subscribed in 911 — Cambridge has changed since')
 
         // The draft follows the pointer to today's rule and today's name.
-        ->assertSee('Subscribed in Hulme')
+        ->assertSee('Subscribed in Cambridge')
 
         // The sent blast is never described by the rule it did not use. This
         // can fail and the obvious neighbour cannot: asserting the *old* name
         // is absent would be unbreakable, because the name a segment had when
         // a blast went out is stored nowhere and no rendering choice could put
         // it on the page. Only the rule was frozen.
-        ->assertDontSee('Subscribed in M15')
+        ->assertDontSee('Subscribed in 902')
 
         ->assertNoJavaScriptErrors();
 });
@@ -225,15 +225,15 @@ test('a sent blast whose narrowing has not moved is still named by that narrowin
     // product look as though its narrowing had changed, and would throw away
     // the naming Step 4 built. Where the segment still says exactly what the
     // blast froze, nothing has been lost and the name is the useful thing.
-    $segment = Segment::factory()->narrowedToPostcodes(['M16'])->create(['name' => 'Whalley Range']);
+    $segment = Segment::factory()->narrowedToPostcodes(['911'])->create(['name' => 'Beverly Hills']);
 
     Blast::factory()->aimedAtSegment($segment)->sent()->create(['subject' => 'Dockside works begin']);
 
     $this->actingAs(User::factory()->owner()->create());
 
     visit('/blasts')
-        ->assertSee('Subscribed in Whalley Range')
+        ->assertSee('Subscribed in Beverly Hills')
         ->assertDontSee('has changed since')
-        ->assertDontSee('Subscribed in M16')
+        ->assertDontSee('Subscribed in 911')
         ->assertNoJavaScriptErrors();
 });

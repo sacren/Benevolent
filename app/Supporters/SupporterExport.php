@@ -78,7 +78,7 @@ final class SupporterExport
         'Given name',
         'Family name',
         'Email',
-        'Postcode',
+        'ZIP code',
         'Subscription status',
         'Added on',
     ];
