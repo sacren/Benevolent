@@ -67,6 +67,44 @@ test('seeding the demo campaign twice leaves it exactly as once did', function (
     expect($afterSecondRun)->toBe($afterFirstRun);
 });
 
+test('re-seeding brings a campaign that already exists up to date', function (): void {
+    // **The second of the two guarantees "safe to re-run" is read as making,
+    // and until Phase 4 Step 2 nothing held it.** The test above proves
+    // re-running adds nothing twice; a seeder that guarded every row with an
+    // existence check and called create() only satisfies that perfectly while
+    // never repairing anything. It did, and the consequence was found rather
+    // than imagined: the demo campaign kept its UK postcodes across the move to
+    // US ZIP codes, and re-seeding reported success and changed nothing.
+    Artisan::call('migrate:fresh');
+    Artisan::call('db:seed', ['--class' => 'TenantSeeder']);
+
+    $campaign = Tenant::query()->where('slug', 'demo-campaign')->sole();
+
+    // Stand in for a fixture that has moved on: put the campaign back to a
+    // value the seeder no longer holds, which is what a jurisdiction change
+    // did. A real ZIP rather than the historical UK value it actually held,
+    // because the claim needs only *a value the seeder does not hold* and this
+    // phase's own convention is that no fixture carries a non-US postcode.
+    $campaign->run(function (): void {
+        Supporter::query()
+            ->whereEmailMatches('ama.boateng@example.test')
+            ->update(['postcode' => '02139', 'name' => 'Stale Name']);
+    });
+
+    expect(Artisan::call('db:seed', ['--class' => 'TenantSeeder']))->toBe(Command::SUCCESS);
+
+    $repaired = $campaign->run(fn (): ?Supporter => Supporter::query()
+        ->whereEmailMatches('ama.boateng@example.test')
+        ->first());
+
+    // Both columns, because repairing one and not the other is the shape a
+    // partial fix would take.
+    expect($repaired?->postcode)->toBe('90210')
+        ->and($repaired?->name)->toBe('Ama Boateng')
+        // And the first guarantee still holds: repairing is not duplicating.
+        ->and($campaign->run(fn (): int => Supporter::query()->count()))->toBe(4);
+});
+
 test('the seeded list carries the shapes a real list actually contains', function (): void {
     // The fixtures exist to exercise the page against the data the schema was
     // designed for, so this asserts they still do. A seeder quietly narrowed to

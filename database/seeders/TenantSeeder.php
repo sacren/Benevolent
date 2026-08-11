@@ -130,13 +130,29 @@ class TenantSeeder extends Seeder
      * - someone who has asked not to be contacted, which is kept rather than
      *   deleted so a later import cannot put them back.
      *
-     * Each row is added only if the address is not already present, because
-     * email is the identity (D-8) and this seeder is documented as safe to
-     * re-run -- a claim tests/Tenancy/DemoCampaignSeedingTest.php now holds it
-     * to. The check goes through the model's own case-folding scope rather than
-     * comparing the column, so an address an operator has since entered with
-     * different casing is recognised rather than inserted a second time and
-     * refused by the unique index.
+     * **Each row is matched on the address and brought up to date, because
+     * email is the identity (D-8).** The match goes through the model's own
+     * case-folding scope rather than comparing the column, so an address an
+     * operator has since entered with different casing is recognised rather
+     * than inserted a second time and refused by the unique index.
+     *
+     * **"Safe to re-run" means two guarantees, and conflating them cost a
+     * jurisdiction change.** It has always meant *re-running adds nothing
+     * twice*, which tests/Tenancy/DemoCampaignSeedingTest.php holds. A reader
+     * takes it to also mean *re-running brings a campaign up to date*, and
+     * until Phase 4 Step 2 it did not: this method guarded each row with an
+     * existence check and called create() only, so a change to any column other
+     * than the address never reached a campaign that already had it. The
+     * consequence was found rather than imagined -- the demo campaign kept UK
+     * postcodes through the move to US ZIP codes, and re-seeding would have
+     * changed nothing while reporting success.
+     *
+     * **So the write repairs now, and the second guarantee is held by a test of
+     * its own** rather than inferred from the first. The cost is accepted and
+     * stated: re-seeding overwrites a demo supporter an operator edited by
+     * hand. That is the right trade for a fixture campaign whose purpose is to
+     * be a known state, and re-seeding is a deliberate act rather than
+     * something that happens on its own.
      *
      * One address is deliberately mixed-case. Real exports carry them, and it
      * puts the "stored exactly as given" half of D-8 on the page where it can
@@ -180,13 +196,21 @@ class TenantSeeder extends Seeder
         ];
 
         foreach ($supporters as $supporter) {
-            $exists = Supporter::query()
+            $existing = Supporter::query()
                 ->whereEmailMatches($supporter['email'])
-                ->exists();
+                ->first();
 
-            if (! $exists) {
-                Supporter::query()->create($supporter);
+            if ($existing instanceof Supporter) {
+                // Update rather than skip, so a fixture the seeder owns reaches
+                // a campaign that already exists. forceFill() because the
+                // address is deliberately not fillable -- this is the seeder
+                // restating its own row, not a form editing somebody's.
+                $existing->forceFill($supporter)->save();
+
+                continue;
             }
+
+            Supporter::query()->create($supporter);
         }
     }
 }
