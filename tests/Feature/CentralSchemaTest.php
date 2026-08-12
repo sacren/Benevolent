@@ -4,16 +4,44 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Schema;
 
-test('the central database carries the platform infrastructure tables', function (): void {
+test('the central database carries the platform infrastructure tables and nothing else', function (): void {
     // What the central database is *for*: the campaign registry, plus the shared
     // web infrastructure that is platform-owned rather than campaign-owned.
     // Sessions in particular stay here deliberately (see L-7) -- they are not
     // operator identity, so they do not follow operators into a campaign.
-    expect(Schema::hasTable('tenants'))->toBeTrue()
-        ->and(Schema::hasTable('domains'))->toBeTrue()
-        ->and(Schema::hasTable('sessions'))->toBeTrue()
-        ->and(Schema::hasTable('cache'))->toBeTrue()
-        ->and(Schema::hasTable('jobs'))->toBeTrue();
+    //
+    // **The list is exact, and that is the half of this test that guards
+    // anything.** The absence tests below each name one campaign table, which
+    // makes them a denylist: a central table nobody thought to name passes every
+    // one of them. That gap stayed invisible while every module's data was
+    // obviously a campaign's own. Congressional district reference data was the
+    // first that was not -- public, and identical for every campaign -- so
+    // putting it centrally was a genuine option (D-34) rather than a misfiling,
+    // and nothing here would have noticed it arrive. D-34 resolved that it ships
+    // with the code rather than in any database, so the central database still
+    // holds only what the platform needs to find campaigns and run itself.
+    //
+    // So a new central table turns this red whatever it holds, and the fix is to
+    // add it to this list in the same commit that argues why it belongs
+    // centrally -- which is the moment DEC-1's boundary moves, if it ever does.
+    // Counting central routes cannot do this job: deferral 1 counts routes
+    // because its cost is routes to pin to the central host, and a table adds
+    // nothing to that bill.
+    //
+    // Schema-qualified and not filtered by schema, so a table filed into some
+    // other schema shows up as well. The framework's listing leaves out
+    // PostgreSQL's own schemas, which is also where temporary tables live.
+    expect(Schema::getTableListing())->toEqualCanonicalizing([
+        'public.cache',
+        'public.cache_locks',
+        'public.domains',
+        'public.failed_jobs',
+        'public.job_batches',
+        'public.jobs',
+        'public.migrations',
+        'public.sessions',
+        'public.tenants',
+    ]);
 });
 
 test('the central database does not carry operator identity or credentials', function (): void {
@@ -97,10 +125,13 @@ test('the central database does not carry a campaign\'s blasts', function (): vo
     //
     // Kept anyway, and the reason is the future rather than the present: the
     // foreign key is protection this table happens to have, not a property of
-    // being campaign-scoped. `supporters` and `audit_entries` have no such key,
-    // which is why their lines are the only catch. Should `operator_id` ever
-    // lose its constraint, the misfiling goes silent and this line is what is
-    // left. It costs one line to hold that open.
+    // being campaign-scoped, so should `operator_id` ever lose its constraint
+    // the misfiling would reach the assertions. Since the first test's list
+    // became exact it would be caught there as well -- as every misfiled table
+    // that migrates is -- so this line is no longer what is left. What it still
+    // adds is a failure that names the table and says why it must not be
+    // central, which a difference between two lists of table names does not.
+    // It costs one line.
     expect(Schema::hasTable('blasts'))->toBeFalse();
 });
 
@@ -121,9 +152,10 @@ test('the central database does not carry who a campaign has written to', functi
     // `supporters`, neither of which exists centrally, so misfiling this
     // migration kills it on the first of those and errors every test in this
     // file before an assertion runs. Only with both keys dropped does this line
-    // become the thing that reports. Kept for the same reason: the keys are
-    // protection this table happens to have rather than a property of being
-    // campaign-scoped, and if either is ever loosened this is what is left.
+    // report, alongside the exact list in the first test. Kept for the same
+    // reason: the keys are protection this table happens to have rather than a
+    // property of being campaign-scoped, and a failure naming this table says
+    // what went wrong in a way the list's difference does not.
     expect(Schema::hasTable('blast_recipients'))->toBeFalse();
 });
 
@@ -150,9 +182,10 @@ test('the central database does not carry a campaign\'s segments', function (): 
     // above, which is in the same position for the same reason.
     //
     // Kept for the reason that line is: the foreign key is protection this table
-    // happens to have rather than a property of being campaign-scoped, and
-    // `supporters` and `audit_entries` have no such key, which is why their
-    // lines are the only catch. Should `operator_id` ever lose its constraint,
-    // the misfiling goes silent and this is what is left.
+    // happens to have rather than a property of being campaign-scoped. Should
+    // `operator_id` ever lose its constraint, the misfiling reaches this line --
+    // and the exact list in the first test, which catches every misfiled table
+    // that migrates -- and this is the one of the two that says which mistake
+    // was made.
     expect(Schema::hasTable('segments'))->toBeFalse();
 });
