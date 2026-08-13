@@ -206,6 +206,24 @@ final class ZctaDistricts implements Countable, IteratorAggregate
     }
 
     /**
+     * Every district GEOID the relation relates to any ZCTA, `ZZ` included, in
+     * GEOID order.
+     *
+     * What makes a seat a real one: App\Districts\Seat::parse() accepts only a
+     * seat this relation names, so a seat is checked against the same data every
+     * answer about it will be read from.
+     *
+     * @return list<string>
+     */
+    public function districts(): array
+    {
+        $districts = array_values(array_unique(array_merge(...array_values($this->zctas))));
+        sort($districts, SORT_STRING);
+
+        return $districts;
+    }
+
+    /**
      * How many ZCTAs the relation covers.
      */
     public function count(): int

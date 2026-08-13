@@ -125,6 +125,40 @@ final class Seat
     }
 
     /**
+     * The seat somebody typed, if the relation names it.
+     *
+     * Accepts the forms people write -- `CA-37`, `ca-7`, `CA 37`, `AK-AL`,
+     * `DC-AL` -- and answers null for anything else, including a well-formed
+     * seat that does not exist: `CA-53` is refused because California has 52,
+     * and `AK-01` because Alaska's only seat is at-large. It is checked against
+     * the relation rather than against a count of seats per state, because the
+     * relation is where every answer about the seat will be read from, and a
+     * seat it does not name could never be found in it.
+     */
+    public static function parse(string $typed, ZctaDistricts $relation): ?self
+    {
+        if (preg_match('/^([A-Z]{2})-?(AL|\d{1,2})$/', strtoupper(str_replace(' ', '', $typed)), $match) !== 1) {
+            return null;
+        }
+
+        $code = array_search($match[1], self::STATES, true);
+
+        if ($code === false) {
+            return null;
+        }
+
+        $state = str_pad((string) $code, 2, '0', STR_PAD_LEFT);
+
+        $candidates = $match[2] === 'AL'
+            ? [$state.'00', $state.'98']
+            : [$state.str_pad($match[2], 2, '0', STR_PAD_LEFT)];
+
+        $named = array_values(array_intersect($candidates, $relation->districts()));
+
+        return $named === [] ? null : new self($named[0]);
+    }
+
+    /**
      * The seat as people write it: the state's postal abbreviation, then the
      * district number as two digits, or `AL` for a state's only seat.
      */

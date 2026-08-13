@@ -8,6 +8,13 @@ export type DistrictAnswer =
     'placed' | 'split' | 'unmapped' | 'malformed' | 'missing';
 
 /**
+ * Mirrors App\Districts\SeatStanding: where a supporter stands against the
+ * seat their campaign is running for. `maybe` is a ZIP code crossing the
+ * seat's boundary and must never be shown as `in`.
+ */
+export type SeatStanding = 'in' | 'maybe' | 'not';
+
+/**
  * What the server may say about one supporter's district, as
  * App\Districts\DistrictClaim::jsonSerialize() sends it.
  *
@@ -22,6 +29,7 @@ export type DistrictClaim = {
     touching: string[];
     claimed: string | null;
     mayHaveLostLeadingZero: boolean;
+    seatStanding: SeatStanding | null;
 };
 
 /**
@@ -36,5 +44,6 @@ export type DistrictClaim = {
 export type SupporterDistricts = {
     congress: string;
     publishedOn: string;
+    seat: string | null;
     bySupporter: Record<number, DistrictClaim>;
 };

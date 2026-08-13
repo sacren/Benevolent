@@ -58,27 +58,32 @@ final class DistrictClaim implements JsonSerializable
      * @param  list<Seat>  $touching  Every district the ZIP's area touches,
      *                                `ZZ` aside. One for a placed ZIP, two or
      *                                more for a split one, none otherwise.
+     * @param  Seat|null  $seat  The seat the campaign is running for, if it
+     *                           has recorded one (D-40).
      */
     private function __construct(
         public readonly DistrictAnswer $answer,
         public readonly ?string $zip,
         public readonly array $touching,
         private readonly bool $fourDigits,
+        private readonly ?Seat $seat,
     ) {}
 
     /**
-     * What may be said about the district of whoever holds this stored value.
+     * What may be said about the district of whoever holds this stored value,
+     * and -- when the campaign has recorded one -- about where they stand
+     * against its seat.
      */
-    public static function for(?string $postcode, ZctaDistricts $relation): self
+    public static function for(?string $postcode, ZctaDistricts $relation, ?Seat $seat = null): self
     {
         $folded = str_replace(' ', '', $postcode ?? '');
 
         if ($folded === '') {
-            return new self(DistrictAnswer::Missing, null, [], false);
+            return new self(DistrictAnswer::Missing, null, [], false, $seat);
         }
 
         if (preg_match('/^(\d{5})(-?\d{4})?$/', $folded, $match) !== 1) {
-            return new self(DistrictAnswer::Malformed, null, [], preg_match('/^\d{4}$/', $folded) === 1);
+            return new self(DistrictAnswer::Malformed, null, [], preg_match('/^\d{4}$/', $folded) === 1, $seat);
         }
 
         $zip = $match[1];
@@ -97,7 +102,7 @@ final class DistrictClaim implements JsonSerializable
             0 => DistrictAnswer::Unmapped,
             1 => DistrictAnswer::Placed,
             default => DistrictAnswer::Split,
-        }, $zip, $touching, false);
+        }, $zip, $touching, false, $seat);
     }
 
     /**
@@ -123,6 +128,38 @@ final class DistrictClaim implements JsonSerializable
     }
 
     /**
+     * Where the supporter stands against the campaign's seat, or null when
+     * there is no seat to stand against or no district data to say anything
+     * with.
+     *
+     * **In only when the ZIP code lies wholly inside the seat.** A ZIP code
+     * crossing the seat's boundary is MaybeIn, never In, which is D-32's rule
+     * asked about one district rather than about all of them: the product does
+     * not tell a campaign somebody is its constituent on the strength of a ZIP
+     * code that is partly somewhere else.
+     */
+    public function standing(): ?SeatStanding
+    {
+        if ($this->seat === null || $this->touching === []) {
+            return null;
+        }
+
+        $seat = $this->seat->geoid;
+
+        if ($this->claimed()?->geoid === $seat) {
+            return SeatStanding::In;
+        }
+
+        foreach ($this->touching as $district) {
+            if ($district->geoid === $seat) {
+                return SeatStanding::MaybeIn;
+            }
+        }
+
+        return SeatStanding::NotIn;
+    }
+
+    /**
      * The claim as a page receives it.
      *
      * **`claimed` is sent as its own field, decided here, rather than left for
@@ -132,7 +169,11 @@ final class DistrictClaim implements JsonSerializable
      * nothing to decide. It shows `claimed` when there is one, and otherwise
      * says why there is not.
      *
-     * @return array{answer: string, zip: string|null, touching: list<string>, claimed: string|null, mayHaveLostLeadingZero: bool}
+     * `seatStanding` is decided here for the same reason: a page that treated
+     * "may be in your seat" as "in your seat" would be making the claim this
+     * class refuses, one district at a time.
+     *
+     * @return array{answer: string, zip: string|null, touching: list<string>, claimed: string|null, mayHaveLostLeadingZero: bool, seatStanding: string|null}
      */
     public function jsonSerialize(): array
     {
@@ -142,6 +183,7 @@ final class DistrictClaim implements JsonSerializable
             'touching' => array_map(fn (Seat $seat): string => $seat->label(), $this->touching),
             'claimed' => $this->claimed()?->label(),
             'mayHaveLostLeadingZero' => $this->fourDigits,
+            'seatStanding' => $this->standing()?->value,
         ];
     }
 }

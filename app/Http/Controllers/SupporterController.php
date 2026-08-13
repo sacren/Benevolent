@@ -12,6 +12,7 @@ use App\Models\Segment;
 use App\Models\Supporter;
 use App\Supporters\PostcodeNarrowing;
 use App\Supporters\SupporterExport;
+use App\Tenancy\CampaignSeat;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -153,6 +154,12 @@ class SupporterController extends Controller
      * date across a timezone or show an answer without the map it was read
      * against: every district named on that page is named as that Congress drew
      * it (D-43).
+     *
+     * **When the campaign has recorded the seat it is running for, each answer
+     * also says where the supporter stands against it (D-40)** -- in it, maybe
+     * in it, or not in it -- decided by DistrictClaim, so the page is given
+     * nothing to decide. The seat is read from the campaign's registry row,
+     * which costs no query.
      */
     public function index(Request $request): Response
     {
@@ -171,6 +178,7 @@ class SupporterController extends Controller
 
         $page = $supporters->paginate(self::PER_PAGE)->withQueryString();
         $relation = ZctaDistricts::shipped();
+        $seat = CampaignSeat::current($relation);
 
         return Inertia::render('supporters/Index', [
             'supporters' => $page,
@@ -179,9 +187,10 @@ class SupporterController extends Controller
             'districts' => [
                 'congress' => Number::ordinal($relation->congress()),
                 'publishedOn' => Carbon::parse($relation->publishedOn())->isoFormat('MMMM D, YYYY'),
+                'seat' => $seat?->label(),
                 'bySupporter' => $page->getCollection()->mapWithKeys(
                     fn (Supporter $supporter): array => [
-                        $supporter->getKey() => DistrictClaim::for($supporter->postcode, $relation),
+                        $supporter->getKey() => DistrictClaim::for($supporter->postcode, $relation, $seat),
                     ],
                 ),
             ],

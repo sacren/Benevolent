@@ -62,6 +62,9 @@ test('it holds every ZCTA and every pair the Census file relates, and nothing ma
     expect($districts)->toHaveCount(33791)
         ->and($pairs)->toBe(40147)
         ->and($geoids)->toHaveCount(443)
+        // And the reader's own list of them, which a seat is checked against,
+        // is exactly the set just counted from the relation itself.
+        ->and($districts->districts())->toBe(collect(array_keys($geoids))->map(fn ($geoid): string => (string) $geoid)->sort(SORT_STRING)->values()->all())
         ->and($malformed)->toBe([]);
 });
 

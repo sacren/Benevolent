@@ -32,12 +32,17 @@ test('each row arrives with what may be said about its supporter\'s district, an
             // Formatted by the server, so the page shows exactly this.
             ->where('districts.congress', '119th')
             ->where('districts.publishedOn', 'October 24, 2024')
+            // This harness's campaign records no seat, so nothing is compared
+            // with one. The comparison is proven with two campaigns holding
+            // different seats, in tests/Tenancy/CampaignDistrictHttpIsolationTest.php.
+            ->where('districts.seat', null)
             ->where("districts.bySupporter.{$placed->getKey()}", [
                 'answer' => 'placed',
                 'zip' => '90232',
                 'touching' => ['CA-37'],
                 'claimed' => 'CA-37',
                 'mayHaveLostLeadingZero' => false,
+                'seatStanding' => null,
             ])
             // The districts it might be in, and no claim among them.
             ->where("districts.bySupporter.{$split->getKey()}", [
@@ -46,6 +51,7 @@ test('each row arrives with what may be said about its supporter\'s district, an
                 'touching' => ['CA-30', 'CA-32', 'CA-36'],
                 'claimed' => null,
                 'mayHaveLostLeadingZero' => false,
+                'seatStanding' => null,
             ])
             ->where("districts.bySupporter.{$unmapped->getKey()}.answer", 'unmapped')
             ->where("districts.bySupporter.{$mangled->getKey()}.answer", 'malformed')

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Districts\DistrictAnswer;
 use App\Districts\DistrictClaim;
 use App\Districts\Seat;
+use App\Districts\SeatStanding;
 use App\Districts\ZctaDistricts;
 
 /**
@@ -148,4 +149,59 @@ test('across every ZCTA the relation holds, a district is claimed only where one
     expect($claimedAcrossABoundary)->toBe([])
         ->and($claimed)->toBe(27929)
         ->and($split)->toBe(5862);
+});
+
+test('against the seat a campaign is running for, a supporter is in it, may be in it, or is not in it', function (string $stored, string $seat, ?SeatStanding $standing): void {
+    $claim = DistrictClaim::for($stored, $this->relation, Seat::parse($seat, $this->relation));
+
+    expect($claim->standing())->toBe($standing);
+})->with([
+    'a ZIP wholly inside the seat' => ['02141', 'MA-07', SeatStanding::In],
+    // Touches MA-07 and MA-05. The seat is one of the districts it might be in,
+    // and D-32's rule holds one district at a time: never "in".
+    'a ZIP crossing the seat\'s boundary' => ['02139', 'MA-07', SeatStanding::MaybeIn],
+    'a ZIP wholly inside another district' => ['90232', 'MA-07', SeatStanding::NotIn],
+    // What knowing the seat adds: this was "not named", and none of it is in the
+    // seat, so it is definitely outside it.
+    'a ZIP crossing districts that do not include the seat' => ['90210', 'MA-07', SeatStanding::NotIn],
+    'the same ZIP against a seat it touches' => ['90210', 'CA-36', SeatStanding::MaybeIn],
+    'a ZIP with no district data' => ['73301', 'MA-07', null],
+    'a value that is not a ZIP' => ['2139', 'MA-07', null],
+    'no ZIP at all' => ['', 'MA-07', null],
+]);
+
+test('a campaign with no seat has no standing to compare against', function (): void {
+    expect(DistrictClaim::for('02141', $this->relation)->standing())->toBeNull()
+        ->and(DistrictClaim::for('02141', $this->relation)->jsonSerialize()['seatStanding'])->toBeNull()
+        // The positive half through the same serialisation, so the null above is
+        // not a field that is simply never filled.
+        ->and(DistrictClaim::for('02141', $this->relation, Seat::parse('MA-07', $this->relation))->jsonSerialize()['seatStanding'])->toBe('in');
+});
+
+test('across every ZCTA the relation holds, a supporter is placed in a seat only where the seat holds its whole area', function (): void {
+    // D-32's sweep asked one district at a time: against every seat a ZCTA
+    // touches, "in" must mean the relation lists that seat and nothing else.
+    $inAcrossABoundary = [];
+    $in = 0;
+
+    foreach ($this->relation as $zcta => $touching) {
+        $districts = array_values(array_filter($touching, fn (string $geoid): bool => ! str_ends_with($geoid, 'ZZ')));
+
+        foreach ($districts as $geoid) {
+            $claim = DistrictClaim::for($zcta, $this->relation, Seat::fromGeoid($geoid));
+
+            if ($claim->standing() === SeatStanding::In) {
+                $in++;
+
+                if ($districts !== [$geoid]) {
+                    $inAcrossABoundary[] = $zcta.' in '.$geoid;
+                }
+            }
+        }
+    }
+
+    // One "in" per claimable ZCTA, against its own seat: the 27,929 measured
+    // with python for the sweep above.
+    expect($inAcrossABoundary)->toBe([])
+        ->and($in)->toBe(27929);
 });

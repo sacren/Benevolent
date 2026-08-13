@@ -42,10 +42,21 @@ function claimFor(supporter: Supporter): DistrictClaim | undefined {
  *
  * A split ZIP code's districts are listed as what the supporter might be in and
  * never shown as the answer: that is `claimed`, and only the server sets it.
+ * When the campaign has a seat, a split ZIP code touching it "may be in" it and
+ * one touching none of it is "not in" it — the server decides which, and a
+ * split ZIP code is never "in" the seat.
  */
 function whyNoDistrict(claim: DistrictClaim): string {
     switch (claim.answer) {
         case 'split':
+            if (claim.seatStanding === 'maybe') {
+                return `May be in ${districts.seat}: this ZIP code crosses ${claim.touching.join(', ')}`;
+            }
+
+            if (claim.seatStanding === 'not') {
+                return `Not in ${districts.seat}: this ZIP code crosses ${claim.touching.join(', ')}`;
+            }
+
             return `Not named: this ZIP code crosses ${claim.touching.join(', ')}`;
         case 'unmapped':
             return 'Not named: no district data for this ZIP code';
@@ -315,11 +326,38 @@ defineOptions({
                             server-side assertion would still pass.
                         -->
                         <td class="px-4 py-3">
-                            <span
-                                v-if="claimFor(supporter)?.claimed"
-                                :data-test="`district-claimed-${supporter.id}`"
-                                >{{ claimFor(supporter)?.claimed }}</span
-                            >
+                            <template v-if="claimFor(supporter)?.claimed">
+                                <span
+                                    :data-test="`district-claimed-${supporter.id}`"
+                                    >{{ claimFor(supporter)?.claimed }}</span
+                                >
+                                <!--
+                                    "Your seat" only when the server says
+                                    `in`. A check that the standing merely
+                                    exists would put it beside every row the
+                                    seat was compared with, including ones the
+                                    server said are not in it.
+                                -->
+                                <span
+                                    v-if="
+                                        claimFor(supporter)?.seatStanding ===
+                                        'in'
+                                    "
+                                    class="text-muted-foreground"
+                                    :data-test="`district-in-seat-${supporter.id}`"
+                                >
+                                    · your seat</span
+                                >
+                                <span
+                                    v-else-if="
+                                        claimFor(supporter)?.seatStanding ===
+                                        'not'
+                                    "
+                                    class="text-muted-foreground"
+                                >
+                                    · not your seat</span
+                                >
+                            </template>
                             <span
                                 v-else-if="claimFor(supporter)"
                                 class="text-muted-foreground"
@@ -412,6 +450,11 @@ defineOptions({
             {{ districts.publishedOn }}. States that have redrawn their maps
             since then are not reflected. A district is named only for a ZIP
             code that lies wholly inside one.
+            <template v-if="districts.seat">
+                This campaign is running for {{ districts.seat }}, and “your
+                seat” means {{ districts.seat }} as the
+                {{ districts.congress }} Congress drew it.
+            </template>
         </p>
 
         <!--

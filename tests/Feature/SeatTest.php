@@ -52,3 +52,32 @@ test('a GEOID that names no seat is refused rather than shown as digits', functi
     'too short' => ['063', 'is not the GEOID of a congressional district'],
     'a label rather than a GEOID' => ['CA37', 'is not the GEOID of a congressional district'],
 ]);
+
+test('a seat is read the way people write it, and only if the relation names it', function (string $typed, string $geoid, string $label): void {
+    $seat = Seat::parse($typed, ZctaDistricts::shipped());
+
+    expect($seat?->geoid)->toBe($geoid)
+        ->and($seat?->label())->toBe($label);
+})->with([
+    'as it is shown' => ['MA-07', '2507', 'MA-07'],
+    'in lower case, without the zero' => ['ma-7', '2507', 'MA-07'],
+    'with a space' => ['CA 37', '0637', 'CA-37'],
+    'run together' => ['TX7', '4807', 'TX-07'],
+    'an at-large state' => ['AK-AL', '0200', 'AK-AL'],
+    'a delegate' => ['DC-AL', '1198', 'DC-AL'],
+    'a resident commissioner' => ['pr-al', '7298', 'PR-AL'],
+]);
+
+test('a seat the relation does not name is not read at all', function (string $typed): void {
+    expect(Seat::parse($typed, ZctaDistricts::shipped()))->toBeNull();
+})->with([
+    // California has 52 seats.
+    'one more seat than a state has' => ['CA-53'],
+    // Alaska's only seat is at-large, and a number would name a seat it lacks.
+    'a number for an at-large state' => ['AK-01'],
+    'at-large for a state with several seats' => ['CA-AL'],
+    'a state with no seat' => ['UM-AL'],
+    'not a state' => ['ZZ-01'],
+    'a GEOID rather than a name' => ['0637'],
+    'a word' => ['Culver City'],
+]);

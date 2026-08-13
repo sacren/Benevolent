@@ -2,8 +2,11 @@
 
 declare(strict_types=1);
 
+use App\Districts\Seat;
+use App\Districts\ZctaDistricts;
 use App\Models\Supporter;
 use App\Models\User;
+use App\Tenancy\CampaignSeat;
 use Tests\Concerns\RunsInCampaignContext;
 use Tests\Support\LoopbackHost;
 
@@ -13,7 +16,9 @@ use Tests\Support\LoopbackHost;
  * This file exists for two things the server cannot see. The second, added at
  * Phase 4 Step 4, is the district column: the server sends a split ZIP code's
  * districts and claims none of them, and only the rendered page can show
- * whether it then presents one as the supporter's own -- see the second test.
+ * whether it then presents one as the supporter's own, or puts "your seat"
+ * beside a supporter the server said is not in it -- the second and third
+ * tests.
  *
  * The first is a contrast. The page carries two controls that must be
  * *different kinds of link, for opposite reasons*:
@@ -200,4 +205,62 @@ test('a ZIP code inside one district shows that district, and one crossing a bou
         ->assertSeeIn('[data-test="district-map"]', 'Districts are those of the 119th Congress')
         ->assertSeeIn('[data-test="district-map"]', 'published October 24, 2024')
         ->assertNoJavaScriptErrors();
+});
+
+test('against the campaign\'s seat, only a ZIP code wholly inside it is shown as in it', function (): void {
+    // "Your seat" beside a row is a claim that the supporter is the campaign's
+    // constituent, so it is the same forbidden failure as a wrong district, asked
+    // about one district. The server decides the standing; this checks the page
+    // shows "your seat" only where the server said `in` -- a page that checked
+    // only that there was a standing would show it beside the CA-37 row too.
+    $in = Supporter::factory()->create(['postcode' => '02141']);
+    $elsewhere = Supporter::factory()->create(['postcode' => '90232']);
+    $maybe = Supporter::factory()->create(['postcode' => '02139']);
+    $notIn = Supporter::factory()->create(['postcode' => '90210']);
+
+    $relation = ZctaDistricts::shipped();
+    $seat = Seat::parse('MA-07', $relation);
+    expect($seat)->not->toBeNull();
+
+    // The harness keeps one campaign per file and re-reads its registry row for
+    // every test, so a seat left behind would reach the tests beside this one.
+    CampaignSeat::store($this->campaign, $seat);
+
+    try {
+        $this->actingAs(User::factory()->owner()->create());
+
+        visit('/supporters')
+            ->assertSee('4 people on this campaign’s list')
+
+            // In the seat, and the positive half that makes the absences below
+            // evidence about the marker rather than about a selector.
+            ->assertSeeIn("[data-test=\"district-claimed-{$in->getKey()}\"]", 'MA-07')
+            ->assertPresent("[data-test=\"district-in-seat-{$in->getKey()}\"]")
+
+            // Placed, in another seat: its district is named, and it is not
+            // shown as the campaign's.
+            ->assertMissing("[data-test=\"district-in-seat-{$elsewhere->getKey()}\"]")
+            ->assertSeeIn("[data-test=\"district-claimed-{$elsewhere->getKey()}\"]", 'CA-37')
+
+            // Crossing the seat's boundary: may be in it, never in it.
+            ->assertMissing("[data-test=\"district-claimed-{$maybe->getKey()}\"]")
+            ->assertSeeIn(
+                "[data-test=\"district-not-named-{$maybe->getKey()}\"]",
+                'May be in MA-07: this ZIP code crosses MA-05, MA-07',
+            )
+
+            // Crossing districts none of which is the seat: definitely not in it.
+            ->assertSeeIn(
+                "[data-test=\"district-not-named-{$notIn->getKey()}\"]",
+                'Not in MA-07: this ZIP code crosses CA-30, CA-32, CA-36',
+            )
+
+            // And what "your seat" means, with the map it was read against.
+            ->assertSeeIn('[data-test="district-map"]', 'This campaign is running for MA-07')
+            ->assertSeeIn('[data-test="district-map"]', 'as the 119th Congress drew it')
+            ->assertNoJavaScriptErrors();
+    } finally {
+        $this->campaign->setAttribute(CampaignSeat::KEY, null);
+        $this->campaign->save();
+    }
 });
