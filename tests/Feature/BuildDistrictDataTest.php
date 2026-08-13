@@ -76,7 +76,9 @@ test('it writes the relation a Census file describes, which the reader reads bac
         // Supplied 0636, 0630, 0632; written in GEOID order.
         ->and($districts->districtsTouching('90210'))->toBe(['0630', '0632', '0636'])
         // Touched by 09ZZ through water alone, and kept: this is the relation as
-        // published, and what to claim from it is D-32's rule, applied later.
+        // published, and what to claim from it is D-32's rule, applied by
+        // App\Districts\DistrictClaim -- which ignores `ZZ` on the strength of
+        // exactly this water-only row, and of the refusal tested below.
         ->and($districts->districtsTouching('06437'))->toBe(['0903', '09ZZ'])
         ->and($districts->districtsTouching('20001'))->toBe(['1198'])
         // A leading zero survives, because a ZCTA is text rather than a number.
@@ -145,6 +147,24 @@ test('it refuses a file or a date it does not understand, and writes nothing', f
     'no ZCTA related to any district' => [
         ['2119035781135773|0101|Congressional District 1|18752973689|2274743296|G5200|N|||||||||558858619|1794806659'],
         CENSUS_HEADER,
+        '2024-10-24',
+    ],
+    // The real row relating 60657 to Lake Michigan's `17ZZ`, with 5 m² of land
+    // where the Census file has none. DistrictClaim ignores `ZZ` because such
+    // parts are water; one holding land would be people in no district, and a
+    // district would be claimed for them.
+    'an area in no district holding land' => [
+        [...CENSUS_ROWS, '2119035951832015|17ZZ|Congressional Districts not defined|0|4070752445|G5200|F|221704258285681|60657|ZCTA5 60657|5631965|1511566|G6350|B5|S|5|1312347'],
+        CENSUS_HEADER,
+        '2024-10-24',
+    ],
+    // Without its `09ZZ` row, so the missing column is the only thing wrong.
+    // With that row left in, the case passed against a command that had lost
+    // the column check entirely: the land lookup fell back to column 0, an
+    // object id that is never "0", and refused the row by accident.
+    'no column saying how much of each part is land' => [
+        array_values(array_filter(CENSUS_ROWS, fn (string $row): bool => ! str_contains($row, '|09ZZ|'))),
+        str_replace('AREALAND_PART', 'AREALAND_SHARE', CENSUS_HEADER),
         '2024-10-24',
     ],
 ]);

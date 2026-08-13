@@ -37,7 +37,7 @@ use RuntimeException;
  * **This is the relation, not a claim.** A ZCTA touching three districts is
  * reported with all three. Which district, if any, the product may *claim* for a
  * supporter is D-32's rule -- only a ZCTA wholly inside one -- and nothing here
- * applies it.
+ * applies it: App\Districts\DistrictClaim does.
  *
  * **The boundaries are the ones the file's Congress was elected on.** The Census
  * Bureau publishes this relation for the 118th and 119th Congress only, and

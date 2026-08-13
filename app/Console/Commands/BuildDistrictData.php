@@ -34,6 +34,17 @@ use SplFileObject;
  * of where districts are: a row silently skipped is a ZCTA that "touches no
  * district", which reads exactly like a real answer.
  *
+ * **It also refuses a file in which a `ZZ` part holds land.** The Census writes
+ * areas it assigns to no district as `09ZZ`, `17ZZ` and so on, and
+ * App\Districts\DistrictClaim ignores them when deciding whether a ZIP lies
+ * wholly inside one district. That is right only because every such part in the
+ * 119th Congress's file is water -- zero square metres of land across all 34
+ * `ZZ` rows -- so nobody lives in one. The shipped data keeps no areas, so this
+ * is the one place the premise can be checked: a later file whose `ZZ` parts
+ * hold land would describe people in no district, and the rule would claim a
+ * district for them. Such a file stops here, for somebody to decide what those
+ * people are, rather than reaching the product through a rule written for water.
+ *
  * The publication date is asked for rather than inferred, because the file does
  * not carry one; it is the `Last-Modified` the Census Bureau serves it with.
  */
@@ -65,7 +76,7 @@ class BuildDistrictData extends Command
 
         // Columns are found by name rather than position. The Census Bureau writes
         // a UTF-8 byte-order mark before the first one, which is left alone
-        // because neither column read here is first.
+        // because none of the columns read here is first.
         $header = explode('|', rtrim((string) $file->fgets(), "\n"));
 
         $districtColumn = null;
@@ -79,9 +90,16 @@ class BuildDistrictData extends Command
         }
 
         $zctaColumn = array_search('GEOID_ZCTA5_20', $header, true);
+        $landColumn = array_search('AREALAND_PART', $header, true);
 
         if ($districtColumn === null || $congress === null || $zctaColumn === false) {
             $this->components->error("{$path} has no GEOID_CD…_20 and GEOID_ZCTA5_20 columns, so it is not a relationship file this command understands.");
+
+            return self::FAILURE;
+        }
+
+        if ($landColumn === false) {
+            $this->components->error("{$path} has no AREALAND_PART column, so nothing can show that its unassigned `ZZ` areas hold no land. Nothing was written.");
 
             return self::FAILURE;
         }
@@ -113,6 +131,14 @@ class BuildDistrictData extends Command
 
             if (preg_match('/^\d{5}$/', $zcta) !== 1 || preg_match('/^\d{2}(\d{2}|ZZ)$/', $district) !== 1) {
                 $this->components->error("Line {$lineNumber} relates ZCTA \"{$zcta}\" to district \"{$district}\", which is not the shape this file should have. Nothing was written.");
+
+                return self::FAILURE;
+            }
+
+            if (str_ends_with($district, 'ZZ') && ($fields[$landColumn] ?? '') !== '0') {
+                $land = $fields[$landColumn] ?? '';
+
+                $this->components->error("Line {$lineNumber} puts \"{$land}\" m² of ZCTA {$zcta}'s land in {$district}, an area in no district. The product claims districts on the understanding that such areas hold no land. Nothing was written.");
 
                 return self::FAILURE;
             }
