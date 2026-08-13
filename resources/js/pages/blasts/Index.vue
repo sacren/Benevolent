@@ -75,7 +75,7 @@ function progressSummary(blast: Blast): string {
  * **The segment is asked about first, and the order is the whole correctness of
  * this function.** A blast aimed at a segment carries no `postcode_prefixes` of
  * its own -- the database forbids both -- so a version that tested the column
- * first would answer "everyone subscribed" for a blast narrowed to one ward,
+ * first would answer "everyone subscribed" for a blast narrowed to one precinct,
  * which is the exact opposite of who it goes to. Server-side the same ordering
  * is what BlastAudience draws first and for the same reason.
  *

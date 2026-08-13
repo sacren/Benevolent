@@ -82,9 +82,14 @@ test('a wildcard character is a character, not a wildcard', function (): void {
     // The percent matches the one postcode that genuinely starts with a percent
     // sign, which is the positive half: an assertion that it matched *nothing*
     // would also pass against a query that is simply broken.
+    //
+    // The underscore is aimed at `902_` because a wildcard there would reach
+    // `90210`. It was `M1_` until Phase 4 Step 4, a UK prefix left behind by the
+    // move to ZIP codes, and `'90210' like 'M1_%'` is false -- so under a rule
+    // that let `_` through, this line stayed green and guarded nothing.
     expect(PostcodeNarrowing::apply(Supporter::query(), ['%'])->pluck('postcode')->all())
         ->toBe(['%oddly enough'])
-        ->and(PostcodeNarrowing::apply(Supporter::query(), ['M1_'])->count())->toBe(0);
+        ->and(PostcodeNarrowing::apply(Supporter::query(), ['902_'])->count())->toBe(0);
 });
 
 test('a rule that names nothing usable narrows to nobody, never to everybody', function (): void {

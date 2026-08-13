@@ -280,7 +280,7 @@ class SegmentController extends Controller
      * forced by the schema rather than chosen here.** `blasts.segment_id`
      * restricts on delete, because the two alternatives are both wrong in ways
      * nothing would report: nulling the pointer would silently widen a blast
-     * aimed at one ward to every supporter the campaign may contact, and
+     * aimed at one precinct to every supporter the campaign may contact, and
      * cascading would destroy the record of a message already in other people's
      * inboxes. So the database refuses, and this turns its refusal into a
      * sentence an operator can act on -- without it they would see a 500.

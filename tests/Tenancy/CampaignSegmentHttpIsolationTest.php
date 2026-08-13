@@ -116,8 +116,8 @@ test('a signed-in operator is served their own campaign segments and never anoth
 
     // And that the name cannot distinguish them either, which is a fact this
     // module has and the other two do not: `segments.name` is unique *within* a
-    // campaign, so two campaigns lobbying two different councils are both free
-    // to call a segment "Dockside streets".
+    // campaign, so two campaigns running in two different districts are both
+    // free to call a segment "Dockside streets".
     expect($harborSegment->name)->toBe($ridgeSegment->name);
 
     $this->post('http://harbor-cleanup.test/login', [

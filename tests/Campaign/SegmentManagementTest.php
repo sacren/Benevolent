@@ -141,7 +141,7 @@ test('a segment name differing only in case is a different name, in the form and
     $this->actingAs(User::factory()->create())
         ->post($this->campaignUrl('/segments'), [
             'name' => 'culver city',
-            'postcode_prefixes' => 'M21',
+            'postcode_prefixes' => '9023',
         ])
         ->assertValid();
 

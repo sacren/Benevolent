@@ -33,7 +33,7 @@ use Tests\Support\LoopbackHost;
  *     getting that order wrong says the opposite of the truth.** A blast aimed
  *     at a segment carries no `postcode_prefixes` of its own, so a summary
  *     testing the column first calls it "Everyone subscribed" -- a blast
- *     narrowed to one ward described as going to the whole list. The server
+ *     narrowed to one precinct described as going to the whole list. The server
  *     sends both fields and is satisfied either way; only the rendered
  *     sentence differs, and this is the only guard that reads it.
  *   - **A committed blast described from its segment reports a narrowing it

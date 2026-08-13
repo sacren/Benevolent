@@ -43,7 +43,7 @@ use Illuminate\Support\Carbon;
  * narrowing rule, the first of them in a worker with nobody watching. What a
  * name adds is a single place the aim is written down -- `blasts.postcode_prefixes`
  * is per blast, and nothing duplicates a blast, so a campaign aiming at one
- * ward for three months retypes the aim into every message and can correct it
+ * precinct for three months retypes the aim into every message and can correct it
  * in none of them.
  *
  * **What it may narrow on, and the asymmetry that must not be got wrong

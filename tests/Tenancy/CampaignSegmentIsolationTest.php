@@ -58,7 +58,7 @@ use Illuminate\Support\Facades\DB;
  * segment's identity is campaign-local. And here that claim has teeth the
  * others lacked: `segments.name` is unique, so a pooled table would not leak
  * quietly — it would **refuse** the second campaign the right to name a segment
- * the first had already used. Two campaigns lobbying two different councils
+ * the first had already used. Two campaigns running in two different districts
  * would compete for the word "Culver City", and the loser would be told their own
  * campaign already had one. That is a defect no assertion about a missing
  * relation could ever report, and it is the reason this file asserts the
@@ -99,7 +99,7 @@ test('each campaign keeps the segments it has named in its own database', functi
     tenancy()->end();
 
     tenancy()->initialize($ridge);
-    Segment::factory()->narrowedToPostcodes(['S6'])->create(['name' => 'Above the treeline']);
+    Segment::factory()->narrowedToPostcodes(['021'])->create(['name' => 'Above the treeline']);
 
     // The isolation stated as behaviour rather than as a fact about schemas: one
     // identical query, asked in two campaigns, answers only about the campaign
@@ -130,11 +130,11 @@ test('two campaigns may name the same segment, because the name is unique within
     // what*. Pooled centrally the answer would be "the platform", so the second
     // campaign to aim at a place both are working in would be refused the right
     // to name it -- told, in effect, that a campaign it has never heard of has
-    // already used the word. Two campaigns lobbying two different councils both
-    // have a Culver City, and each owns its own, with its own postcodes and its own
-    // author.
+    // already used the word. Two campaigns running in two different districts
+    // can both have a Culver City, and each owns its own, with its own ZIP codes
+    // and its own author.
     tenancy()->initialize($harbor);
-    Segment::factory()->narrowedToPostcodes(['M21'])->create(['name' => 'Culver City']);
+    Segment::factory()->narrowedToPostcodes(['9023'])->create(['name' => 'Culver City']);
 
     tenancy()->end();
     tenancy()->initialize($ridge);
@@ -142,7 +142,7 @@ test('two campaigns may name the same segment, because the name is unique within
     // Refused under a pooled table; correct here. Written as the first
     // assertion because it is the one the defect reports as an error rather
     // than as a wrong answer.
-    $ridgeSegment = Segment::factory()->narrowedToPostcodes(['ch3', 'CH4'])->create(['name' => 'Culver City']);
+    $ridgeSegment = Segment::factory()->narrowedToPostcodes(['913', '914'])->create(['name' => 'Culver City']);
 
     expect($ridgeSegment->exists)->toBeTrue()
         ->and(Segment::query()->count())->toBe(1);
@@ -154,7 +154,7 @@ test('two campaigns may name the same segment, because the name is unique within
     $refusal = null;
 
     try {
-        Segment::factory()->narrowedToPostcodes(['CH1'])->create(['name' => 'Culver City']);
+        Segment::factory()->narrowedToPostcodes(['911'])->create(['name' => 'Culver City']);
     } catch (QueryException $caught) {
         $refusal = $caught;
     }
@@ -175,6 +175,6 @@ test('two campaigns may name the same segment, because the name is unique within
     // about a *missing* table would stay green while it did. Stated as one
     // assertion so a later edit cannot drop half of it.
     expect($harborSegment->name)->toBe($ridgeSegment->name)
-        ->and($harborSegment->postcode_prefixes)->toBe(['M21'])
-        ->and($ridgeSegment->postcode_prefixes)->toBe(['ch3', 'CH4']);
+        ->and($harborSegment->postcode_prefixes)->toBe(['9023'])
+        ->and($ridgeSegment->postcode_prefixes)->toBe(['913', '914']);
 });

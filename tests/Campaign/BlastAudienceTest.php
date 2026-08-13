@@ -138,7 +138,10 @@ test('a wildcard character is a character, not a wildcard', function (): void {
     supporterWithPostcode('%oddly enough');
 
     $percent = Blast::factory()->narrowedToPostcodes(['%'])->create();
-    $underscore = Blast::factory()->narrowedToPostcodes(['M1_'])->create();
+    // Aimed at `902_` because a wildcard there would reach `90210` above. The
+    // UK-shaped `M1_` this used to carry could reach no ZIP code at all, so the
+    // underscore half of this test could not fail.
+    $underscore = Blast::factory()->narrowedToPostcodes(['902_'])->create();
 
     // The percent matches the one postcode that genuinely starts with a percent
     // sign, which is the positive half: an assertion that it matched *nothing*
