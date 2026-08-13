@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Districts\DistrictClaim;
+use App\Districts\ZctaDistricts;
 use App\Http\Requests\Supporters\StoreSupporterRequest;
 use App\Http\Requests\Supporters\UpdateSupporterRequest;
 use App\Models\Segment;
@@ -13,6 +15,8 @@ use App\Supporters\SupporterExport;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Number;
 use Inertia\Inertia;
 use Inertia\Response;
 use RuntimeException;
@@ -130,6 +134,25 @@ class SupporterController extends Controller
      * page's own** — it is SegmentController::index()'s, the first thing that
      * creates segments other than an operator naming one by hand, recorded
      * there and governing this page too.
+     *
+     * **Each row on the page carries what the product may say about its
+     * supporter's district, worked out here on every request and stored
+     * nowhere (D-35).** The district data ships with the code (D-34), so it
+     * changes only when a release does. A district column on `supporters` would
+     * be a cache that goes wrong at exactly that deploy, which no test run can
+     * see, and it would need a job to fill it -- and with no queue worker
+     * running anywhere, every supporter's district would stay empty while the
+     * page looked finished. Working it out costs one read of the relation per
+     * request: on a full page of fifty, measured over three runs of 25, the
+     * request went from a median of 27.6–28.0 ms to 44.0–44.3 ms, of which the
+     * read is about 14 ms. Only the rows on the page are answered, so the cost
+     * does not grow with the list.
+     *
+     * **The Congress and the publication date travel with the answers, and
+     * are formatted here** rather than on the page, so the page cannot shift a
+     * date across a timezone or show an answer without the map it was read
+     * against: every district named on that page is named as that Congress drew
+     * it (D-43).
      */
     public function index(Request $request): Response
     {
@@ -146,10 +169,22 @@ class SupporterController extends Controller
             $supporters = PostcodeNarrowing::apply($supporters, $segment->postcode_prefixes);
         }
 
+        $page = $supporters->paginate(self::PER_PAGE)->withQueryString();
+        $relation = ZctaDistricts::shipped();
+
         return Inertia::render('supporters/Index', [
-            'supporters' => $supporters->paginate(self::PER_PAGE)->withQueryString(),
+            'supporters' => $page,
             'segments' => Segment::query()->orderBy('name')->get(),
             'narrowedTo' => $segment?->getKey(),
+            'districts' => [
+                'congress' => Number::ordinal($relation->congress()),
+                'publishedOn' => Carbon::parse($relation->publishedOn())->isoFormat('MMMM D, YYYY'),
+                'bySupporter' => $page->getCollection()->mapWithKeys(
+                    fn (Supporter $supporter): array => [
+                        $supporter->getKey() => DistrictClaim::for($supporter->postcode, $relation),
+                    ],
+                ),
+            ],
         ]);
     }
 

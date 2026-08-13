@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Districts;
 
+use JsonSerializable;
+
 /**
  * What the product may say about the congressional district of whoever holds a
  * stored ZIP code.
@@ -48,7 +50,7 @@ namespace App\Districts;
  * names a seat as the relation's Congress drew it, and the relation says which
  * Congress that was (D-43).
  */
-final class DistrictClaim
+final class DistrictClaim implements JsonSerializable
 {
     /**
      * @param  string|null  $zip  The five-digit ZIP read from the stored value,
@@ -118,5 +120,28 @@ final class DistrictClaim
     public function mayHaveLostLeadingZero(): bool
     {
         return $this->fourDigits;
+    }
+
+    /**
+     * The claim as a page receives it.
+     *
+     * **`claimed` is sent as its own field, decided here, rather than left for
+     * the page to work out from `touching`.** A page that took the first of a
+     * split ZIP's districts would tell a campaign the supporter is in it, which
+     * is the one failure this class exists to prevent -- so the page is given
+     * nothing to decide. It shows `claimed` when there is one, and otherwise
+     * says why there is not.
+     *
+     * @return array{answer: string, zip: string|null, touching: list<string>, claimed: string|null, mayHaveLostLeadingZero: bool}
+     */
+    public function jsonSerialize(): array
+    {
+        return [
+            'answer' => $this->answer->value,
+            'zip' => $this->zip,
+            'touching' => array_map(fn (Seat $seat): string => $seat->label(), $this->touching),
+            'claimed' => $this->claimed()?->label(),
+            'mayHaveLostLeadingZero' => $this->fourDigits,
+        ];
     }
 }

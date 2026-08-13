@@ -15,6 +15,10 @@ namespace App\Districts;
  * somebody can fill. Folded into one "unknown", a page teaches an operator to
  * ignore the lot -- including the one supporter in several whose record they
  * could fix in a minute.
+ *
+ * Backed by the strings the supporter list receives, through
+ * DistrictClaim::jsonSerialize(), and mirrored by `DistrictAnswer` in
+ * resources/js/types/districts.ts.
  */
 enum DistrictAnswer: string
 {

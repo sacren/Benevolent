@@ -9,13 +9,56 @@ import { Label } from '@/components/ui/label';
 import { usePermissions } from '@/composables/usePermissions';
 import { create, edit, exportMethod, index } from '@/routes/supporters';
 import { create as importList } from '@/routes/supporters/imports';
-import type { Paginated, Segment, Supporter } from '@/types';
+import type {
+    DistrictClaim,
+    Paginated,
+    Segment,
+    Supporter,
+    SupporterDistricts,
+} from '@/types';
 
-const { segments, narrowedTo } = defineProps<{
+const { segments, narrowedTo, districts } = defineProps<{
     supporters: Paginated<Supporter>;
     segments: Segment[];
     narrowedTo: number | null;
+    districts: SupporterDistricts;
 }>();
+
+/**
+ * What the server decided about this supporter's district.
+ */
+function claimFor(supporter: Supporter): DistrictClaim | undefined {
+    return districts.bySupporter[supporter.id];
+}
+
+/**
+ * Why no district is named, for each of the four reasons there can be.
+ *
+ * Four sentences rather than one "unknown", because each asks something
+ * different of whoever reads it: a split ZIP code is nobody's mistake, a ZIP
+ * code with no district data is a real ZIP code the Census gives no area, and
+ * the last two are records somebody can correct. A page saying "unknown" for all
+ * four teaches an operator to stop reading the column.
+ *
+ * A split ZIP code's districts are listed as what the supporter might be in and
+ * never shown as the answer: that is `claimed`, and only the server sets it.
+ */
+function whyNoDistrict(claim: DistrictClaim): string {
+    switch (claim.answer) {
+        case 'split':
+            return `Not named: this ZIP code crosses ${claim.touching.join(', ')}`;
+        case 'unmapped':
+            return 'Not named: no district data for this ZIP code';
+        case 'malformed':
+            return claim.mayHaveLostLeadingZero
+                ? 'Not named: not a 5-digit ZIP code — a spreadsheet may have dropped its leading zero'
+                : 'Not named: not a 5-digit ZIP code';
+        case 'missing':
+            return 'No ZIP code recorded';
+        default:
+            return 'Not named';
+    }
+}
 
 const { can } = usePermissions();
 
@@ -208,6 +251,20 @@ defineOptions({
                         <th scope="col" class="px-4 py-3 font-medium">
                             ZIP code
                         </th>
+                        <!--
+                            The Congress is in the header rather than beside
+                            every row because it is the same for every row, and
+                            it has to be on the screen wherever an answer is:
+                            a district named without its Congress is a claim
+                            about boundaries that may no longer be on the ballot
+                            (D-43).
+                        -->
+                        <th scope="col" class="px-4 py-3 font-medium">
+                            District
+                            <span class="normal-case"
+                                >({{ districts.congress }} Congress)</span
+                            >
+                        </th>
                         <th scope="col" class="px-4 py-3 font-medium">
                             Status
                         </th>
@@ -246,6 +303,32 @@ defineOptions({
                             }}</span>
                             <span v-else class="text-muted-foreground"
                                 >&mdash;</span
+                            >
+                        </td>
+                        <!--
+                            The district shown is `claimed` and nothing else,
+                            and the data-test marks it so that a browser can say
+                            it is absent from a row whose ZIP code crosses a
+                            boundary. Reading a district out of `touching`
+                            instead would put a split ZIP code's first district
+                            on the screen as the supporter's own, and every
+                            server-side assertion would still pass.
+                        -->
+                        <td class="px-4 py-3">
+                            <span
+                                v-if="claimFor(supporter)?.claimed"
+                                :data-test="`district-claimed-${supporter.id}`"
+                                >{{ claimFor(supporter)?.claimed }}</span
+                            >
+                            <span
+                                v-else-if="claimFor(supporter)"
+                                class="text-muted-foreground"
+                                :data-test="`district-not-named-${supporter.id}`"
+                                >{{
+                                    whyNoDistrict(
+                                        claimFor(supporter) as DistrictClaim,
+                                    )
+                                }}</span
                             >
                         </td>
                         <td class="px-4 py-3">
@@ -309,6 +392,27 @@ defineOptions({
                 </tbody>
             </table>
         </div>
+
+        <!--
+            Which map every answer above was read against, said once beneath
+            the table. The product's district data is the Census Bureau's, for
+            the Congress it names, and states that redrew their maps after it was
+            published are not in it — which is exactly why the Congress is named
+            rather than implied (D-43). No list of redrawn states is kept: one
+            typed from news reports would be wrong in both directions as courts
+            ruled, and this sentence is true whatever they decide.
+        -->
+        <p
+            v-if="supporters.total > 0"
+            class="text-sm text-muted-foreground"
+            data-test="district-map"
+        >
+            Districts are those of the {{ districts.congress }} Congress, from
+            the Census Bureau’s ZIP code data published
+            {{ districts.publishedOn }}. States that have redrawn their maps
+            since then are not reflected. A district is named only for a ZIP
+            code that lies wholly inside one.
+        </p>
 
         <!--
             Inertia <Link>s, unlike the Export control above, and the contrast is

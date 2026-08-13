@@ -46,8 +46,12 @@ use RuntimeException;
  * ballot (D-43). That is why congress() and publishedOn() exist: a surface using
  * this data has to be able to say which boundaries it used.
  *
- * Reading the shipped file was measured at about 15 ms and 11 MB, paid by each
- * process that reads it. Nothing is memoised, because nothing reads it yet.
+ * Reading the shipped file was measured at about 14 ms and 11 MB, paid on every
+ * call to shipped(), because nothing is memoised. The supporter list calls it
+ * once per request, and the read is most of the 16 ms its district column
+ * added. Memoising would save nothing there -- a request starts with nothing
+ * held under php-fpm either way -- and would keep 11 MB resident in any
+ * long-lived process, for a file that changes only with a deploy.
  *
  * @implements IteratorAggregate<string, list<string>>
  */

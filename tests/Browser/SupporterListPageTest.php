@@ -10,8 +10,13 @@ use Tests\Support\LoopbackHost;
 /*
  * The supporter list, opened in a real browser by a signed-in Owner.
  *
- * This file exists for one contrast the server cannot see. The page carries two
- * controls that must be *different kinds of link, for opposite reasons*:
+ * This file exists for two things the server cannot see. The second, added at
+ * Phase 4 Step 4, is the district column: the server sends a split ZIP code's
+ * districts and claims none of them, and only the rendered page can show
+ * whether it then presents one as the supporter's own -- see the second test.
+ *
+ * The first is a contrast. The page carries two controls that must be
+ * *different kinds of link, for opposite reasons*:
  *
  *   - "Export the list" must be a plain <a>. An Inertia <Link> there issues an
  *     XHR expecting a JSON page object and is handed a CSV.
@@ -153,5 +158,46 @@ test('an owner sees the list, and its two controls behave as different kinds of 
         ->assertQueryStringHas('page', '2')
         ->assertSee($first->email)
         ->assertScript('window.__pageWasNotReloaded === true')
+        ->assertNoJavaScriptErrors();
+});
+
+test('a ZIP code inside one district shows that district, and one crossing a boundary shows none as the supporter\'s', function (): void {
+    // **The claim is made in the rendering, which is why this is a browser
+    // test.** The server sends a split ZIP code's districts in `touching` and
+    // leaves `claimed` null, and tests/Campaign/SupporterListDistrictTest.php
+    // holds it to that. A page that showed `touching[0]` in the district column
+    // would tell a campaign that somebody in 90210 is CA-30's constituent --
+    // exit criterion 3's forbidden failure -- while every server-side assertion
+    // stayed green, because the props would be exactly right.
+    $placed = Supporter::factory()->create(['postcode' => '90232']);
+    $split = Supporter::factory()->create(['postcode' => '90210']);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    visit('/supporters')
+        ->assertSee('2 people on this campaign’s list')
+
+        // The placed row is the positive half, and it is what makes the absence
+        // below evidence: it proves the selector shape matches something at all.
+        ->assertSeeIn("[data-test=\"district-claimed-{$placed->getKey()}\"]", 'CA-37')
+
+        // No district is shown as the split row's own. First, because it is the
+        // assertion that names the defect: with the page broken to show
+        // `touching[0]`, the "not named" text below disappears too, and while
+        // that assertion came first the break was reported there and this line
+        // was never reached.
+        ->assertMissing("[data-test=\"district-claimed-{$split->getKey()}\"]")
+        // And the row rendered, as "not named", which is what makes the absence
+        // above evidence about this row rather than about a row that was never
+        // drawn.
+        ->assertSeeIn(
+            "[data-test=\"district-not-named-{$split->getKey()}\"]",
+            'Not named: this ZIP code crosses CA-30, CA-32, CA-36',
+        )
+
+        // And the map every answer on the page was read against (D-43).
+        ->assertSeeIn('table > thead', '119th Congress')
+        ->assertSeeIn('[data-test="district-map"]', 'Districts are those of the 119th Congress')
+        ->assertSeeIn('[data-test="district-map"]', 'published October 24, 2024')
         ->assertNoJavaScriptErrors();
 });
