@@ -119,7 +119,7 @@ function audienceSummary(blast: Blast): string {
     }
 
     if (blast.postcode_prefixes.length === 0) {
-        return 'Nobody: no postcodes named';
+        return 'Nobody: no ZIP codes named';
     }
 
     return `Subscribed in ${blast.postcode_prefixes.join(', ')}`;
@@ -155,7 +155,7 @@ function committedAudienceSummary(blast: Blast): string {
         return `Subscribed in segment ${blast.segment_id}`;
     }
 
-    const where = frozen.length === 0 ? 'no postcodes' : frozen.join(', ');
+    const where = frozen.length === 0 ? 'no ZIP codes' : frozen.join(', ');
 
     if (!blast.segment) {
         return `Subscribed in ${where}`;

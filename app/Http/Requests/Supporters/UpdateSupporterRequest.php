@@ -56,4 +56,20 @@ class UpdateSupporterRequest extends FormRequest
             'subscription_status' => ['required', Rule::enum(SubscriptionStatus::class)],
         ];
     }
+
+    /**
+     * The field's name as the form labels it, for the framework's own messages.
+     *
+     * The same line StoreSupporterRequest carries and for the same reason: the
+     * identifier stays `postcode` (D-41), and a message quoting it would say
+     * "postcode" beneath a field labelled "ZIP code".
+     *
+     * @return array<string, string>
+     */
+    public function attributes(): array
+    {
+        return [
+            'postcode' => 'ZIP code',
+        ];
+    }
 }

@@ -70,7 +70,7 @@ class StartSupporterImportRequest extends FormRequest
             'name' => 'name column',
             'given_name' => 'given name column',
             'family_name' => 'family name column',
-            'postcode' => 'postcode column',
+            'postcode' => 'ZIP code column',
         ];
     }
 }

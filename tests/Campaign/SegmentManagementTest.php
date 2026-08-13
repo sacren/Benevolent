@@ -101,7 +101,7 @@ test('a segment must name at least one postcode, and separators are not postcode
             'name' => 'Aimed at nobody',
             'postcode_prefixes' => ',,,',
         ])
-        ->assertInvalid(['postcode_prefixes']);
+        ->assertInvalid(['postcode_prefixes' => 'Name at least one ZIP code for this segment to narrow to.']);
 
     // `required` catches an empty field and cannot catch this one: `,,,` is a
     // perfectly good non-empty string that parses to no prefixes at all. The

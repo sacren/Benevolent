@@ -359,7 +359,7 @@ test('a form cannot aim a blast two ways at once', function (): void {
             'segment_id' => (string) $segment->getKey(),
             'postcode_prefixes' => '902',
         ])
-        ->assertSessionHasErrors('segment_id');
+        ->assertInvalid(['segment_id' => 'A blast is aimed one way. Choose a segment or type ZIP codes, not both.']);
 
     expect(Blast::query()->count())->toBe(0);
 });

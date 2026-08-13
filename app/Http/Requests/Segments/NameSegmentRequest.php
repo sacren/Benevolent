@@ -86,6 +86,24 @@ class NameSegmentRequest extends FormRequest
     }
 
     /**
+     * The fields' names as the form labels them, for the framework's own
+     * messages.
+     *
+     * The identifier stays `postcode_prefixes` (D-41) while the label says ZIP
+     * codes, and `required` is the rule an operator meets first: submitting the
+     * form empty used to answer "The postcode prefixes field is required." under
+     * a field labelled "ZIP codes".
+     *
+     * @return array<string, string>
+     */
+    public function attributes(): array
+    {
+        return [
+            'postcode_prefixes' => 'ZIP codes',
+        ];
+    }
+
+    /**
      * Refuse a line that parses to no postcodes at all.
      *
      * `required` catches an empty field; it does not catch a field holding only
@@ -113,7 +131,7 @@ class NameSegmentRequest extends FormRequest
                 if ($this->prefixes() === []) {
                     $validator->errors()->add(
                         'postcode_prefixes',
-                        __('Name at least one postcode for this segment to narrow to.'),
+                        __('Name at least one ZIP code for this segment to narrow to.'),
                     );
                 }
             },

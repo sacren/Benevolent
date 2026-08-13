@@ -206,7 +206,7 @@ defineOptions({
                         <th scope="col" class="px-4 py-3 font-medium">Name</th>
                         <th scope="col" class="px-4 py-3 font-medium">Email</th>
                         <th scope="col" class="px-4 py-3 font-medium">
-                            Postcode
+                            ZIP code
                         </th>
                         <th scope="col" class="px-4 py-3 font-medium">
                             Status

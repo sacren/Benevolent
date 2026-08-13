@@ -36,7 +36,7 @@ defineProps<{
  */
 function ruleSummary(segment: Segment): string {
     if (segment.postcode_prefixes.length === 0) {
-        return 'Nobody: no postcodes named';
+        return 'Nobody: no ZIP codes named';
     }
 
     return segment.postcode_prefixes.join(', ');
@@ -78,9 +78,9 @@ defineOptions({
             class="rounded-xl border border-sidebar-border/70 p-8 text-center dark:border-sidebar-border"
         >
             <p class="text-sm text-muted-foreground">
-                No segments yet. A segment is a group of postcodes this campaign
+                No segments yet. A segment is a group of ZIP codes this campaign
                 has named, so the supporter list can be narrowed to it without
-                typing the postcodes again.
+                typing the ZIP codes again.
             </p>
         </div>
 
@@ -97,7 +97,7 @@ defineOptions({
                     >
                         <th scope="col" class="px-4 py-3 font-medium">Name</th>
                         <th scope="col" class="px-4 py-3 font-medium">
-                            Postcodes
+                            ZIP codes
                         </th>
                         <th scope="col" class="px-4 py-3">
                             <span class="sr-only">Actions</span>

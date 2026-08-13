@@ -24,7 +24,7 @@ defineOptions({
     <div class="flex h-full flex-1 flex-col gap-6 p-4">
         <Heading
             title="Name a segment"
-            description="A group of postcodes, saved under a name, so the supporter list can be narrowed to it without typing them again."
+            description="A group of ZIP codes, saved under a name, so the supporter list can be narrowed to it without typing them again."
         />
 
         <Form

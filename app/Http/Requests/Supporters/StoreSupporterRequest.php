@@ -55,4 +55,23 @@ class StoreSupporterRequest extends FormRequest
             'postcode' => ['nullable', 'string', 'max:255'],
         ];
     }
+
+    /**
+     * The field's name as the form labels it, for the framework's own messages.
+     *
+     * The identifier stays `postcode` (D-41) while the label says ZIP code, and
+     * without this the two appear side by side: a value over the length limit
+     * comes back as "The postcode field must not be greater than 255
+     * characters." beneath a field labelled "ZIP code". A label is what fixes a
+     * label, so the rename D-41 kept in reserve for exactly this message would
+     * buy nothing more than this line does.
+     *
+     * @return array<string, string>
+     */
+    public function attributes(): array
+    {
+        return [
+            'postcode' => 'ZIP code',
+        ];
+    }
 }

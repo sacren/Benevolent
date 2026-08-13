@@ -80,6 +80,24 @@ class ComposeBlastRequest extends FormRequest
     }
 
     /**
+     * The fields' names as the form labels them, for the framework's own
+     * messages.
+     *
+     * The identifier stays `postcode_prefixes` (D-41) while the label says ZIP
+     * codes, so without this a line over the length limit would be refused as
+     * "The postcode prefixes field ..." under a field labelled "ZIP codes
+     * (optional)".
+     *
+     * @return array<string, string>
+     */
+    public function attributes(): array
+    {
+        return [
+            'postcode_prefixes' => 'ZIP codes',
+        ];
+    }
+
+    /**
      * Refuse a form that names a segment and types postcodes as well.
      *
      * **The database already forbids this row, so what this adds is a sentence
@@ -99,7 +117,7 @@ class ComposeBlastRequest extends FormRequest
     private function aimedOneWayOnly(string $attribute, mixed $value, Closure $fail): void
     {
         if ($this->prefixes() !== null) {
-            $fail(__('A blast is aimed one way. Choose a segment or type postcodes, not both.'));
+            $fail(__('A blast is aimed one way. Choose a segment or type ZIP codes, not both.'));
         }
     }
 

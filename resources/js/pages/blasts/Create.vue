@@ -113,7 +113,7 @@ defineOptions({
                     one of these. Leave it empty to write to everyone. Spacing
                     does not matter.
                     <template v-if="segments.length > 0">
-                        Choose a segment or type postcodes, not both.
+                        Choose a segment or type ZIP codes, not both.
                     </template>
                 </p>
                 <InputError :message="errors.postcode_prefixes" />

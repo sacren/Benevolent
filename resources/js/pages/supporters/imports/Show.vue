@@ -231,7 +231,7 @@ const { stop } = usePoll(
 
                 <div class="grid gap-2">
                     <Label for="postcode">
-                        Which column holds the postcode?
+                        Which column holds the ZIP code?
                         <span class="text-muted-foreground">(optional)</span>
                     </Label>
                     <Select name="postcode">
