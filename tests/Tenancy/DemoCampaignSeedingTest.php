@@ -2,9 +2,12 @@
 
 declare(strict_types=1);
 
+use App\Districts\DistrictClaim;
+use App\Districts\ZctaDistricts;
 use App\Models\Supporter;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Tenancy\CampaignSeat;
 use Illuminate\Support\Facades\Artisan;
 use Symfony\Component\Console\Command\Command;
 
@@ -55,7 +58,7 @@ test('seeding the demo campaign twice leaves it exactly as once did', function (
     // looking at. Without it, "twice equals once" is satisfied perfectly by a
     // seeder that does nothing at all, both times.
     expect($afterFirstRun['operators'])->toBe(1)
-        ->and($afterFirstRun['supporters'])->toHaveCount(4);
+        ->and($afterFirstRun['supporters'])->toHaveCount(6);
 
     expect(Artisan::call('db:seed', ['--class' => 'TenantSeeder']))->toBe(Command::SUCCESS);
 
@@ -91,6 +94,10 @@ test('re-seeding brings a campaign that already exists up to date', function ():
             ->update(['postcode' => '02139', 'name' => 'Stale Name']);
     });
 
+    // And a campaign seeded before seats existed, which has none.
+    $campaign->setAttribute(CampaignSeat::KEY, null);
+    $campaign->save();
+
     expect(Artisan::call('db:seed', ['--class' => 'TenantSeeder']))->toBe(Command::SUCCESS);
 
     $repaired = $campaign->run(fn (): ?Supporter => Supporter::query()
@@ -102,7 +109,10 @@ test('re-seeding brings a campaign that already exists up to date', function ():
     expect($repaired?->postcode)->toBe('90210')
         ->and($repaired?->name)->toBe('Ama Boateng')
         // And the first guarantee still holds: repairing is not duplicating.
-        ->and($campaign->run(fn (): int => Supporter::query()->count()))->toBe(4);
+        ->and($campaign->run(fn (): int => Supporter::query()->count()))->toBe(6)
+        // The seat comes back too, read from the registry rather than from the
+        // object this test wrote null onto.
+        ->and(Tenant::query()->where('slug', 'demo-campaign')->sole()->run(fn (): ?string => CampaignSeat::stored()))->toBe('MA-07');
 });
 
 test('the seeded list carries the shapes a real list actually contains', function (): void {
@@ -121,7 +131,38 @@ test('the seeded list carries the shapes a real list actually contains', functio
     ]);
 
     expect($shapes['nameless'])->toBe(1)
-        ->and($shapes['singleString'])->toBe(1)
-        ->and($shapes['split'])->toBe(2)
+        ->and($shapes['singleString'])->toBe(2)
+        ->and($shapes['split'])->toBe(3)
         ->and($shapes['unsubscribed'])->toBe(1);
+});
+
+test('the seeded campaign has a seat, and its list gives every answer the district column has', function (): void {
+    // **Phase 4 Step 4's kickoff found this missing before anything was built:**
+    // all four demo supporters carried ZIP codes the product could not place,
+    // so a look at the page could only ever show it saying what it does not
+    // know -- the same shape as two earlier phase exits, where the success side
+    // was never shown. This pins that the demo shows both sides.
+    Artisan::call('migrate:fresh');
+    Artisan::call('db:seed', ['--class' => 'TenantSeeder']);
+
+    $relation = ZctaDistricts::shipped();
+
+    $seen = Tenant::query()->where('slug', 'demo-campaign')->sole()->run(function () use ($relation): array {
+        $seat = CampaignSeat::current($relation);
+
+        $claims = Supporter::query()->pluck('postcode')
+            ->map(fn (?string $postcode): DistrictClaim => DistrictClaim::for($postcode, $relation, $seat));
+
+        return [
+            'seat' => $seat?->label(),
+            'answers' => $claims->map(fn (DistrictClaim $claim): string => $claim->answer->value)->unique()->sort()->values()->all(),
+            'standings' => $claims->map(fn (DistrictClaim $claim): ?string => $claim->standing()?->value)->filter()->unique()->sort()->values()->all(),
+        ];
+    });
+
+    expect($seen)->toBe([
+        'seat' => 'MA-07',
+        'answers' => ['malformed', 'missing', 'placed', 'split', 'unmapped'],
+        'standings' => ['in', 'maybe', 'not'],
+    ]);
 });

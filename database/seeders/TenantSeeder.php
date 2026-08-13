@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace Database\Seeders;
 
 use App\Authorization\OperatorRole;
+use App\Districts\Seat;
+use App\Districts\ZctaDistricts;
 use App\Models\Supporter;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Supporters\SubscriptionStatus;
 use App\Tenancy\CampaignContact;
+use App\Tenancy\CampaignSeat;
 use Illuminate\Database\Seeder;
+use RuntimeException;
 
 /**
  * Provisions a demo campaign — the tenant, its own migrated database, its
@@ -48,6 +52,17 @@ class TenantSeeder extends Seeder
      * with no address is reachable by creating a second campaign without one.
      */
     private const CONTACT_ADDRESS = 'replies@demo-campaign.test';
+
+    /**
+     * The seat the demo campaign is running for (D-40).
+     *
+     * Massachusetts' 7th, because the demo's own ZIP codes then land on every
+     * side of it -- `02141` wholly inside it, `02139` straddling its boundary with
+     * the 5th, `90210` nowhere near it -- and because Massachusetts is not one of
+     * the states that redrew their maps after the 119th Congress, so the demo
+     * does not open on the case D-43 exists to warn about.
+     */
+    private const SEAT = 'MA-07';
 
     private const OPERATOR_EMAIL = 'operator@demo-campaign.test';
 
@@ -106,6 +121,16 @@ class TenantSeeder extends Seeder
         // re-run at all.
         CampaignContact::store($campaign, self::CONTACT_ADDRESS);
 
+        // Set every run for the same reason, so a demo campaign seeded before
+        // seats existed acquires one. A seat the shipped data does not name is a
+        // mistake in this file, and it stops here rather than seeding a demo
+        // whose district column quietly compares nobody with anything.
+        CampaignSeat::store(
+            $campaign,
+            Seat::parse(self::SEAT, ZctaDistricts::shipped())
+                ?? throw new RuntimeException('TenantSeeder::SEAT names no seat in the shipped district data.'),
+        );
+
         $campaign->run(fn () => $this->seedSupporters());
 
         $this->command->info(sprintf(
@@ -121,14 +146,24 @@ class TenantSeeder extends Seeder
      *
      * Each row is one shape a real list actually contains, so the supporter
      * page is exercised against the data the schema was designed for rather
-     * than against four tidy rows that all look the same:
+     * than against a handful of tidy rows that all look the same:
      *
-     * - a source that split the name, which most advocacy exports do;
+     * - a source that split the name, which most campaign exports do;
      * - a source that gave one string, so both parts stay null rather than
      *   being guessed at -- a mononym, where there is no boundary to find;
      * - an address with no name at all, which a petition widget produces;
      * - someone who has asked not to be contacted, which is kept rather than
-     *   deleted so a later import cannot put them back.
+     *   deleted so a later import cannot put them back;
+     * - a ZIP code lying wholly inside the demo's seat, so the district column
+     *   has a supporter it can actually name -- none of the four above can be;
+     * - a ZIP code a spreadsheet has already been at: `02139` with its leading
+     *   zero gone, which is how real lists most often arrive broken (D-42).
+     *
+     * **Between them the ZIP codes give every answer the district column has**
+     * (Phase 4 Step 4): in the seat (`02141`), maybe in it (`02139`), not in it
+     * (`90210`), no district data (`73301`), not a ZIP code (`2139`), and no ZIP
+     * code at all. Until then every demo supporter was one the product could not
+     * place, so the page could only ever be seen saying what it does not know.
      *
      * **Each row is matched on the address and brought up to date, because
      * email is the identity (D-8).** The match goes through the model's own
@@ -192,6 +227,22 @@ class TenantSeeder extends Seeder
                 'email' => 'Ines.Duarte@Example.test',
                 'postcode' => '73301',
                 'subscription_status' => SubscriptionStatus::Unsubscribed,
+            ],
+            [
+                'name' => 'Dara Okafor',
+                'given_name' => 'Dara',
+                'family_name' => 'Okafor',
+                'email' => 'dara.okafor@example.test',
+                'postcode' => '02141',
+                'subscription_status' => SubscriptionStatus::Subscribed,
+            ],
+            [
+                'name' => 'Wren',
+                'given_name' => null,
+                'family_name' => null,
+                'email' => 'wren@example.test',
+                'postcode' => '2139',
+                'subscription_status' => SubscriptionStatus::Subscribed,
             ],
         ];
 
