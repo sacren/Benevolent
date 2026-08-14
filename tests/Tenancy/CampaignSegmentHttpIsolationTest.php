@@ -280,3 +280,146 @@ test('a narrowed export carries the host campaign\'s own people and nobody else\
     expect($ridgeFile)->toContain('edinburgh@ridge-restoration.test')
         ->and($ridgeFile)->not->toContain('harbor-cleanup.test');
 });
+
+/**
+ * Put one Owner, one district segment and two supporters into a campaign.
+ *
+ * Both campaigns get a supporter wholly inside MA-07 (`02141`) and one wholly
+ * inside CA-37 (`90232`), and a segment under the same name narrowing to the
+ * district given. A narrowing run against the wrong campaign's district returns
+ * the wrong person rather than nobody, so a leak is visible as a row.
+ *
+ * @return array{0: User, 1: Segment}
+ */
+function stockDistrictSegments(Tenant $campaign, string $operatorEmail, string $seat): array
+{
+    tenancy()->initialize($campaign);
+
+    $operator = User::factory()->owner()->create(['email' => $operatorEmail]);
+
+    Supporter::factory()->create([
+        'email' => 'cambridge@'.$campaign->slug.'.test',
+        'postcode' => '02141',
+    ]);
+    Supporter::factory()->create([
+        'email' => 'culver-city@'.$campaign->slug.'.test',
+        'postcode' => '90232',
+    ]);
+
+    $segment = Segment::factory()->inDistrict($seat)->create(['name' => 'Our district']);
+
+    tenancy()->end();
+
+    return [$operator, $segment];
+}
+
+test('a list narrowed by a district segment is narrowed by the host campaign\'s own district, on both hosts', function (): void {
+    // D-37's segment, reached the way the prefix segment above is: as a query
+    // parameter on the supporter list, by an id both campaigns use. The district
+    // is stored per campaign and the map it is read against is shared, so a leak
+    // would come from the segment and not from the data.
+    $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
+    $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
+
+    [, $harborSegment] = stockDistrictSegments($harbor, 'operator@harbor-cleanup.test', 'MA-07');
+    [, $ridgeSegment] = stockDistrictSegments($ridge, 'operator@ridge-restoration.test', 'CA-37');
+
+    expect($harborSegment->getKey())->toBe($ridgeSegment->getKey())
+        ->and($harborSegment->name)->toBe($ridgeSegment->name);
+
+    $this->post('http://harbor-cleanup.test/login', [
+        'email' => 'operator@harbor-cleanup.test',
+        'password' => 'password',
+    ])->assertRedirect();
+
+    $this->get('http://harbor-cleanup.test/supporters?segment='.$harborSegment->getKey())
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('supporters.total', 1)
+            ->where('supporters.data.0.email', 'cambridge@harbor-cleanup.test')
+            ->where('districts.narrowing.seat', 'MA-07')
+        )
+        ->assertDontSee('culver-city@harbor-cleanup.test')
+        ->assertDontSee('ridge-restoration.test');
+
+    Auth::forgetGuards();
+
+    $this->get('http://ridge-restoration.test/supporters?segment='.$ridgeSegment->getKey())
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('auth.user.email', 'operator@ridge-restoration.test')
+            ->where('supporters.total', 1)
+            ->where('supporters.data.0.email', 'culver-city@ridge-restoration.test')
+            ->where('districts.narrowing.seat', 'CA-37')
+        )
+        ->assertDontSee('cambridge@ridge-restoration.test')
+        ->assertDontSee('harbor-cleanup.test');
+});
+
+test('an export narrowed by a district segment carries the host campaign\'s own people and nobody else\'s', function (): void {
+    $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
+    $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
+
+    [, $harborSegment] = stockDistrictSegments($harbor, 'operator@harbor-cleanup.test', 'MA-07');
+    [, $ridgeSegment] = stockDistrictSegments($ridge, 'operator@ridge-restoration.test', 'CA-37');
+
+    expect($harborSegment->getKey())->toBe($ridgeSegment->getKey());
+
+    $this->post('http://harbor-cleanup.test/login', [
+        'email' => 'operator@harbor-cleanup.test',
+        'password' => 'password',
+    ])->assertRedirect();
+
+    $harborFile = $this->get('http://harbor-cleanup.test/supporters/export?segment='.$harborSegment->getKey())
+        ->assertOk()
+        ->streamedContent();
+
+    expect($harborFile)->toContain('cambridge@harbor-cleanup.test')
+        ->and($harborFile)->not->toContain('culver-city@harbor-cleanup.test')
+        ->and($harborFile)->not->toContain('ridge-restoration.test');
+
+    Auth::forgetGuards();
+
+    $ridgeFile = $this->get('http://ridge-restoration.test/supporters/export?segment='.$ridgeSegment->getKey())
+        ->assertOk()
+        ->streamedContent();
+
+    expect($ridgeFile)->toContain('culver-city@ridge-restoration.test')
+        ->and($ridgeFile)->not->toContain('cambridge@ridge-restoration.test')
+        ->and($ridgeFile)->not->toContain('harbor-cleanup.test');
+});
+
+test('two campaigns naming the same district read it against the same map, each over its own people', function (): void {
+    // Exit criterion 4 both ways round for this module: the district data is
+    // shared reference data, so two campaigns naming MA-07 are told the same
+    // thing about it, and each is shown only its own supporters in it.
+    $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
+    $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
+
+    [, $harborSegment] = stockDistrictSegments($harbor, 'operator@harbor-cleanup.test', 'MA-07');
+    [, $ridgeSegment] = stockDistrictSegments($ridge, 'operator@ridge-restoration.test', 'MA-07');
+
+    $this->post('http://harbor-cleanup.test/login', [
+        'email' => 'operator@harbor-cleanup.test',
+        'password' => 'password',
+    ])->assertRedirect();
+
+    $sameMap = ['district' => 'MA-07', 'seat' => 'MA-07', 'wholly' => 17, 'crossing' => 26];
+
+    $this->get('http://harbor-cleanup.test/supporters?segment='.$harborSegment->getKey())
+        ->assertInertia(fn ($page) => $page
+            ->where('districts.narrowing', $sameMap)
+            ->where('supporters.data.0.email', 'cambridge@harbor-cleanup.test')
+            ->where('supporters.total', 1)
+        );
+
+    Auth::forgetGuards();
+
+    $this->get('http://ridge-restoration.test/supporters?segment='.$ridgeSegment->getKey())
+        ->assertInertia(fn ($page) => $page
+            ->where('auth.user.email', 'operator@ridge-restoration.test')
+            ->where('districts.narrowing', $sameMap)
+            ->where('supporters.data.0.email', 'cambridge@ridge-restoration.test')
+            ->where('supporters.total', 1)
+        );
+});
