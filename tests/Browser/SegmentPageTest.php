@@ -2,9 +2,12 @@
 
 declare(strict_types=1);
 
+use App\Districts\Seat;
+use App\Districts\ZctaDistricts;
 use App\Models\Segment;
 use App\Models\Supporter;
 use App\Models\User;
+use App\Tenancy\CampaignSeat;
 use Tests\Concerns\RunsInCampaignContext;
 use Tests\Support\LoopbackHost;
 
@@ -13,8 +16,8 @@ use Tests\Support\LoopbackHost;
  * real browser by a signed-in Owner.
  *
  * **Justified by the defect classes it alone can catch, not by the pages it
- * opens.** There are three here, and every one of them is invisible to a
- * server-side assertion:
+ * opens.** There are three here, and four more for district segments further
+ * down, and every one of them is invisible to a server-side assertion:
  *
  *   1. **A page whose layout depends on its own props may never mount.**
  *      defineOptions() is hoisted out of <script setup>, so a breadcrumb built
@@ -167,4 +170,116 @@ test('narrowing the list is a client-side visit, and it reaches the export contr
 
     $page->click('Export Cambridge')
         ->assertScript('window.__exportClickIntercepted === false');
+});
+
+/*
+ * District segments (D-37). Four more defect classes a server assertion cannot
+ * see, one per test so that a break in one is reported by its own test:
+ *
+ *   4. **A page that reads a segment's ZIP codes as a list crashes on a
+ *      district segment, which has none.** `postcode_prefixes` is null there,
+ *      and `.length` on null throws inside the render, so Vue shows nothing and
+ *      the route still answers 200 with every prop correct.
+ *   5. **The edit form must offer the field the segment's kind has.** Offered
+ *      the ZIP code field instead, an operator re-aiming a district segment is
+ *      shown an empty box and no district at all.
+ *   6. **The choice on the create form is decided in the browser.** Which
+ *      field is shown, and so which is submitted, follows a radio button no
+ *      request carries until it is sent.
+ *   7. **The sentence saying what a district narrowing leaves out is composed
+ *      in the page** from counts the server sends, and a page that dropped or
+ *      swapped them would tell an operator the district is whole.
+ */
+
+test('a district segment is listed with the map it is read against, and the page mounts', function (): void {
+    $district = Segment::factory()->inDistrict('MA-07')->create(['name' => 'MA-07 supporters']);
+    Segment::factory()->narrowedToPostcodes(['902'])->create(['name' => 'Westwood']);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    visit('/segments')
+        // Defect class 4. The prefix segment's row is the proof Vue mounted at
+        // all; a render that threw on the district row would show neither.
+        ->assertSee('Westwood')
+        ->assertSeeIn(
+            "[data-test=\"segment-rule-{$district->getKey()}\"]",
+            'MA-07 as the 119th Congress drew it — only ZIP codes wholly inside it',
+        )
+        ->assertNoJavaScriptErrors();
+});
+
+test('a district segment\'s edit form offers its district and not a ZIP code field', function (): void {
+    $district = Segment::factory()->inDistrict('MA-07')->create(['name' => 'MA-07 supporters']);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    visit('/segments/'.$district->getKey().'/edit')
+        // Defect class 5. The absence first, so a break that shows the wrong
+        // field is reported here rather than on the presence below it.
+        ->assertMissing('#postcode_prefixes')
+        ->assertValue('#district', 'MA-07')
+        ->assertSee('as the 119th Congress drew it')
+        ->assertNoJavaScriptErrors();
+});
+
+test('naming a segment by district shows the district field, offers the campaign\'s seat, and saves it', function (): void {
+    // The browser half of exit criterion 1 for this step: a campaign names a
+    // district segment through the page it will actually use. The seat is
+    // written to the registry row and undone in `finally`, because the harness
+    // re-reads that row for every test in this file.
+    CampaignSeat::store($this->campaign, Seat::parse('MA-07', ZctaDistricts::shipped()));
+
+    try {
+        $this->actingAs(User::factory()->owner()->create());
+
+        $page = visit('/segments/create');
+
+        // Before the choice: the ZIP code field, and no district field.
+        $page->assertPresent('#postcode_prefixes')
+            ->assertMissing('#district');
+
+        // Defect class 6. After it: the field swapped, the ZIP code field gone
+        // -- asserted first, for the reason the edit test gives -- and the
+        // district field filled in with the campaign's seat.
+        $page->click('[data-test="narrow-by-district"]')
+            ->assertMissing('#postcode_prefixes')
+            ->assertValue('#district', 'MA-07')
+            ->fill('name', 'Our district')
+            ->click('Save segment')
+            ->assertSee('Our district')
+            ->assertSee('MA-07 as the 119th Congress drew it')
+            ->assertNoJavaScriptErrors();
+
+        $saved = Segment::query()->where('name', 'Our district')->sole();
+
+        expect($saved->district)->toBe('MA-07')
+            ->and($saved->postcode_prefixes)->toBeNull();
+    } finally {
+        $this->campaign->setAttribute(CampaignSeat::KEY, null);
+        $this->campaign->save();
+    }
+});
+
+test('a list narrowed to a district segment says what it leaves out, and names the district on each row it shows', function (): void {
+    $inside = Supporter::factory()->create(['email' => 'inside@example.test', 'postcode' => '02141']);
+    $alsoInside = Supporter::factory()->create(['email' => 'also-inside@example.test', 'postcode' => '02115']);
+    Supporter::factory()->create(['email' => 'crossing@example.test', 'postcode' => '02139']);
+
+    $district = Segment::factory()->inDistrict('MA-07')->create(['name' => 'MA-07 supporters']);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    visit('/supporters?segment='.$district->getKey())
+        // Defect class 7, each count read in its own sentence so that a page
+        // swapping them is caught by the one it put in the wrong place.
+        ->assertSeeIn('[data-test="district-narrowing"]', 'Supporters in the 26 ZIP codes crossing its boundary are not shown')
+        ->assertSeeIn('[data-test="district-narrowing"]', 'which 17 ZIP codes do')
+        ->assertSeeIn('[data-test="district-narrowing"]', 'MA-07 supporters narrows to MA-07 as the 119th Congress drew it')
+        // The rows the narrowing reached are the ones the district column
+        // places in MA-07, and the supporter whose ZIP code crosses its
+        // boundary is not among them.
+        ->assertDontSee('crossing@example.test')
+        ->assertSeeIn("[data-test=\"district-claimed-{$inside->getKey()}\"]", 'MA-07')
+        ->assertSeeIn("[data-test=\"district-claimed-{$alsoInside->getKey()}\"]", 'MA-07')
+        ->assertNoJavaScriptErrors();
 });
