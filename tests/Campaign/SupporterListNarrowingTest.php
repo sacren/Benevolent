@@ -178,3 +178,73 @@ test('the narrowing survives paging, on the links the page actually carries', fu
             ->has('supporters.data', 10)
         );
 });
+
+test('a list narrowed to a district segment shows the supporters placed in it, and says what it leaves out', function (): void {
+    $inside = Supporter::factory()->create(['postcode' => '02141']);
+    $alsoInside = Supporter::factory()->create(['postcode' => '02115-1234']);
+    // Crosses MA-07's boundary with MA-05: may be in it, so never shown as in it.
+    Supporter::factory()->create(['postcode' => '02139']);
+    Supporter::factory()->create(['postcode' => '90232']);
+    // Begins with an MA-07 ZIP code and is not one: a prefix segment on `02141`
+    // would show this row, and a district segment does not (D-37).
+    Supporter::factory()->create(['postcode' => '02141abc']);
+
+    $segment = Segment::factory()->inDistrict('MA-07')->create(['name' => 'MA-07 supporters']);
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/supporters?segment='.$segment->getKey()))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('supporters/Index')
+            ->where('supporters.total', 2)
+            ->where('supporters.data.0.id', $alsoInside->getKey())
+            ->where('supporters.data.1.id', $inside->getKey())
+            // Counted from the shipped file with python: MA-07 holds 17 ZCTAs
+            // whole and 26 more cross its boundary.
+            ->where('districts.narrowing', [
+                'district' => 'MA-07',
+                'seat' => 'MA-07',
+                'wholly' => 17,
+                'crossing' => 26,
+            ])
+            // And every row the narrowing reached is one the district column
+            // places in the same seat, which is the two readers agreeing.
+            ->where('districts.bySupporter.'.$inside->getKey().'.claimed', 'MA-07')
+            ->where('districts.bySupporter.'.$alsoInside->getKey().'.claimed', 'MA-07')
+        );
+});
+
+test('a district segment naming a seat the map does not have narrows to nobody, and the page is told why', function (): void {
+    Supporter::factory()->create(['postcode' => '02141']);
+    Supporter::factory()->create(['postcode' => '90232']);
+
+    // California has 52 seats. No form writes this -- a stored seat becomes it
+    // when a later release ships a map that dropped it.
+    $segment = Segment::factory()->inDistrict('CA-53')->create();
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/supporters?segment='.$segment->getKey()))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('supporters.total', 0)
+            ->where('districts.narrowing', [
+                'district' => 'CA-53',
+                'seat' => null,
+                'wholly' => 0,
+                'crossing' => 0,
+            ])
+        );
+});
+
+test('a list narrowed by ZIP code prefixes has no district narrowing to explain', function (): void {
+    Supporter::factory()->create(['postcode' => '02141']);
+
+    $segment = Segment::factory()->narrowedToPostcodes(['021'])->create();
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/supporters?segment='.$segment->getKey()))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('supporters.total', 1)
+            ->where('districts.narrowing', null)
+        );
+});

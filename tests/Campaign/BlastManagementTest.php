@@ -471,3 +471,50 @@ test('an operator who may not read segments still gets the compose page, without
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page->count('segments', 0));
 });
+
+test('the compose form is not handed a segment that narrows by district', function (): void {
+    // A blast may not be aimed by district until D-38 decides what a committed
+    // blast holds when the relation behind a district changes, so the select
+    // offers only segments of ZIP code prefixes -- and still offers those.
+    Segment::factory()->create(['name' => 'Beverly Hills']);
+    Segment::factory()->inDistrict('MA-07')->create(['name' => 'MA-07 supporters']);
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/blasts/create'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('segments.0.name', 'Beverly Hills')
+            ->count('segments', 1)
+        );
+});
+
+test('a blast cannot be aimed at a segment that narrows by district, and is told why', function (): void {
+    // Posted around the page, which does not offer the segment. The refusal
+    // says what the reason is, where App\Blasts\BlastAudience would otherwise
+    // answer "nobody" and the send would be refused as an empty audience with
+    // no word about the aim.
+    $district = Segment::factory()->inDistrict('MA-07')->create();
+    $postcodes = Segment::factory()->create();
+    $operator = User::factory()->create();
+
+    $this->actingAs($operator)
+        ->post($this->campaignUrl('/blasts'), [
+            'subject' => 'Aimed by district',
+            'body' => 'Refused.',
+            'segment_id' => (string) $district->getKey(),
+        ])
+        ->assertInvalid(['segment_id' => 'That segment narrows by congressional district, and a blast cannot be aimed by district yet.']);
+
+    expect(Blast::query()->count())->toBe(0);
+
+    // The positive half through the same route in the same run.
+    $this->actingAs($operator)
+        ->post($this->campaignUrl('/blasts'), [
+            'subject' => 'Aimed by ZIP code',
+            'body' => 'Stored.',
+            'segment_id' => (string) $postcodes->getKey(),
+        ])
+        ->assertSessionHasNoErrors();
+
+    expect(Blast::query()->sole()->segment_id)->toBe($postcodes->getKey());
+});

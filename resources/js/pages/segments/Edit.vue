@@ -72,7 +72,9 @@ defineOptions({
                     name="postcode_prefixes"
                     required
                     autocomplete="off"
-                    :default-value="segment.postcode_prefixes.join(', ')"
+                    :default-value="
+                        (segment.postcode_prefixes ?? []).join(', ')
+                    "
                 />
                 <p class="text-sm text-muted-foreground">
                     Supporters whose ZIP code starts with one of these. Spacing

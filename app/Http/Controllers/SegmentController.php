@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Districts\ZctaDistricts;
 use App\Http\Requests\Segments\NameSegmentRequest;
 use App\Models\Blast;
 use App\Models\Segment;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Number;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -161,14 +164,56 @@ class SegmentController extends Controller
      * typed and a list of postcode prefixes, which D-24 kept free of any string
      * typed about a person. That is a property of today's columns and nothing
      * enforces it, so a column added here is a column the browser gets.
+     * `district` arrived at Phase 4 Step 5 and is a seat's public name.
+     *
+     * **A district segment is listed with the Congress whose map it is read
+     * against (D-43)**, because "MA-07" on its own is a claim about boundaries
+     * a later map may not share. The relation is read for that only when the
+     * campaign has named a district segment -- reading it costs about 14 ms and
+     * 11 MB that a list of prefix segments has no use for -- and a district the
+     * relation does not name is flagged, because that segment reaches nobody.
      */
     public function index(): Response
     {
         $this->authorize('viewAny', Segment::class);
 
+        $segments = Segment::query()->orderBy('name')->get();
+
         return Inertia::render('segments/Index', [
-            'segments' => Segment::query()->orderBy('name')->get(),
+            'segments' => $segments,
+            'districts' => self::districts($segments),
         ]);
+    }
+
+    /**
+     * The map the campaign's district segments are read against, and which of
+     * them it does not name -- or null when none of the segments names a
+     * district.
+     *
+     * `congress` is typed as Number::ordinal() returns it, false included --
+     * the value SupporterController::index() sends the list page, formatted
+     * the same way.
+     *
+     * @param  Collection<int, Segment>  $segments
+     * @return array{congress: string|false, unnamed: list<int>}|null
+     */
+    private static function districts(Collection $segments): ?array
+    {
+        $named = $segments->filter(static fn (Segment $segment): bool => $segment->district !== null);
+
+        if ($named->isEmpty()) {
+            return null;
+        }
+
+        $relation = ZctaDistricts::shipped();
+
+        return [
+            'congress' => Number::ordinal($relation->congress()),
+            'unnamed' => array_values($named
+                ->filter(static fn (Segment $segment): bool => $segment->seat($relation) === null)
+                ->map(static fn (Segment $segment): int => $segment->getKey())
+                ->all()),
+        ];
     }
 
     /**

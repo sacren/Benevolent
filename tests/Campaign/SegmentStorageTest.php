@@ -22,6 +22,7 @@ test('the campaign database carries the segments the campaign has named', functi
             'operator_id',
             'name',
             'postcode_prefixes',
+            'district',
             'created_at',
             'updated_at',
         ]))->toBeTrue();
@@ -42,18 +43,21 @@ test('the factory builds a valid segment, and it narrows to something', function
     $reloaded = Segment::query()->whereKey($segment->getKey())->sole();
 
     expect($reloaded->name)->not->toBeEmpty()
-        // Not merely non-null. `postcode_prefixes` is NOT NULL here where the
-        // same column on `blasts` is nullable, because null there means "every
-        // supporter this campaign may contact" and a segment that narrows
-        // nothing is not a segment. A factory defaulting to an empty list would
-        // satisfy the column and produce exactly the row the column shape was
-        // chosen to make meaningless.
-        ->and($reloaded->postcode_prefixes)->toBe(['902']);
+        // Not merely non-null. A segment names ZIP code prefixes or a district
+        // and the database refuses one naming neither, because null on the
+        // same column of `blasts` means "every supporter this campaign may
+        // contact" and a segment that narrows nothing is not a segment. A
+        // factory defaulting to an empty list would satisfy the constraint and
+        // produce exactly the row it was written to make meaningless.
+        ->and($reloaded->postcode_prefixes)->toBe(['902'])
+        ->and($reloaded->district)->toBeNull();
 });
 
-test('the rule a segment stores is postcodes, and only postcodes', function (): void {
-    // D-24 as data, and stated as an absence because the absence is the
-    // guarantee.
+test('the rule a segment stores says where, never whether, and never a string about a person', function (): void {
+    // D-24 as data, amended by D-37 -- a segment may name a district instead of
+    // postcodes -- and stated as an absence because the absence is the
+    // guarantee. This test was called "the rule a segment stores is postcodes,
+    // and only postcodes" until a district arrived beside them.
     //
     // Written as an operator would type them, unevenly, because the column they
     // will be matched against holds postcodes exactly as their source gave them.
@@ -85,10 +89,12 @@ test('the rule a segment stores is postcodes, and only postcodes', function (): 
         // reaches a rule that outlived it.
         ->not->toContain('name_contains')
         ->not->toContain('email_contains')
-        // Paired with the positive claim through the same call in the same run
+        // Paired with the positive claims through the same call in the same run
         // (L-19): a listing that returned nothing at all would satisfy every
-        // line above on its own.
-        ->toContain('postcode_prefixes');
+        // line above on its own. Both are places, and a district is a seat's
+        // public name.
+        ->toContain('postcode_prefixes')
+        ->toContain('district');
 });
 
 test('a segment records who named it, and keeps the record when they leave', function (): void {
@@ -154,32 +160,43 @@ test('the uniqueness is on the name exactly, and case variants are two segments'
         ->toBe(['Culver City', 'culver city']);
 });
 
-test('the database refuses a segment that narrows nothing at all', function (): void {
-    // NOT NULL is where this column parts company with the one on `blasts`.
-    // There, null is the audience rule "everybody this campaign may contact" --
-    // the one branch in BlastAudience that widens rather than narrows -- and it
-    // is right there. Here it would be a segment with no meaning, and refusing
-    // it means the widening branch cannot be reached through a segment at all.
+test('the database refuses a segment that narrows nothing at all, or two ways at once', function (string $what, array $rule): void {
+    // The guarantee NOT NULL on `postcode_prefixes` used to give, restated by
+    // `segments_narrow_one_way_only` now that a district segment has no
+    // prefixes (D-37). On `blasts` a null rule is "everybody this campaign may
+    // contact" -- the one branch in BlastAudience that widens rather than
+    // narrows -- and it is right there. Here a segment naming nothing would be
+    // a segment with no meaning, and one naming both would be two answers to
+    // "who is in it". Until Phase 4 Step 5 this was a NOT NULL violation,
+    // SQLSTATE 23502.
     $refusal = refusalFrom(fn () => DB::connection('tenant')->table('segments')->insert([
-        'name' => 'Narrows nothing',
-        'postcode_prefixes' => null,
+        'name' => $what,
+        ...$rule,
         'created_at' => now(),
         'updated_at' => now(),
     ]));
 
     expect($refusal)->not->toBeNull()
-        // SQLSTATE 23502 -- not-null violation.
-        ->and((string) $refusal->getCode())->toBe('23502');
+        // SQLSTATE 23514 -- check violation, and this check rather than another.
+        ->and((string) $refusal->getCode())->toBe('23514')
+        ->and($refusal->getMessage())->toContain('segments_narrow_one_way_only');
 
-    // The positive half through the same call in the same run.
-    $legitimate = Segment::factory()->create();
+    // The positive half through the same call in the same run: one segment of
+    // each kind.
+    Segment::factory()->create();
+    Segment::factory()->inDistrict()->create();
 
-    expect($legitimate->exists)->toBeTrue()
-        ->and(Segment::query()->count())->toBe(1);
-});
+    expect(Segment::query()->count())->toBe(2);
+})->with([
+    'neither' => ['Narrows nothing', ['postcode_prefixes' => null, 'district' => null]],
+    'both' => ['Narrows two ways', ['postcode_prefixes' => '["021"]', 'district' => 'MA-07']],
+]);
 
 test('an empty rule is stored rather than refused, and the schema says so deliberately', function (): void {
-    // The absent check constraint, asserted rather than left as a silence.
+    // No check constraint on emptiness, asserted rather than left as a silence.
+    // The one check constraint this table carries is about which rule a
+    // segment holds, prefixes or a district (D-37); it says nothing about how
+    // many prefixes, and that is deliberate.
     //
     // `blasts` carries a raw-DDL check constraint, and it earned it with a
     // measurement: a blast which has merely been queued is already unrecallable,
@@ -202,5 +219,5 @@ test('an empty rule is stored rather than refused, and the schema says so delibe
         "select conname from pg_constraint where conrelid = 'segments'::regclass and contype = 'c'"
     ))->pluck('conname');
 
-    expect($constraints)->toBeEmpty();
+    expect($constraints->all())->toBe(['segments_narrow_one_way_only']);
 });

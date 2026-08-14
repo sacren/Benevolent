@@ -76,8 +76,9 @@ class NameSegmentRequest extends FormRequest
             // **Required, where the same field on a blast is optional, and the
             // asymmetry is the schema's.** An empty rule on a blast is null,
             // which means "everyone this campaign may contact"; a segment that
-            // narrows to nothing is not a segment, which is why
-            // `segments.postcode_prefixes` is NOT NULL. Step 1 recorded that
+            // narrows to nothing is not a segment, which is why the database
+            // refuses a segment naming neither prefixes nor a district
+            // (`segments_narrow_one_way_only`). Step 1 recorded that
             // checking this belongs to the form rather than to a check
             // constraint, because an empty rule is *safe* under the fail-closed
             // reading rather than dangerous -- it reaches nobody.

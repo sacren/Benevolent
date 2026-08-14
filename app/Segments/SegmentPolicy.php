@@ -98,8 +98,9 @@ class SegmentPolicy
      * Answered from ViewSupporters rather than from a segment permission of its
      * own: a segment is a saved narrowing of the supporter list, so an operator
      * who may read the list may read the ways it has been narrowed. The rule
-     * itself holds postcode prefixes and nothing else (D-24), so this ability
-     * gives away no fact about a person that ViewSupporters does not.
+     * itself holds postcode prefixes or a congressional district and nothing
+     * else (D-24, D-37) -- a district is a seat's public name -- so this
+     * ability gives away no fact about a person that ViewSupporters does not.
      */
     public function viewAny(User $operator): bool
     {

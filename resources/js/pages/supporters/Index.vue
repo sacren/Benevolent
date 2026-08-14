@@ -226,6 +226,46 @@ defineOptions({
             >
         </Form>
 
+        <!--
+            What a narrowing to a district leaves out, said above the rows
+            rather than left to be inferred from them (D-37). The segment reaches
+            a supporter only when their ZIP code lies wholly inside the district,
+            which leaves out everyone in a ZIP code crossing its boundary — in a
+            dense district more ZIP codes than it keeps — so a heading naming
+            the district would otherwise read as everyone in it. Shown whether or
+            not anybody matched, because it is also the reason nobody might.
+        -->
+        <p
+            v-if="narrowing && districts.narrowing"
+            class="text-sm text-muted-foreground"
+            data-test="district-narrowing"
+        >
+            <template v-if="districts.narrowing.seat">
+                {{ narrowing.name }} narrows to
+                {{ districts.narrowing.seat }} as the
+                {{ districts.congress }} Congress drew it: supporters whose ZIP
+                code lies wholly inside it, which
+                {{ districts.narrowing.wholly }}
+                {{
+                    districts.narrowing.wholly === 1
+                        ? 'ZIP code does'
+                        : 'ZIP codes do'
+                }}. Supporters in the {{ districts.narrowing.crossing }}
+                {{
+                    districts.narrowing.crossing === 1
+                        ? 'ZIP code'
+                        : 'ZIP codes'
+                }}
+                crossing its boundary are not shown, because their ZIP code
+                cannot say which side of it they live on.
+            </template>
+            <template v-else>
+                {{ narrowing.name }} names {{ districts.narrowing.district }},
+                which is not a district in the {{ districts.congress }}
+                Congress’s map, so it narrows to nobody.
+            </template>
+        </p>
+
         <div
             v-if="supporters.total === 0"
             class="rounded-xl border border-sidebar-border/70 p-8 text-center dark:border-sidebar-border"

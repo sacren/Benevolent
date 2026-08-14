@@ -4,10 +4,11 @@ import SegmentController from '@/actions/App/Http/Controllers/SegmentController'
 import Heading from '@/components/Heading.vue';
 import { Button } from '@/components/ui/button';
 import { create, edit, index } from '@/routes/segments';
-import type { Segment } from '@/types';
+import type { Segment, SegmentDistricts } from '@/types';
 
-defineProps<{
+const { districts } = defineProps<{
     segments: Segment[];
+    districts: SegmentDistricts | null;
 }>();
 
 /**
@@ -29,17 +30,38 @@ defineProps<{
  *
  * There is no "everyone" branch here, unlike the blast list's version of this
  * function. A blast's rule may be null and null means the whole contactable
- * list; `segments.postcode_prefixes` is NOT NULL, so a segment always names
- * somewhere. An empty list is still possible in the column and still means
- * nobody, so it is said in words rather than rendered as an empty cell that
- * would read as a rendering fault.
+ * list; a segment names ZIP codes or a district and the database refuses one
+ * naming neither, so a segment always names somewhere. An empty list is still
+ * possible in the column and still means nobody, so it is said in words rather
+ * than rendered as an empty cell that would read as a rendering fault.
+ *
+ * **A district is named with the Congress whose map it is read against, and
+ * with what it leaves out (D-37, D-43).** "MA-07" alone would read as everyone
+ * in MA-07; the segment reaches only ZIP codes lying wholly inside it. A
+ * district the server's relation does not name reaches nobody, and says so.
  */
 function ruleSummary(segment: Segment): string {
-    if (segment.postcode_prefixes.length === 0) {
+    if (segment.district !== null) {
+        // The server sends `districts` whenever a district segment exists, so
+        // null here is unreachable; it is answered the safe way regardless.
+        if (districts === null) {
+            return `Nobody: ${segment.district} could not be read as a district`;
+        }
+
+        if (districts.unnamed.includes(segment.id)) {
+            return `Nobody: ${segment.district} is not a district in the ${districts.congress} Congress’s map`;
+        }
+
+        return `${segment.district} as the ${districts.congress} Congress drew it — only ZIP codes wholly inside it`;
+    }
+
+    const prefixes = segment.postcode_prefixes ?? [];
+
+    if (prefixes.length === 0) {
         return 'Nobody: no ZIP codes named';
     }
 
-    return segment.postcode_prefixes.join(', ');
+    return prefixes.join(', ');
 }
 
 defineOptions({
@@ -97,7 +119,7 @@ defineOptions({
                     >
                         <th scope="col" class="px-4 py-3 font-medium">Name</th>
                         <th scope="col" class="px-4 py-3 font-medium">
-                            ZIP codes
+                            Narrows to
                         </th>
                         <th scope="col" class="px-4 py-3">
                             <span class="sr-only">Actions</span>

@@ -6,6 +6,7 @@ namespace App\Supporters;
 
 use App\Models\Segment;
 use App\Models\Supporter;
+use App\Segments\SegmentNarrowing;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
@@ -102,8 +103,11 @@ final class SupporterExport
      * what the page held.** An operator who has narrowed the list to 300 people
      * and asks for it as a file has asked for those 300; handing back 12,000
      * would be a surprise delivered as a download, discovered after the fact
-     * rather than on screen. The narrowing is the same PostcodeNarrowing the
-     * page uses, so the two cannot come to disagree about who is in a segment.
+     * rather than on screen. The narrowing is the same SegmentNarrowing the
+     * page uses, for a segment of ZIP code prefixes and a district segment
+     * alike, so the two cannot come to disagree about who is in a segment. A
+     * district segment reads the district relation here, which a prefix
+     * segment does not need.
      *
      * No subscription filter here either, for the list's reason rather than the
      * blast's: this file is a campaign's own list coming back out, and it has
@@ -118,7 +122,7 @@ final class SupporterExport
         $supporters = Supporter::query();
 
         if ($segment instanceof Segment) {
-            $supporters = PostcodeNarrowing::apply($supporters, $segment->postcode_prefixes);
+            $supporters = SegmentNarrowing::apply($supporters, $segment);
         }
 
         $supporters

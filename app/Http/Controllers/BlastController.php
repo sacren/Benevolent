@@ -403,8 +403,9 @@ class BlastController extends Controller
     }
 
     /**
-     * The narrowings this campaign has named, in the order its own list shows
-     * them, or none if this operator may not read them.
+     * The narrowings this campaign has named that a blast may be aimed at, in
+     * the order its own list shows them, or none if this operator may not read
+     * them.
      *
      * **Asked rather than authorized, and the difference from
      * SupporterController::index() is deliberate rather than an
@@ -450,7 +451,12 @@ class BlastController extends Controller
             return new Collection;
         }
 
-        return Segment::query()->orderBy('name')->get();
+        // Only segments of ZIP code prefixes. A segment that narrows by
+        // congressional district is not something a blast may be aimed at
+        // until D-38 decides what a committed blast holds when the relation
+        // behind a district changes, so it is not offered; ComposeBlastRequest
+        // refuses one posted around this page.
+        return Segment::query()->whereNull('district')->orderBy('name')->get();
     }
 
     /**

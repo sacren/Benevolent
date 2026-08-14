@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Districts\Seat;
+use App\Districts\ZctaDistricts;
 use App\Segments\SegmentPolicy;
 use Database\Factories\SegmentFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -47,10 +49,12 @@ use Illuminate\Support\Carbon;
  * in none of them.
  *
  * **What it may narrow on, and the asymmetry that must not be got wrong
- * (D-24).** Postcode prefixes, and nothing else. There is no subscription
- * predicate here and no column that could hold one: the supporter list may
- * legitimately show people who unsubscribed, while `App\Blasts\BlastAudience`
- * enforces subscribed-only by its shape rather than by a parameter, so one
+ * (D-24, amended by D-37).** Postcode prefixes, or one congressional
+ * district, and nothing else -- never both, which `segments_narrow_one_way_only`
+ * makes unrepresentable. There is no subscription predicate here and no column
+ * that could hold one: the supporter list may legitimately show people who
+ * unsubscribed, while `App\Blasts\BlastAudience` enforces subscribed-only by
+ * its shape rather than by a parameter, so one
  * stored rule carrying a status would mean two different things to two readers
  * and be one refactor from a message reaching somebody who asked not to be
  * contacted. A segment says *where*; whether somebody may be contacted at all
@@ -60,19 +64,27 @@ use Illuminate\Support\Carbon;
  * may not -- which is what keeps this table from becoming a sixth home for
  * supporter PII that no erasure path reaches. Step 6 settled that by running an
  * erasure rather than by this sentence, and the migration carries what it
- * showed along with the one residual it leaves standing.
+ * showed along with the one residual it leaves standing. A district is a seat's
+ * public name, `MA-07`, and names nobody either.
  *
- * **What the rule means, which is now the product's answer rather than an
+ * **What a prefix rule means, which is the product's answer rather than an
  * incidental one.** A prefix matches a supporter when
- * `left(replace(lower(postcode), ' ', ''), n)` equals it -- folded leading-character
- * equality, the rule `BlastAudience` already uses, and never a `like` pattern,
- * because `%` and `_` are metacharacters that widen a control whose whole
- * purpose is to narrow. The fold gives up tabs, newlines and a non-breaking
- * space; it was chosen at 100.6 ms against 250,000 supporters where
- * `regexp_replace` cost 519.7 ms. Storing a rule under a name is what turns
- * that from an implementation detail of one class into the product's definition
- * of what a postcode prefix means, which is why D-24 promotes it to a variation
- * point rather than leaving it filed as a candidate.
+ * `left(replace(postcode, ' ', ''), n)` equals it -- folded leading-character
+ * equality, never a `like` pattern, because `%` and `_` are metacharacters
+ * that widen a control whose whole purpose is to narrow. The fold gives up
+ * tabs, newlines and a non-breaking space; it was chosen at 100.6 ms against
+ * 250,000 supporters where `regexp_replace` cost 519.7 ms. (It read
+ * `replace(lower(postcode), ...)` until D-33 removed `lower()` at Phase 4 Step
+ * 2; this sentence was missed then.) App\Supporters\PostcodeNarrowing is where
+ * it is written down.
+ *
+ * **What a district rule means is a claim, not a prefix (D-37).** A district
+ * segment reaches the supporters App\Districts\DistrictClaim would place in
+ * that seat -- a ZIP code whose whole area lies inside it -- and nobody whose
+ * ZIP code crosses its boundary, by App\Districts\DistrictNarrowing. So it is
+ * not a list of ZIP code prefixes under another name: `02141abc` begins with an
+ * MA-07 ZIP code and is reached by a prefix segment on `02141`, and not by a
+ * segment on MA-07, because it is not a ZIP code.
  *
  * **`#[UsePolicy]` arrived with the policy and `#[Fillable]` arrives with the
  * controller whose form mass-assigns**, which is the split `Blast` made for the
@@ -84,7 +96,8 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property int|null $operator_id
  * @property string $name
- * @property list<string> $postcode_prefixes
+ * @property list<string>|null $postcode_prefixes Null exactly when the segment narrows by district.
+ * @property string|null $district The seat's name, `MA-07`; null exactly when it narrows by prefixes.
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -133,5 +146,19 @@ class Segment extends Model
     public function blasts(): HasMany
     {
         return $this->hasMany(Blast::class);
+    }
+
+    /**
+     * The district this segment narrows to, as the relation names it -- or
+     * null for a segment of ZIP code prefixes, and for one naming a seat the
+     * relation does not have.
+     *
+     * Read back through Seat::parse() rather than trusted, which is how the
+     * campaign's own seat is read (App\Tenancy\CampaignSeat): a seat a later
+     * relation dropped, or one written by hand, is compared with nobody.
+     */
+    public function seat(ZctaDistricts $relation): ?Seat
+    {
+        return $this->district === null ? null : Seat::parse($this->district, $relation);
     }
 }

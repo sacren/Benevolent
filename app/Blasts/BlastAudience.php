@@ -119,11 +119,11 @@ final class BlastAudience
      *
      * **The empty list returned for a segment that will not resolve is the
      * safety here, and it is not a formality.** A segment reached through a
-     * pointer cannot be missing -- `blasts.segment_id` restricts on delete, and
-     * `segments.postcode_prefixes` is NOT NULL -- so that branch is unreachable
-     * through a stored row. It is written anyway, and written as an empty list
-     * rather than as null, because the two possible spellings of "I could not
-     * resolve the aim" differ by the entire supporter list: an empty list
+     * pointer cannot be missing -- `blasts.segment_id` restricts on delete --
+     * so that branch is unreachable through a stored row. It is written
+     * anyway, and written as an empty list rather than as null, because the
+     * two possible spellings of "I could not resolve the aim" differ by the
+     * entire supporter list: an empty list
      * reaches nobody through PostcodeNarrowing's own fail-closed case, while a
      * null would arrive back at the widening branch above. The cost of the
      * wrong one is a message in every supporter's inbox, so it is spelled the
@@ -174,7 +174,17 @@ final class BlastAudience
                 return [];
             }
 
-            return $segment->postcode_prefixes;
+            // **A segment that narrows by district has no prefixes, and a blast
+            // aimed at one reaches nobody (D-37).** What a committed blast
+            // should hold when the relation behind a district changes is D-38,
+            // and until it is answered no blast may be aimed by district:
+            // ComposeBlastRequest refuses such a segment and BlastController
+            // does not offer one. This is the line behind those two, and it
+            // falls the safe way -- nobody, never the widening branch above,
+            // which is drawn on the blast's own columns and a segment cannot
+            // reach. An empty audience is also one send() refuses, so no blast
+            // aimed this way can be committed at all.
+            return $segment->postcode_prefixes ?? [];
         }
 
         return $blast->postcode_prefixes ?? [];

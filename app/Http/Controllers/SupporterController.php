@@ -10,7 +10,7 @@ use App\Http\Requests\Supporters\StoreSupporterRequest;
 use App\Http\Requests\Supporters\UpdateSupporterRequest;
 use App\Models\Segment;
 use App\Models\Supporter;
-use App\Supporters\PostcodeNarrowing;
+use App\Segments\SegmentNarrowing;
 use App\Supporters\SupporterExport;
 use App\Tenancy\CampaignSeat;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
@@ -99,7 +99,10 @@ class SupporterController extends Controller
      * is a stored segment rather than a postcode typed here: a segment is
      * already named, already validated and already the product's one definition
      * of what a prefix means, so the list gets the rule the blast module gets
-     * rather than a second one typed into a box.
+     * rather than a second one typed into a box. A segment may also name a
+     * congressional district (D-37), which the blast module cannot yet aim at;
+     * App\Segments\SegmentNarrowing is where the list and its export turn
+     * either kind into a query, so the two cannot come to answer differently.
      *
      * **`withQueryString()` was already here and is what makes paging correct.**
      * It re-appends the request's query to every page link, so `?segment=` rides
@@ -112,8 +115,9 @@ class SupporterController extends Controller
      * shows everyone the segment names, including people who unsubscribed,
      * because an operator correcting a record has to be able to find them. That
      * is the opposite guarantee to the one a blast makes from the same rule, and
-     * it is why App\Supporters\PostcodeNarrowing carries no status condition of
-     * its own (D-24).
+     * it is why App\Supporters\PostcodeNarrowing and
+     * App\Districts\DistrictNarrowing carry no status condition of their own
+     * (D-24).
      *
      * The campaign's segments are handed to the page as well, because the
      * control that aims the list has to list them. They are read through
@@ -160,6 +164,19 @@ class SupporterController extends Controller
      * in it, or not in it -- decided by DistrictClaim, so the page is given
      * nothing to decide. The seat is read from the campaign's registry row,
      * which costs no query.
+     *
+     * **A list narrowed to a district segment says what the narrowing leaves
+     * out** -- how many ZIP codes lie wholly inside the district and how many
+     * cross its boundary, whose supporters are not shown -- because D-32's rule
+     * leaves out more of a dense district than it keeps (MA-07 holds 17 ZIP
+     * codes whole and is crossed by 26 more), and a list headed with the
+     * district's name would otherwise read as everyone in it. The relation is
+     * read once for the narrowing, the district column and that sentence; the
+     * district's claimable ZIP codes are worked out twice, once for the
+     * narrowing and once for the sentence. Measured on sixty supporters over
+     * three runs of 25 requests, a list narrowed to MA-07 took a median of
+     * 60.3-61.6 ms against 45.0-46.2 ms unnarrowed and 36.4-36.9 ms narrowed by
+     * a ZIP code prefix.
      */
     public function index(Request $request): Response
     {
@@ -167,17 +184,17 @@ class SupporterController extends Controller
         $this->authorize('viewAny', Segment::class);
 
         $segment = $this->narrowingSegment($request);
+        $relation = ZctaDistricts::shipped();
 
         $supporters = Supporter::query()
             ->orderByDesc('created_at')
             ->orderByDesc('id');
 
         if ($segment instanceof Segment) {
-            $supporters = PostcodeNarrowing::apply($supporters, $segment->postcode_prefixes);
+            $supporters = SegmentNarrowing::apply($supporters, $segment, $relation);
         }
 
         $page = $supporters->paginate(self::PER_PAGE)->withQueryString();
-        $relation = ZctaDistricts::shipped();
         $seat = CampaignSeat::current($relation);
 
         return Inertia::render('supporters/Index', [
@@ -188,6 +205,7 @@ class SupporterController extends Controller
                 'congress' => Number::ordinal($relation->congress()),
                 'publishedOn' => Carbon::parse($relation->publishedOn())->isoFormat('MMMM D, YYYY'),
                 'seat' => $seat?->label(),
+                'narrowing' => $segment instanceof Segment ? self::districtNarrowing($segment, $relation) : null,
                 'bySupporter' => $page->getCollection()->mapWithKeys(
                     fn (Supporter $supporter): array => [
                         $supporter->getKey() => DistrictClaim::for($supporter->postcode, $relation, $seat),
@@ -195,6 +213,39 @@ class SupporterController extends Controller
                 ),
             ],
         ]);
+    }
+
+    /**
+     * What a district segment's narrowing keeps and leaves out, for the page to
+     * say -- or null for a segment of ZIP code prefixes, which leaves nothing
+     * out that its own rule did not name.
+     *
+     * `seat` is null when the relation does not name the stored district, and
+     * the page then says the segment reaches nobody, which is what
+     * SegmentNarrowing does with it.
+     *
+     * @return array{district: string, seat: string|null, wholly: int, crossing: int}|null
+     */
+    private static function districtNarrowing(Segment $segment, ZctaDistricts $relation): ?array
+    {
+        if ($segment->district === null) {
+            return null;
+        }
+
+        $seat = $segment->seat($relation);
+
+        if ($seat === null) {
+            return ['district' => $segment->district, 'seat' => null, 'wholly' => 0, 'crossing' => 0];
+        }
+
+        $wholly = count(DistrictClaim::claimableIn($seat, $relation));
+
+        return [
+            'district' => $segment->district,
+            'seat' => $seat->label(),
+            'wholly' => $wholly,
+            'crossing' => count($relation->zctasTouching($seat->geoid)) - $wholly,
+        ];
     }
 
     /**

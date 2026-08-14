@@ -33,6 +33,20 @@ export type DistrictClaim = {
 };
 
 /**
+ * What a district segment's narrowing keeps and leaves out, when the list is
+ * narrowed to one: how many ZIP codes lie wholly inside the district (the only
+ * ones it reaches) and how many cross its boundary (whose supporters it does
+ * not show). `seat` is null when the relation does not name the stored
+ * `district`, and the narrowing then reaches nobody.
+ */
+export type DistrictNarrowing = {
+    district: string;
+    seat: string | null;
+    wholly: number;
+    crossing: number;
+};
+
+/**
  * The district answers for one page of the supporter list, and the map they
  * were read against.
  *
@@ -45,5 +59,6 @@ export type SupporterDistricts = {
     congress: string;
     publishedOn: string;
     seat: string | null;
+    narrowing: DistrictNarrowing | null;
     bySupporter: Record<number, DistrictClaim>;
 };

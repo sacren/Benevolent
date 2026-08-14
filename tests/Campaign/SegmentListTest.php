@@ -109,3 +109,31 @@ test('the list refuses an operator who has lost the grant', function (): void {
         ->get($this->campaignUrl('/segments'))
         ->assertForbidden();
 });
+
+test('a district segment is listed with the Congress whose map it is read against', function (): void {
+    Segment::factory()->inDistrict('MA-07')->create(['name' => 'MA-07 supporters']);
+    // California has 52 seats: what a stored seat becomes when a later map
+    // drops it, which the page must be able to say reaches nobody.
+    $unnamed = Segment::factory()->inDistrict('CA-53')->create(['name' => 'Gone']);
+    Segment::factory()->narrowedToPostcodes(['902'])->create(['name' => 'Westwood']);
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/segments'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('segments.1.name', 'MA-07 supporters')
+            ->where('segments.1.district', 'MA-07')
+            ->where('segments.1.postcode_prefixes', null)
+            ->where('districts', ['congress' => '119th', 'unnamed' => [$unnamed->getKey()]])
+        );
+});
+
+test('a campaign with no district segment is not sent a map to read them against', function (): void {
+    // The relation costs about 14 ms and 11 MB to read, and a list of prefix
+    // segments has no use for it.
+    Segment::factory()->narrowedToPostcodes(['902'])->create();
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/segments'))
+        ->assertInertia(fn (Assert $page) => $page->where('districts', null));
+});

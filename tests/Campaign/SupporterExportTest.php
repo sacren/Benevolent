@@ -245,3 +245,24 @@ test('an export naming a segment that does not exist is refused rather than answ
         ->get($this->campaignUrl('/supporters/export?segment=999999'))
         ->assertNotFound();
 });
+
+test('an export narrowed to a district segment holds what the narrowed page held', function (): void {
+    // The export reads the district relation itself -- the page hands it the
+    // one it read for the district column -- and must reach the same people.
+    Supporter::factory()->create(['email' => 'inside@example.test', 'postcode' => '02141']);
+    Supporter::factory()->create(['email' => 'crossing@example.test', 'postcode' => '02139']);
+    Supporter::factory()->create(['email' => 'not-a-zip@example.test', 'postcode' => '02141abc']);
+
+    $segment = Segment::factory()->inDistrict('MA-07')->create(['name' => 'MA-07 supporters']);
+
+    $response = $this->actingAs(User::factory()->owner()->create())
+        ->get($this->campaignUrl('/supporters/export?segment='.$segment->getKey()))
+        ->assertOk();
+
+    $csv = $response->streamedContent();
+
+    expect($csv)->toContain('inside@example.test')
+        ->and($csv)->not->toContain('crossing@example.test')
+        ->and($csv)->not->toContain('not-a-zip@example.test')
+        ->and($response->headers->get('content-disposition'))->toContain('supporters-ma-07-supporters-');
+});

@@ -47,9 +47,11 @@ use Illuminate\Database\Eloquent\Builder;
  *   - **It has no "narrow by nothing" branch.** A null `blasts.postcode_prefixes`
  *     means "every supporter this campaign may contact", and that widening is
  *     the blast column's own contract, drawn as narrowly as it can be in the one
- *     place that owns it. `segments.postcode_prefixes` is NOT NULL precisely so
- *     that branch is unreachable through a segment. A matcher that widened on an
- *     empty rule would put it back.
+ *     place that owns it, and it is unreachable through a segment: a segment's
+ *     prefixes are null only when it narrows by district (D-37), which
+ *     App\Segments\SegmentNarrowing answers with App\Districts\DistrictNarrowing
+ *     and BlastAudience answers with nobody. A matcher that widened on an empty
+ *     rule would put the widening back.
  */
 final class PostcodeNarrowing
 {

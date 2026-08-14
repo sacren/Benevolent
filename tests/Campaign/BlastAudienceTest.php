@@ -262,9 +262,9 @@ test('a segment naming nothing usable reaches nobody, never everybody', function
 
 test('a pointer that resolves to no segment reaches nobody, never everybody', function (): void {
     // **The one branch in this class the database cannot reach, driven through
-    // the model instead.** `blasts.segment_id` restricts on delete and
-    // `segments.postcode_prefixes` is NOT NULL, so no stored row can carry a
-    // pointer that resolves to nothing -- which means the fallback protecting
+    // the model instead.** `blasts.segment_id` restricts on delete, so no
+    // stored row can carry a pointer that resolves to nothing -- which means
+    // the fallback protecting
     // that case is unguarded unless something builds the state directly.
     //
     // It is worth guarding rather than deleting because of what the two
@@ -399,4 +399,26 @@ test('a draft aimed at the same segment still follows it, in the same run', func
     // class's own fail-closed branch could produce.
     expect(BlastAudience::for($draft->refresh())->pluck('id')->all())->toBe([$moved->getKey()])
         ->and(BlastAudience::for($committed->refresh())->pluck('id')->all())->toBe([$named->getKey()]);
+});
+
+test('a segment that narrows by district reaches nobody through a blast, never everybody', function (): void {
+    // A blast may not be aimed by district until D-38 decides what a committed
+    // blast holds when the relation behind a district changes, so the form
+    // refuses such a segment and the compose page does not offer one. This is
+    // the line behind both: the database does not stop a blast pointing at a
+    // district segment, and one built directly must reach nobody -- a district
+    // segment has no prefixes, and "no prefixes" must never be read as "no
+    // rule", which on a blast is the whole contactable list.
+    supporterWithPostcode('02141');
+    supporterWithPostcode('90210');
+
+    $aimedByDistrict = Blast::factory()->aimedAtSegment(Segment::factory()->inDistrict('MA-07')->create())->create();
+
+    // Paired through the same class in the same run with a blast naming no aim,
+    // which reaches both supporters, so this is not an audience that is broken.
+    $everyone = Blast::factory()->create();
+
+    expect(BlastAudience::size($aimedByDistrict))->toBe(0)
+        ->and(BlastAudience::committedAimFor($aimedByDistrict))->toBe([])
+        ->and(BlastAudience::size($everyone))->toBe(2);
 });

@@ -18,9 +18,10 @@ class SegmentFactory extends Factory
      *
      * A named narrowing aimed at one postcode, which is the row that saving a
      * segment actually produces. Unlike the blast factory's default there is no
-     * "aimed at everybody" state to fall back on: `postcode_prefixes` is NOT
-     * NULL because a segment that narrows nothing is not a segment, so the
-     * default has to name something.
+     * "aimed at everybody" state to fall back on: a segment names either ZIP
+     * code prefixes or a district, `segments_narrow_one_way_only` refuses a row
+     * naming neither, and a segment that narrows nothing is not a segment, so
+     * the default has to name something.
      *
      * The name is drawn uniquely because the column is unique, and it is drawn
      * from place names because that is what a campaign calls a segment -- a
@@ -67,6 +68,22 @@ class SegmentFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'postcode_prefixes' => $prefixes,
+        ]);
+    }
+
+    /**
+     * Indicate the congressional district the segment narrows to (D-37).
+     *
+     * Given as a seat's name, the way the column holds it, and with no prefixes
+     * beside it, because the check constraint refuses a segment narrowing both
+     * ways. MA-07 by default because it is the demo campaign's seat and holds
+     * `02141`, a ZIP code this repository's fixtures already place in it.
+     */
+    public function inDistrict(string $seat = 'MA-07'): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'postcode_prefixes' => null,
+            'district' => $seat,
         ]);
     }
 }
