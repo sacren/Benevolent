@@ -84,3 +84,20 @@ test('it relates the ZCTAs this repository\'s fixtures use to the districts the 
     // What Excel makes of 02139 (D-42): no such ZCTA, so nothing.
     'a ZIP that has lost its leading zero' => ['2139', []],
 ]);
+
+test('it answers which ZCTAs touch a district, as the reverse of which districts a ZCTA touches', function (string $geoid, int $count, array $includes): void {
+    $zctas = ZctaDistricts::shipped()->zctasTouching($geoid);
+
+    expect($zctas)->toHaveCount($count);
+
+    foreach ($includes as $zcta) {
+        expect($zctas)->toContain($zcta);
+    }
+})->with([
+    // Counted from the shipped file with python. A ZCTA crossing the boundary is
+    // listed: this is the relation, and what may be claimed from it is D-32's.
+    'MA-07' => ['2507', 43, ['02141', '02139']],
+    'CA-37' => ['0637', 36, ['90232', '90211']],
+    'Lake Michigan\'s area in no district' => ['17ZZ', 25, ['60657']],
+    'a district the relation does not name' => ['0699', 0, []],
+]);

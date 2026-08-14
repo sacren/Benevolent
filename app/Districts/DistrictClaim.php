@@ -43,8 +43,11 @@ use JsonSerializable;
  * **The shape check is stricter than the matcher, deliberately:** a segment on
  * `90210` reaches a stored `90210abc`, because the matcher compares leading
  * characters, while this calls `90210abc` not a ZIP, because a district claimed
- * from a value that is not a ZIP is a claim nothing supports. Whether a segment
- * narrowing *by district* should reach such a value is D-37's to decide.
+ * from a value that is not a ZIP is a claim nothing supports. **A narrowing by
+ * district asks this class's question, not the matcher's (D-37):**
+ * App\Districts\DistrictNarrowing puts SHAPE and claimableIn() into SQL, so it
+ * does not reach `90210abc` either, and a district column and a narrowing to
+ * the same district cannot come to disagree about who is in it.
  *
  * **These answers are relative to the relation they were read from.** A claim
  * names a seat as the relation's Congress drew it, and the relation says which
@@ -52,6 +55,24 @@ use JsonSerializable;
  */
 final class DistrictClaim implements JsonSerializable
 {
+    /**
+     * What a folded value must look like to be read as a ZIP: five digits, or a
+     * ZIP+4 with or without its hyphen.
+     *
+     * **One spelling for PHP and PostgreSQL alike**, because a narrowing by
+     * district asks the database this same question and the two answers must
+     * not differ. Two choices make that true. `[0-9]` rather than `\d`, since
+     * PostgreSQL reads `\d` through the database's collation provider, which
+     * under ICU admits other scripts' digits, while `[0-9]` means the same ten
+     * characters to both. And PHP reads it with the `D` modifier, since
+     * without it PCRE lets `$` match before a final line break -- `"02141\n"`
+     * was read as a ZIP here while PostgreSQL's `$` refused it. The fold
+     * removes spaces only, so a stored line break does reach the check: no form
+     * or import writes one, since both trim, but a seeder or a hand-written row
+     * can.
+     */
+    public const string SHAPE = '^[0-9]{5}(-?[0-9]{4})?$';
+
     /**
      * @param  string|null  $zip  The five-digit ZIP read from the stored value,
      *                            when it held one.
@@ -82,25 +103,14 @@ final class DistrictClaim implements JsonSerializable
             return new self(DistrictAnswer::Missing, null, [], false, $seat);
         }
 
-        // `D` makes `$` mean the end of the value. Without it PCRE lets `$`
-        // match before a final line break, so `"02141\n"` read as a ZIP here
-        // while PostgreSQL's `$` refuses it, and the same check asked of the
-        // database would disagree with this one. The fold removes spaces only,
-        // so a stored line break reaches this line: no form or import writes
-        // one, since both trim, but a seeder or a hand-written row can.
-        if (preg_match('/^(\d{5})(-?\d{4})?$/D', $folded, $match) !== 1) {
-            return new self(DistrictAnswer::Malformed, null, [], preg_match('/^\d{4}$/D', $folded) === 1, $seat);
+        // `D` makes `$` mean the end of the value; see SHAPE for why.
+        if (preg_match('/'.self::SHAPE.'/D', $folded) !== 1) {
+            return new self(DistrictAnswer::Malformed, null, [], preg_match('/^[0-9]{4}$/D', $folded) === 1, $seat);
         }
 
-        $zip = $match[1];
+        $zip = substr($folded, 0, 5);
 
-        $touching = array_values(array_map(
-            Seat::fromGeoid(...),
-            array_filter(
-                $relation->districtsTouching($zip),
-                static fn (string $geoid): bool => ! str_ends_with($geoid, 'ZZ'),
-            ),
-        ));
+        $touching = array_map(Seat::fromGeoid(...), self::districts($relation->districtsTouching($zip)));
 
         return new self(match (count($touching)) {
             // Also the answer for a ZCTA touching nothing but `ZZ`, of which the
@@ -109,6 +119,59 @@ final class DistrictClaim implements JsonSerializable
             1 => DistrictAnswer::Placed,
             default => DistrictAnswer::Split,
         }, $zip, $touching, false, $seat);
+    }
+
+    /**
+     * Every ZIP code this class would place in the given seat, in the order
+     * the relation holds them.
+     *
+     * **D-32 asked about one district rather than about one ZIP code, and it
+     * has to be the same rule rather than a second one.** A ZIP code is in the
+     * list exactly when for() would answer Placed and claim this seat for it:
+     * its area touches this district and no other, `ZZ` aside. A ZIP code
+     * crossing the boundary is left out, so a supporter in one is never
+     * reached as the district's constituent -- which is exit criterion 3, one
+     * district at a time. Both read the relation through districts() below, so
+     * the `ZZ` rule is written once.
+     *
+     * **What leaving them out costs, measured at Phase 4 Step 5 by people
+     * rather than by land.** Weighting each 2020 Census block by its
+     * population, a narrowing to the median district reaches 69.1% of the
+     * people who live in it (p10 34.8%, p90 91.1%, over 437 districts -- the
+     * four island areas' delegates were not measured), and MA-07 -- whose
+     * boundary crosses 26 ZIP codes against the 17 it holds whole -- reaches
+     * 50.5%. Nobody in any ZIP code claimed for a district lives outside it.
+     * Adding the ZIP codes that cross the boundary would reach everyone, and
+     * would make the median district's audience 24.5% people who are not in
+     * it, and MA-07's 37.6%.
+     *
+     * An empty list for a seat the relation has no area for, such as one it
+     * no longer names -- and an empty list narrows to nobody.
+     *
+     * @return list<string>
+     */
+    public static function claimableIn(Seat $seat, ZctaDistricts $relation): array
+    {
+        return array_values(array_filter(
+            $relation->zctasTouching($seat->geoid),
+            static fn (string $zcta): bool => self::districts($relation->districtsTouching($zcta)) === [$seat->geoid],
+        ));
+    }
+
+    /**
+     * The districts in a list of GEOIDs, leaving out `ZZ` -- the areas the
+     * Census assigns to no district, which hold no land (see the class
+     * docblock).
+     *
+     * @param  list<string>  $geoids
+     * @return list<string>
+     */
+    private static function districts(array $geoids): array
+    {
+        return array_values(array_filter(
+            $geoids,
+            static fn (string $geoid): bool => ! str_ends_with($geoid, 'ZZ'),
+        ));
     }
 
     /**

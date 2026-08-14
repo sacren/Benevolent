@@ -211,3 +211,58 @@ test('across every ZCTA the relation holds, a supporter is placed in a seat only
     expect($inAcrossABoundary)->toBe([])
         ->and($in)->toBe(27929);
 });
+
+test('the ZIP codes a district can be claimed for are the ones wholly inside it, and none that cross its boundary', function (string $seat, array $zips): void {
+    expect(DistrictClaim::claimableIn(Seat::parse($seat, $this->relation), $this->relation))->toBe($zips);
+})->with([
+    // Derived from the shipped file with python, which never ran this code. MA-07
+    // is touched by 43 ZCTAs and holds these 17 whole; `02139`, split with MA-05,
+    // is among the 26 left out.
+    'the demo campaign\'s seat' => ['MA-07', ['02115', '02119', '02120', '02121', '02129', '02134', '02135', '02136', '02141', '02142', '02143', '02144', '02149', '02150', '02163', '02199', '02205']],
+    // Touched by 36; `90210` and `90211` are among the 26 that cross its boundary.
+    'a Los Angeles seat' => ['CA-37', ['90008', '90016', '90018', '90035', '90037', '90052', '90062', '90079', '90089', '90232']],
+]);
+
+test('a ZIP code touching a district and an area in no district is claimable for that district', function (): void {
+    // `06437` touches CT-03 and Long Island Sound's `09ZZ`, which holds no land.
+    // One rule reads `ZZ` for for() and claimableIn() alike, so this has to be
+    // true here because it is true there.
+    expect(DistrictClaim::claimableIn(Seat::parse('CT-03', $this->relation), $this->relation))
+        ->toContain('06437')
+        ->toHaveCount(31);
+});
+
+test('a seat the relation has no area for has no ZIP codes to claim', function (): void {
+    // A well-formed GEOID the relation does not name -- California has no 99th
+    // district -- which is what a stored seat becomes if a later relation drops
+    // it. It narrows to nobody.
+    expect(DistrictClaim::claimableIn(Seat::fromGeoid('0699'), $this->relation))->toBe([]);
+});
+
+test('across every seat the relation names, each claimable ZIP code belongs to exactly one seat and is placed in it', function (): void {
+    // The same rule asked two ways -- one ZIP code at a time by for(), one seat
+    // at a time by claimableIn() -- has to give the same answer everywhere, or a
+    // district column and a narrowing to the same district could disagree about
+    // who is in it.
+    $seen = [];
+    $placedElsewhere = [];
+
+    foreach ($this->relation->districts() as $geoid) {
+        if (str_ends_with($geoid, 'ZZ')) {
+            continue;
+        }
+
+        foreach (DistrictClaim::claimableIn(Seat::fromGeoid($geoid), $this->relation) as $zip) {
+            $seen[$zip] = ($seen[$zip] ?? 0) + 1;
+
+            if (DistrictClaim::for($zip, $this->relation)->claimed()?->geoid !== $geoid) {
+                $placedElsewhere[] = $zip.' in '.$geoid;
+            }
+        }
+    }
+
+    // 27,929: the claimable ZCTAs the sweeps above count one ZIP code at a time.
+    expect($placedElsewhere)->toBe([])
+        ->and(array_filter($seen, fn (int $times): bool => $times > 1))->toBe([])
+        ->and($seen)->toHaveCount(27929);
+});

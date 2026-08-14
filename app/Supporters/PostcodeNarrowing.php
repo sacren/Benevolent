@@ -115,8 +115,12 @@ final class PostcodeNarrowing
      * The product is US-only and has no fixture for that, which is exactly why
      * the line could not be tested; **trigger to revisit: the first list this
      * product is asked to hold whose postcodes are not US ZIPs.**
+     *
+     * **Public because a narrowing by district folds the column too**, and a
+     * second spelling of the fold would be a second place for the two to
+     * drift apart. App\Districts\DistrictNarrowing reads it from here.
      */
-    private const string FOLDED_POSTCODE = "replace(postcode, ' ', '')";
+    public const string FOLDED_POSTCODE = "replace(postcode, ' ', '')";
 
     /**
      * Narrow a supporter query to the supporters those prefixes name.
