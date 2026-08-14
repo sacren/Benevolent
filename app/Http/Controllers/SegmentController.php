@@ -8,6 +8,7 @@ use App\Districts\ZctaDistricts;
 use App\Http\Requests\Segments\NameSegmentRequest;
 use App\Models\Blast;
 use App\Models\Segment;
+use App\Tenancy\CampaignSeat;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\RedirectResponse;
@@ -218,12 +219,26 @@ class SegmentController extends Controller
 
     /**
      * Show the form for naming a new narrowing.
+     *
+     * **The campaign's own seat is offered as the district to name, and only
+     * offered (D-37).** A candidate committee's first district segment is its
+     * own seat, so the form fills it in; what is stored is the seat's name, so
+     * the segment keeps narrowing to that district if `campaign:seat` later
+     * records another. A segment that followed the seat itself would have its
+     * audience moved by a console act no operator in the campaign performed
+     * (D-36). The Congress is sent for the same reason as everywhere a
+     * district is named: "MA-07" is a claim about one map (D-43).
      */
     public function create(): Response
     {
         $this->authorize('create', Segment::class);
 
-        return Inertia::render('segments/Create');
+        $relation = ZctaDistricts::shipped();
+
+        return Inertia::render('segments/Create', [
+            'seat' => CampaignSeat::current($relation)?->label(),
+            'congress' => Number::ordinal($relation->congress()),
+        ]);
     }
 
     /**
@@ -272,8 +287,12 @@ class SegmentController extends Controller
     {
         $this->authorize('update', $segment);
 
+        // The Congress only for a district segment, the one kind whose form
+        // names a district; a segment of ZIP codes has no use for the relation
+        // it would cost reading.
         return Inertia::render('segments/Edit', [
             'segment' => $segment,
+            'congress' => $segment->district === null ? null : Number::ordinal(ZctaDistricts::shipped()->congress()),
         ]);
     }
 

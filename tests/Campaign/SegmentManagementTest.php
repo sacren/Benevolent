@@ -3,9 +3,12 @@
 declare(strict_types=1);
 
 use App\Authorization\Permission;
+use App\Districts\Seat;
+use App\Districts\ZctaDistricts;
 use App\Models\Blast;
 use App\Models\Segment;
 use App\Models\User;
+use App\Tenancy\CampaignSeat;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Testing\AssertableInertia as Assert;
 
@@ -82,17 +85,18 @@ test('a form cannot claim that somebody else named a segment', function (): void
     // measurement is why it is written down rather than assumed.** Widening the
     // model's #[Fillable] to include `operator_id` leaves this assertion green,
     // at 0 red of 453 -- because NameSegmentRequest::named() is itself an
-    // allowlist returning exactly two keys, so the forged value never reaches
+    // allowlist returning exactly the rule's keys (two until D-37 added a
+    // district as the third), so the forged value never reaches
     // the model at all. Phase 2 Step 3 measured the identical thing about
     // ComposeBlastRequest and this reproduces it.
     //
     // So the behavioural half below says the surface is safe today, and the
     // configuration half beside it pins the thing that would be the last
     // defence if `named()` ever stopped being an allowlist -- a `create($request
-    // ->all())`, or a third key added to it. Laravel guards every attribute by
-    // default, so the fillable list is what *permits* the two that are there.
+    // ->all())`, or a key added to it. Laravel guards every attribute by
+    // default, so the fillable list is what *permits* the ones that are there.
     expect(Segment::query()->sole()->operator_id)->toBe($operator->getKey())
-        ->and((new Segment)->getFillable())->toBe(['name', 'postcode_prefixes']);
+        ->and((new Segment)->getFillable())->toBe(['name', 'postcode_prefixes', 'district']);
 });
 
 test('a segment must name at least one postcode, and separators are not postcodes', function (): void {
@@ -362,4 +366,149 @@ test('a draft alongside a committed blast does not soften what the operator is t
         );
 
     expect(Segment::query()->count())->toBe(1);
+});
+
+test('the form for naming a segment offers the campaign\'s own seat and names the Congress', function (): void {
+    // Offered, not followed (D-37): the form fills in the seat, and what is
+    // stored is the district typed, so re-recording the seat later moves no
+    // segment. The registry row is written here and undone in `finally`,
+    // because the campaign harness re-reads it for every test and nothing rolls
+    // a central write back.
+    CampaignSeat::store($this->campaign, Seat::parse('MA-07', ZctaDistricts::shipped()));
+
+    try {
+        $this->actingAs(User::factory()->create())
+            ->get($this->campaignUrl('/segments/create'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('segments/Create')
+                ->where('seat', 'MA-07')
+                ->where('congress', '119th')
+            );
+    } finally {
+        $this->campaign->setAttribute(CampaignSeat::KEY, null);
+        $this->campaign->save();
+    }
+
+    // And a campaign with no seat recorded is offered none.
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/segments/create'))
+        ->assertInertia(fn (Assert $page) => $page->where('seat', null));
+});
+
+test('an operator names a segment by district, and it is stored as the seat\'s own name', function (): void {
+    $this->actingAs(User::factory()->create())
+        ->post($this->campaignUrl('/segments'), [
+            'name' => 'MA-07 supporters',
+            'narrow_by' => 'district',
+            'district' => ' ma-7 ',
+            // Left over from the other field before the choice changed: the kind
+            // is what `narrow_by` says, so this is not a second rule.
+            'postcode_prefixes' => '021',
+        ])
+        ->assertRedirect(route('segments.index'));
+
+    $segment = Segment::query()->sole();
+
+    expect($segment->district)->toBe('MA-07')
+        ->and($segment->postcode_prefixes)->toBeNull();
+});
+
+test('a district the map does not name is refused, and the refusal names the Congress', function (string $typed): void {
+    $this->actingAs(User::factory()->create())
+        ->post($this->campaignUrl('/segments'), [
+            'name' => 'Nowhere',
+            'narrow_by' => 'district',
+            'district' => $typed,
+        ])
+        ->assertInvalid(['district' => "That is not a district in the 119th Congress's map. Write a state and a district number, like MA-07, or AL for a state's only seat, like AK-AL."]);
+
+    expect(Segment::query()->count())->toBe(0);
+})->with([
+    // California has 52 seats and Alaska one, at large.
+    'a seat past the last' => ['CA-53'],
+    'a numbered seat in an at-large state' => ['AK-01'],
+    'not a seat at all' => ['banana'],
+]);
+
+test('a segment naming a district has to name one', function (): void {
+    $this->actingAs(User::factory()->create())
+        ->post($this->campaignUrl('/segments'), [
+            'name' => 'Not yet aimed',
+            'narrow_by' => 'district',
+            'district' => '',
+        ])
+        ->assertInvalid(['district' => 'The district field is required.'])
+        // The ZIP code field is not asked for when the segment narrows by
+        // district.
+        ->assertValid(['postcode_prefixes']);
+});
+
+test('an empty segment form is told once what it is missing, not twice', function (): void {
+    // Recorded at Step 4 and settled here: the after-hook that refuses a line
+    // of separators also ran when `required` had already failed, so one empty
+    // field carried two messages. The page showed the first.
+    //
+    // Asked as JSON because that response lists every message a field
+    // carries, where assertInvalid() checks that one message is among them and
+    // would pass with the second one still beside it.
+    $this->actingAs(User::factory()->create())
+        ->postJson($this->campaignUrl('/segments'), [
+            'name' => 'Not yet aimed',
+            'postcode_prefixes' => '',
+        ])
+        ->assertUnprocessable()
+        ->assertJsonPath('errors.postcode_prefixes', ['The ZIP codes field is required.']);
+});
+
+test('a segment keeps the kind it was named with when it is re-aimed', function (): void {
+    $operator = User::factory()->create();
+    $district = Segment::factory()->inDistrict('MA-07')->create(['name' => 'By district']);
+    $postcodes = Segment::factory()->narrowedToPostcodes(['902'])->create(['name' => 'By ZIP code']);
+
+    // A district segment re-aimed at another district; the ZIP codes posted
+    // beside it are not a second rule.
+    $this->actingAs($operator)
+        ->patch($this->campaignUrl('/segments/'.$district->getKey()), [
+            'name' => 'By district',
+            'district' => 'MA-05',
+            'postcode_prefixes' => '021',
+        ])
+        ->assertRedirect(route('segments.index'));
+
+    // A ZIP code segment asked to become a district segment stays what it is:
+    // a blast may be aimed at it, and a blast may not be aimed by district.
+    $this->actingAs($operator)
+        ->patch($this->campaignUrl('/segments/'.$postcodes->getKey()), [
+            'name' => 'By ZIP code',
+            'narrow_by' => 'district',
+            'district' => 'MA-07',
+            'postcode_prefixes' => '021',
+        ])
+        ->assertRedirect(route('segments.index'));
+
+    expect($district->refresh()->district)->toBe('MA-05')
+        ->and($district->postcode_prefixes)->toBeNull()
+        ->and($postcodes->refresh()->postcode_prefixes)->toBe(['021'])
+        ->and($postcodes->district)->toBeNull();
+});
+
+test('the edit form for a district segment is told which Congress it is read against', function (): void {
+    $operator = User::factory()->create();
+    $district = Segment::factory()->inDistrict('MA-07')->create();
+    $postcodes = Segment::factory()->create();
+
+    $this->actingAs($operator)
+        ->get($this->campaignUrl('/segments/'.$district->getKey().'/edit'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('segments/Edit')
+            ->where('segment.district', 'MA-07')
+            ->where('congress', '119th')
+        );
+
+    // A segment of ZIP codes names no district, and is spared the relation.
+    $this->actingAs($operator)
+        ->get($this->campaignUrl('/segments/'.$postcodes->getKey().'/edit'))
+        ->assertInertia(fn (Assert $page) => $page->where('congress', null));
 });

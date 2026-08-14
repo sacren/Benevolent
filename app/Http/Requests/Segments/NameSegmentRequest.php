@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Segments;
 
+use App\Districts\Seat;
+use App\Districts\ZctaDistricts;
 use App\Models\Segment;
+use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Number;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 use Stringable;
@@ -18,12 +22,13 @@ use Stringable;
  * the discriminator is the field set rather than the uniqueness rule.** The two
  * supporter requests differ twice over: the update rule has to ignore the
  * supporter being edited, *and* it carries a `subscription_status` field the
- * create form deliberately does not offer. Nothing differs here -- the same two
- * fields, validated the same way, whether the segment exists yet or not -- and
- * the ignore is one expression that is already correct for both, because
- * `route('segment')` is null on the way in and ignore(null) narrows nothing.
- * Two identical classes would be two places to change one rule, and the second
- * would be the one somebody forgot.
+ * create form deliberately does not offer. Here the fields are the same on both
+ * actions and validated the same way, and the two differences are each one
+ * expression that is already correct for both: the ignore, because
+ * `route('segment')` is null on the way in and ignore(null) narrows nothing,
+ * and the kind (below), which a new segment reads from `narrow_by` and an
+ * existing one from itself. Two near-identical classes would be two places to
+ * change one rule, and the second would be the one somebody forgot.
  *
  * **`Rule::unique` is sufficient here, and at Phase 1 it was not -- which is
  * Step 1's choice of index paying out.** D-8 needed a custom rule object
@@ -36,6 +41,15 @@ use Stringable;
  * duplicate address is silent -- so the rule the framework ships compares
  * exactly what the index compares, and there is nothing here to hand-roll.
  *
+ * **A segment narrows by ZIP code prefixes or by one congressional district
+ * (D-37), chosen when it is named and not changed by re-aiming it.** A new
+ * segment says which in `narrow_by`, and one already named keeps its kind: a
+ * district segment's form edits its district and a prefix segment's edits its
+ * prefixes, whatever else is posted. Fixed rather than switchable because a
+ * blast may be aimed at a prefix segment and not, until D-38, at a district
+ * one -- so turning the first into the second would re-aim every draft
+ * pointing at it into an aim the sending path answers with nobody.
+ *
  * Authority is not asked here. The controller asks the policy, so that the
  * ability checked and the ability performed are the same line of code; a
  * FormRequest::authorize() would be a second answer to the same question, free
@@ -43,15 +57,23 @@ use Stringable;
  */
 class NameSegmentRequest extends FormRequest
 {
+    public const string BY_POSTCODES = 'postcodes';
+
+    public const string BY_DISTRICT = 'district';
+
+    private ?ZctaDistricts $relation = null;
+
     /**
      * Rule::unique() returns Illuminate\Validation\Rules\Unique, which
      * implements neither validation contract -- only Stringable, because the
      * builder exists to be rendered back into a `unique:...` rule string. So
      * the annotation names Stringable rather than ValidationRule, which is a
      * different answer from UpdateSupporterRequest's note about Rule::enum():
-     * that one really does implement the older Rule contract.
+     * that one really does implement the older Rule contract. Rule::requiredIf()
+     * and Rule::in() are Stringable for the same reason, and a first-class
+     * closure is a Closure, as ComposeBlastRequest records for its own.
      *
-     * @return array<string, array<int, Stringable|ValidationRule|string>>
+     * @return array<string, array<int, Closure|Stringable|ValidationRule|string>>
      */
     public function rules(): array
     {
@@ -73,8 +95,9 @@ class NameSegmentRequest extends FormRequest
             // actually see: validating a parsed array would report errors
             // against `postcode_prefixes.2`, which names nothing on the page.
             //
-            // **Required, where the same field on a blast is optional, and the
-            // asymmetry is the schema's.** An empty rule on a blast is null,
+            // **Required of a segment narrowing by ZIP codes, where the same
+            // field on a blast is optional, and the asymmetry is the
+            // schema's.** An empty rule on a blast is null,
             // which means "everyone this campaign may contact"; a segment that
             // narrows to nothing is not a segment, which is why the database
             // refuses a segment naming neither prefixes nor a district
@@ -82,8 +105,46 @@ class NameSegmentRequest extends FormRequest
             // checking this belongs to the form rather than to a check
             // constraint, because an empty rule is *safe* under the fail-closed
             // reading rather than dangerous -- it reaches nobody.
-            'postcode_prefixes' => ['required', 'string', 'max:1000'],
+            'postcode_prefixes' => [
+                Rule::requiredIf(fn (): bool => $this->kind() === self::BY_POSTCODES),
+                'nullable',
+                'string',
+                'max:1000',
+            ],
+
+            // Only read when a new segment is named; one already named keeps
+            // its kind, so what arrives here on an edit is ignored.
+            'narrow_by' => ['nullable', Rule::in([self::BY_POSTCODES, self::BY_DISTRICT])],
+
+            // A seat as people write it -- `MA-07`, `ma-7`, `AK-AL` -- checked
+            // against the relation this release ships, so a seat it does not
+            // name is refused here rather than stored and read as nobody.
+            'district' => [
+                Rule::requiredIf(fn (): bool => $this->kind() === self::BY_DISTRICT),
+                'nullable',
+                'string',
+                'max:20',
+                $this->namedDistrict(...),
+            ],
         ];
+    }
+
+    /**
+     * Refuse a district the relation this release ships does not name.
+     *
+     * The message names the Congress, because "not a district" is true only of
+     * one map: a later Congress's map can add a seat this one does not have,
+     * or drop one it does (D-43).
+     */
+    private function namedDistrict(string $attribute, mixed $value, Closure $fail): void
+    {
+        if ($this->kind() !== self::BY_DISTRICT || ! is_string($value) || $this->seat() !== null) {
+            return;
+        }
+
+        $fail(__("That is not a district in the :congress Congress's map. Write a state and a district number, like MA-07, or AL for a state's only seat, like AK-AL.", [
+            'congress' => Number::ordinal($this->relation()->congress()),
+        ]));
     }
 
     /**
@@ -101,6 +162,7 @@ class NameSegmentRequest extends FormRequest
     {
         return [
             'postcode_prefixes' => 'ZIP codes',
+            'district' => 'district',
         ];
     }
 
@@ -123,12 +185,23 @@ class NameSegmentRequest extends FormRequest
      * incompleteness rather than a new one -- and it produces a segment matching
      * nobody. That is the fail-closed direction.
      *
+     * **It says nothing when `required` already has.** An empty form used to
+     * answer with two messages for one field -- "The ZIP codes field is
+     * required." and this one -- because an after-hook runs whether or not a
+     * rule has failed. The page showed the first; the second was noise
+     * recorded at Step 4 and settled here, where this hook had to learn about
+     * district segments anyway.
+     *
      * @return array<int, callable>
      */
     public function after(): array
     {
         return [
             function (Validator $validator): void {
+                if ($this->kind() !== self::BY_POSTCODES || $validator->errors()->has('postcode_prefixes')) {
+                    return;
+                }
+
                 if ($this->prefixes() === []) {
                     $validator->errors()->add(
                         'postcode_prefixes',
@@ -142,14 +215,60 @@ class NameSegmentRequest extends FormRequest
     /**
      * The segment as this form describes it, ready to be assigned.
      *
-     * @return array{name: string, postcode_prefixes: list<string>}
+     * **Both rules every time, one of them null**, so that the pair always
+     * satisfies `segments_narrow_one_way_only` -- the same reason
+     * ComposeBlastRequest::composed() returns both halves of a blast's aim.
+     * The district is stored as the seat's own label, so `ma-7` is kept as
+     * `MA-07`: the operator's spelling of a seat carries nothing the label
+     * does not, unlike a ZIP code prefix, which is stored as typed.
+     *
+     * @return array{name: string, postcode_prefixes: list<string>|null, district: string|null}
      */
     public function named(): array
     {
+        $byDistrict = $this->kind() === self::BY_DISTRICT;
+
         return [
             'name' => (string) $this->validated('name'),
-            'postcode_prefixes' => $this->prefixes(),
+            'postcode_prefixes' => $byDistrict ? null : $this->prefixes(),
+            'district' => $byDistrict ? $this->seat()?->label() : null,
         ];
+    }
+
+    /**
+     * Which rule this form is naming: a new segment's `narrow_by`, ZIP codes
+     * when it says nothing -- the only kind there was before D-37 -- or the
+     * kind of the segment being edited, whatever the form says.
+     */
+    private function kind(): string
+    {
+        $segment = $this->route('segment');
+
+        if ($segment instanceof Segment) {
+            return $segment->district === null ? self::BY_POSTCODES : self::BY_DISTRICT;
+        }
+
+        return $this->input('narrow_by') === self::BY_DISTRICT ? self::BY_DISTRICT : self::BY_POSTCODES;
+    }
+
+    /**
+     * The district the operator typed, as the relation names it, or null.
+     */
+    private function seat(): ?Seat
+    {
+        $typed = $this->input('district');
+
+        return is_string($typed) ? Seat::parse($typed, $this->relation()) : null;
+    }
+
+    /**
+     * The relation this release ships, read at most once per request and only
+     * by a form naming a district: reading it costs about 14 ms and 11 MB that
+     * a segment of ZIP codes has no use for.
+     */
+    private function relation(): ZctaDistricts
+    {
+        return $this->relation ??= ZctaDistricts::shipped();
     }
 
     /**

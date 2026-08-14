@@ -9,8 +9,9 @@ import { Label } from '@/components/ui/label';
 import { edit, index } from '@/routes/segments';
 import type { Segment } from '@/types';
 
-const { segment } = defineProps<{
+const { segment, congress } = defineProps<{
     segment: Segment;
+    congress: string | null;
 }>();
 
 /**
@@ -58,7 +59,13 @@ defineOptions({
                 <InputError :message="errors.name" />
             </div>
 
-            <div class="grid gap-2">
+            <!--
+                The segment keeps the kind it was named with (D-37), so the form
+                offers only the field that kind has. A blast may be aimed at a
+                segment of ZIP codes and not yet at a district one, and turning
+                one into the other would re-aim every draft pointing at it.
+            -->
+            <div v-if="segment.district === null" class="grid gap-2">
                 <Label for="postcode_prefixes">ZIP codes</Label>
                 <!--
                     Joined with ", " because that is how the field is read back:
@@ -83,10 +90,33 @@ defineOptions({
                 <InputError :message="errors.postcode_prefixes" />
             </div>
 
+            <div v-else class="grid gap-2">
+                <Label for="district">District</Label>
+                <Input
+                    id="district"
+                    name="district"
+                    required
+                    autocomplete="off"
+                    :default-value="segment.district"
+                />
+                <p class="text-sm text-muted-foreground">
+                    A state and a district number, like MA-07, as the
+                    {{ congress }} Congress drew it. The segment reaches only
+                    supporters whose ZIP code lies wholly inside the district;
+                    anyone in a ZIP code crossing its boundary is left out,
+                    because their ZIP code cannot say which side they live on.
+                </p>
+                <InputError :message="errors.district" />
+            </div>
+
             <p class="text-sm text-muted-foreground">
                 A segment says where, not who may be written to. The supporter
                 list shows everyone it names, including anyone who has
                 unsubscribed; a blast never writes to them.
+                <template v-if="segment.district !== null">
+                    A blast cannot yet be aimed at a segment that narrows by
+                    district.
+                </template>
             </p>
 
             <div class="flex items-center gap-3">

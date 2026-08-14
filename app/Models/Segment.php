@@ -89,9 +89,9 @@ use Illuminate\Support\Carbon;
  * **`#[UsePolicy]` arrived with the policy and `#[Fillable]` arrives with the
  * controller whose form mass-assigns**, which is the split `Blast` made for the
  * same reason. What the list permits is exactly what a person types: the name
- * and the rule. `operator_id` is stamped from the signed-in operator by
- * SegmentController::store() and is deliberately absent, so a form cannot claim
- * that somebody else named a segment.
+ * and the rule, which is prefixes or a district. `operator_id` is stamped from
+ * the signed-in operator by SegmentController::store() and is deliberately
+ * absent, so a form cannot claim that somebody else named a segment.
  *
  * @property int $id
  * @property int|null $operator_id
@@ -109,7 +109,7 @@ use Illuminate\Support\Carbon;
 // convention would make this line decorative and deletable with every test
 // still green. Here, deleting it turns the allow tests red.
 #[UsePolicy(SegmentPolicy::class)]
-#[Fillable(['name', 'postcode_prefixes'])]
+#[Fillable(['name', 'postcode_prefixes', 'district'])]
 class Segment extends Model
 {
     /** @use HasFactory<SegmentFactory> */

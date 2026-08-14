@@ -100,9 +100,9 @@ defineOptions({
             class="rounded-xl border border-sidebar-border/70 p-8 text-center dark:border-sidebar-border"
         >
             <p class="text-sm text-muted-foreground">
-                No segments yet. A segment is a group of ZIP codes this campaign
-                has named, so the supporter list can be narrowed to it without
-                typing the ZIP codes again.
+                No segments yet. A segment is a group of ZIP codes, or a
+                congressional district, that this campaign has named, so the
+                supporter list can be narrowed to it without typing it again.
             </p>
         </div>
 
