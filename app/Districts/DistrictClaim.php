@@ -82,8 +82,14 @@ final class DistrictClaim implements JsonSerializable
             return new self(DistrictAnswer::Missing, null, [], false, $seat);
         }
 
-        if (preg_match('/^(\d{5})(-?\d{4})?$/', $folded, $match) !== 1) {
-            return new self(DistrictAnswer::Malformed, null, [], preg_match('/^\d{4}$/', $folded) === 1, $seat);
+        // `D` makes `$` mean the end of the value. Without it PCRE lets `$`
+        // match before a final line break, so `"02141\n"` read as a ZIP here
+        // while PostgreSQL's `$` refuses it, and the same check asked of the
+        // database would disagree with this one. The fold removes spaces only,
+        // so a stored line break reaches this line: no form or import writes
+        // one, since both trim, but a seeder or a hand-written row can.
+        if (preg_match('/^(\d{5})(-?\d{4})?$/D', $folded, $match) !== 1) {
+            return new self(DistrictAnswer::Malformed, null, [], preg_match('/^\d{4}$/D', $folded) === 1, $seat);
         }
 
         $zip = $match[1];

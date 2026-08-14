@@ -104,6 +104,12 @@ test('a value that is not a ZIP is reported as one, never read as the nearest ZI
     'a ZIP with something after it' => ['90210abc', false],
     'a ZIP+4 missing digits' => ['90210-12', false],
     'a word' => ['banana', false],
+    // A line break is not folded away, so it is part of the value, and a value
+    // with one in it is not a ZIP -- which is also what PostgreSQL's `$` says
+    // of it, so this check and the same check asked of the database agree.
+    'a ZIP with a line break after it' => ["02141\n", false],
+    'a ZIP+4 with a line break after it' => ["02141-1234\n", false],
+    'four digits with a line break after them' => ["2139\n", false],
 ]);
 
 test('no ZIP at all is its own answer', function (?string $stored): void {
