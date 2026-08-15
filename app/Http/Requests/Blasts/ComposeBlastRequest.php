@@ -126,13 +126,17 @@ class ComposeBlastRequest extends FormRequest
     /**
      * Refuse a segment that narrows by congressional district (D-37).
      *
-     * **A blast may not be aimed by district until D-38 decides what a
-     * committed blast holds** when the relation behind a district changes with
-     * a release. BlastController does not offer such a segment, so this is
-     * reached by a form posted around the page, and it says why rather than
-     * letting App\Blasts\BlastAudience answer "nobody" -- which it would, and
-     * which send() would then refuse as an empty audience without saying that
-     * the aim was the reason.
+     * **D-38 is decided and the freeze has somewhere to live, so what this now
+     * holds back is the writing half.** `blasts.committed_zip_codes` exists and
+     * App\Blasts\BlastAudience replays it, but the statement that commits a
+     * blast does not yet fill it, so a district-aimed blast could be composed
+     * and then not be committable. BlastController does not offer such a
+     * segment either, so this is reached by a form posted around the page, and
+     * it says why rather than leaving the operator at a page that refuses their
+     * send without naming the aim as the reason.
+     *
+     * **It stops being a refusal in the commit that writes the freeze**, and
+     * this docblock and the message below go with it.
      */
     private function notAimedByDistrict(string $attribute, mixed $value, Closure $fail): void
     {

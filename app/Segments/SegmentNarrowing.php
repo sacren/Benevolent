@@ -31,11 +31,13 @@ use Illuminate\Database\Eloquent\Builder;
  * A segment with neither rule cannot be stored (`segments_narrow_one_way_only`)
  * and is answered the same way.
  *
- * **App\Blasts\BlastAudience does not come here, deliberately.** A blast may
- * not be aimed by district until D-38 decides what a committed blast holds
- * when the relation behind a district changes, so the sending module still
- * reads a segment's prefixes itself and reaches nobody through a district
- * segment.
+ * **App\Blasts\BlastAudience comes here for a draft, and deliberately not for
+ * a committed blast (D-38).** A draft points at its segment, so the audience a
+ * compose page shows is this rule, whichever kind the segment is -- which is
+ * what makes a blast's count and the supporter list's rows the same answer to
+ * the same question. A committed blast replays what it froze instead, and never
+ * consults a segment at all, because a segment stays editable after the
+ * campaign has given up the right to change the message.
  */
 final class SegmentNarrowing
 {

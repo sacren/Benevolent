@@ -473,9 +473,9 @@ test('an operator who may not read segments still gets the compose page, without
 });
 
 test('the compose form is not handed a segment that narrows by district', function (): void {
-    // A blast may not be aimed by district until D-38 decides what a committed
-    // blast holds when the relation behind a district changes, so the select
-    // offers only segments of ZIP code prefixes -- and still offers those.
+    // A blast may not be aimed by district until the statement that commits one
+    // writes the frozen ZIP codes (D-38), so the select offers only segments of
+    // ZIP code prefixes -- and still offers those.
     Segment::factory()->create(['name' => 'Beverly Hills']);
     Segment::factory()->inDistrict('MA-07')->create(['name' => 'MA-07 supporters']);
 
@@ -490,9 +490,10 @@ test('the compose form is not handed a segment that narrows by district', functi
 
 test('a blast cannot be aimed at a segment that narrows by district, and is told why', function (): void {
     // Posted around the page, which does not offer the segment. The refusal
-    // says what the reason is, where App\Blasts\BlastAudience would otherwise
-    // answer "nobody" and the send would be refused as an empty audience with
-    // no word about the aim.
+    // names the aim as the reason, which nothing else would: the audience now
+    // resolves such a segment live, so the draft would look sendable right up
+    // to the statement that commits it, where the freeze it owes is not yet
+    // written.
     $district = Segment::factory()->inDistrict('MA-07')->create();
     $postcodes = Segment::factory()->create();
     $operator = User::factory()->create();

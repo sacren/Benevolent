@@ -88,6 +88,14 @@ class BlastFactory extends Factory
      * exactly the row D-27 exists to prevent. Both orderings are covered: this
      * reads the status a committing state has already set, and the four states
      * below read the segment this one has already set.
+     *
+     * **A segment that narrows by district is the one case this cannot answer
+     * on its own (D-38).** Such a segment has no prefixes; what a commit
+     * freezes for it is the ZIP codes the relation claims for its seat, and
+     * working those out here would duplicate the rule under test. So a
+     * committing state over a district segment builds a row the database
+     * refuses, deliberately, and a test that wants one says which ZIP codes
+     * were frozen with frozenToZipCodes().
      */
     public function aimedAtSegment(Segment $segment): static
     {
@@ -97,6 +105,29 @@ class BlastFactory extends Factory
             'committed_prefixes' => self::statusOf($attributes)->isCommitted()
                 ? $segment->postcode_prefixes
                 : null,
+        ]);
+    }
+
+    /**
+     * Indicate that the blast froze a district's ZIP codes when it was
+     * committed (D-38).
+     *
+     * Given rather than computed, which is what keeps a test using this
+     * independent of the code that decides what a commit freezes -- and lets a
+     * test freeze a list its segment's seat would not claim today, which is the
+     * only way to show that a committed blast reads what it froze.
+     *
+     * Applied after a committing state, because it nulls the prefixes half:
+     * the check constraint allows exactly one frozen rule, so a row carrying
+     * both is refused.
+     *
+     * @param  list<string>  $zipCodes
+     */
+    public function frozenToZipCodes(array $zipCodes): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'committed_prefixes' => null,
+            'committed_zip_codes' => $zipCodes,
         ]);
     }
 

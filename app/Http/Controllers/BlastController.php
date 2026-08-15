@@ -374,9 +374,22 @@ class BlastController extends Controller
                 // on an attribute assigned to an instance, and nothing casts a
                 // value passed to update(). The column is json and the cast on
                 // the model reads it back as a list.
-                'committed_prefixes' => $committedAim === null
+                // **Only the prefixes half of the pair is written here, and
+                // the ZIP codes half is deliberately not (D-38).** A blast
+                // cannot be aimed at a district segment yet -- the page does
+                // not offer one and ComposeBlastRequest refuses one posted
+                // around it -- so no district-aimed blast can reach this
+                // statement through the product. One built directly and sent
+                // is refused by `blasts_committed_aim_is_frozen`, which
+                // requires exactly one frozen rule of a committed segment-aimed
+                // blast and gets none: a loud check violation rather than a
+                // frozen `[]` that would record an audience of nobody as
+                // though the campaign had committed to it. The commit that
+                // opens district aims writes the other key in this same
+                // statement.
+                'committed_prefixes' => $committedAim === null || $committedAim['committed_prefixes'] === null
                     ? null
-                    : json_encode($committedAim, JSON_THROW_ON_ERROR),
+                    : json_encode($committedAim['committed_prefixes'], JSON_THROW_ON_ERROR),
 
                 // Who committed it, which is not who wrote it: Staff may draft a
                 // blast and only an Owner may send one, so `operator_id` answers
@@ -451,11 +464,12 @@ class BlastController extends Controller
             return new Collection;
         }
 
-        // Only segments of ZIP code prefixes. A segment that narrows by
-        // congressional district is not something a blast may be aimed at
-        // until D-38 decides what a committed blast holds when the relation
-        // behind a district changes, so it is not offered; ComposeBlastRequest
-        // refuses one posted around this page.
+        // Only segments of ZIP code prefixes. D-38 is decided -- a committed
+        // district-aimed blast freezes the ZIP codes its seat claimed -- but
+        // the statement below that commits a blast does not write that column
+        // yet, so a district segment is still not something a blast may be
+        // aimed at, and it is not offered; ComposeBlastRequest refuses one
+        // posted around this page. Both go when the freeze is written.
         return Segment::query()->whereNull('district')->orderBy('name')->get();
     }
 

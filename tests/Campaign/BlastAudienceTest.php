@@ -401,24 +401,111 @@ test('a draft aimed at the same segment still follows it, in the same run', func
         ->and(BlastAudience::for($committed->refresh())->pluck('id')->all())->toBe([$named->getKey()]);
 });
 
-test('a segment that narrows by district reaches nobody through a blast, never everybody', function (): void {
-    // A blast may not be aimed by district until D-38 decides what a committed
-    // blast holds when the relation behind a district changes, so the form
-    // refuses such a segment and the compose page does not offer one. This is
-    // the line behind both: the database does not stop a blast pointing at a
-    // district segment, and one built directly must reach nobody -- a district
-    // segment has no prefixes, and "no prefixes" must never be read as "no
-    // rule", which on a blast is the whole contactable list.
-    supporterWithPostcode('02141');
+test('a draft aimed at a district segment reaches the supporters that district claims', function (): void {
+    // **The blast half of D-37's rule, opened by D-38.** A draft follows its
+    // segment, so a district segment's answer is the one the supporter list and
+    // the export already give: the people whose ZIP code lies wholly inside the
+    // seat as the shipped relation drew it. This test replaces the one that
+    // asserted such a blast reached nobody, which was the refusal standing in
+    // for this decision.
+    $claimed = supporterWithPostcode('02141');
+    $alsoClaimed = supporterWithPostcode('02115');
+
+    // 02139 straddles MA-05 and MA-07 and 90210 three California districts, so
+    // neither is claimed for anybody -- and a reader that widened to the ZIP
+    // codes crossing the boundary would reach the first of them.
+    supporterWithPostcode('02139');
     supporterWithPostcode('90210');
 
     $aimedByDistrict = Blast::factory()->aimedAtSegment(Segment::factory()->inDistrict('MA-07')->create())->create();
 
     // Paired through the same class in the same run with a blast naming no aim,
-    // which reaches both supporters, so this is not an audience that is broken.
+    // so this is a narrowing rather than an audience that is simply broken.
     $everyone = Blast::factory()->create();
 
-    expect(BlastAudience::size($aimedByDistrict))->toBe(0)
-        ->and(BlastAudience::committedAimFor($aimedByDistrict))->toBe([])
-        ->and(BlastAudience::size($everyone))->toBe(2);
+    expect(BlastAudience::for($aimedByDistrict)->pluck('id')->sort()->values()->all())
+        ->toBe([$claimed->getKey(), $alsoClaimed->getKey()])
+        ->and(BlastAudience::size($aimedByDistrict))->toBe(2)
+        ->and(BlastAudience::size($everyone))->toBe(4);
+});
+
+test('a committed blast replays the ZIP codes it froze, never its district segment', function (): void {
+    // D-27's property asked of the district half. The frozen list deliberately
+    // names one of the two ZIP codes the seat claims, so "the frozen rule was
+    // used" is distinguishable from "the segment happened to name the same
+    // people" -- and the segment is then re-aimed at a different seat entirely.
+    supporterWithPostcode('02141');
+    $frozenAudience = supporterWithPostcode('02115');
+
+    $segment = Segment::factory()->inDistrict('MA-07')->create();
+    $blast = Blast::factory()->aimedAtSegment($segment)->queued()->frozenToZipCodes(['02115'])->create();
+
+    $segment->update(['district' => 'CA-37']);
+
+    expect(BlastAudience::for($blast->refresh())->pluck('id')->all())->toBe([$frozenAudience->getKey()])
+        ->and(BlastAudience::size($blast))->toBe(1)
+        // And the segment really did move, so this is a difference rather than
+        // two readings of an unchanged row.
+        ->and($segment->fresh()->district)->toBe('CA-37');
+});
+
+test('frozen ZIP codes are replayed by the district rule, not by the prefix matcher', function (): void {
+    // **The reader question D-38 had to answer, and the reason the two frozen
+    // rules are two columns.** A stored `02141abc` is reached by the prefix
+    // matcher through `02141` and refused by the district rule, which claims
+    // nothing for a value that is not a ZIP code. Replaying a frozen district
+    // aim through the prefix matcher would therefore reach somebody the
+    // supporter list's District column says is placed nowhere.
+    $placed = supporterWithPostcode('02141');
+    $notAZipCode = supporterWithPostcode('02141abc');
+
+    $frozenByDistrict = Blast::factory()
+        ->aimedAtSegment(Segment::factory()->inDistrict('MA-07')->create())
+        ->queued()
+        ->frozenToZipCodes(['02141'])
+        ->create();
+
+    // The same five characters as a prefix, committed the other way, in the
+    // same run: it reaches both, which is what makes the assertion above a
+    // statement about the reader rather than about the supporter.
+    $frozenByPrefix = Blast::factory()
+        ->aimedAtSegment(Segment::factory()->narrowedToPostcodes(['02141'])->create())
+        ->queued()
+        ->create();
+
+    expect(BlastAudience::for($frozenByDistrict)->pluck('id')->all())->toBe([$placed->getKey()])
+        ->and(BlastAudience::for($frozenByPrefix)->pluck('id')->sort()->values()->all())
+        ->toBe([$placed->getKey(), $notAZipCode->getKey()]);
+});
+
+test('the aim a commit freezes names which of the two columns it belongs in', function (): void {
+    // The writing half of D-38, answered here so that the column a value is
+    // written to and the reader that replays it are decided in one place.
+    $prefixes = Segment::factory()->narrowedToPostcodes(['902'])->create();
+    $district = Segment::factory()->inDistrict('MA-07')->create();
+
+    $aimedAtPrefixes = Blast::factory()->aimedAtSegment($prefixes)->create();
+    $aimedAtDistrict = Blast::factory()->aimedAtSegment($district)->create();
+    $aimedAtNothing = Blast::factory()->create();
+
+    expect(BlastAudience::committedAimFor($aimedAtPrefixes))
+        ->toBe(['committed_prefixes' => ['902'], 'committed_zip_codes' => null])
+        // Nothing to freeze at all, which is null rather than a pair of nulls:
+        // the constraint wants no frozen rule on this row, and null is what the
+        // committing statement writes to both columns.
+        ->and(BlastAudience::committedAimFor($aimedAtNothing))->toBeNull();
+
+    $frozen = BlastAudience::committedAimFor($aimedAtDistrict);
+
+    // The seat's ZIP codes as the shipped relation claims them, checked against
+    // the count taken from the relation at Step 3 rather than against the same
+    // call that produced them, and at the two ends that matter: a ZIP code
+    // wholly inside MA-07 is in, and one straddling its boundary is out.
+    expect($frozen)->not->toBeNull()
+        ->and($frozen['committed_prefixes'])->toBeNull()
+        ->and($frozen['committed_zip_codes'])->toHaveCount(17)
+        ->and($frozen['committed_zip_codes'])->toContain('02141')
+        ->and($frozen['committed_zip_codes'])->toContain('02115')
+        ->and($frozen['committed_zip_codes'])->not->toContain('02139')
+        ->and($frozen['committed_zip_codes'])->not->toContain('90210');
 });

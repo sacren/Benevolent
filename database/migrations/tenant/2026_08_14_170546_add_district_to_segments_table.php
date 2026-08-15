@@ -34,7 +34,12 @@ use Illuminate\Support\Facades\Schema;
  * of naming a district rather than a list of ZIP codes. What a *committed
  * blast* aimed that way holds when it happens is D-38's, and no blast can be
  * aimed at a district segment until it is answered: the blast form refuses one,
- * and App\Blasts\BlastAudience reaches nobody through one.
+ * and App\Blasts\BlastAudience reaches nobody through one. (**D-38 was
+ * answered at Step 6** -- a committed blast freezes the ZIP codes the relation
+ * claimed, in `blasts.committed_zip_codes` -- and the last clause is corrected
+ * with it: that class resolves a draft's district segment live, through
+ * App\Segments\SegmentNarrowing. The form still refuses the aim until the
+ * statement that commits a blast writes the freeze.)
  *
  * **`postcode_prefixes` becomes nullable, and a check constraint takes over the
  * guarantee NOT NULL used to give.** NOT NULL was there so that a segment

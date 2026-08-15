@@ -59,14 +59,17 @@ use Illuminate\Support\Facades\Schema;
  * holds zero blasts as well, but that is the weaker of the two reasons and the
  * one that stops being true.
  *
- * **Nothing reads this column and nothing writes it, and that is the whole of
- * this commit.** A blast still cannot be aimed by district at all --
- * ComposeBlastRequest refuses such a segment, BlastController does not offer
- * one, and BlastAudience answers one with nobody -- and this constraint leaves
- * a committed district-aimed blast exactly as impossible as it was, since both
- * frozen columns would be null and none is not one. The place the freeze will
- * land is added before the statement that lands it, so that the writer cannot
- * ship without somewhere to write.
+ * **Nothing read this column and nothing wrote it when this migration shipped,
+ * and that was the whole of the commit that added it.** The place the freeze
+ * lands is added before the statement that lands it, so that the writer cannot
+ * ship without somewhere to write. **The tense is corrected here rather than
+ * left to mislead:** the commit after this one taught App\Blasts\BlastAudience
+ * to replay the column, so it is read now, and a blast still cannot be aimed by
+ * district -- ComposeBlastRequest refuses such a segment and BlastController
+ * does not offer one -- until the commit that writes the freeze. This
+ * constraint leaves a committed district-aimed blast exactly as impossible as
+ * it was while nothing writes the column, since both frozen columns would be
+ * null and none is not one.
  *
  * **Raw DDL for the seventh time in this project, and forced the same way the
  * other six were** rather than chosen: Blueprint has no check() method, so a

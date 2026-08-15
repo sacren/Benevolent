@@ -4,8 +4,13 @@ declare(strict_types=1);
 
 namespace App\Blasts;
 
+use App\Districts\DistrictClaim;
+use App\Districts\DistrictNarrowing;
+use App\Districts\ZctaDistricts;
 use App\Models\Blast;
+use App\Models\Segment;
 use App\Models\Supporter;
+use App\Segments\SegmentNarrowing;
 use App\Supporters\PostcodeNarrowing;
 use App\Supporters\SubscriptionStatus;
 use Illuminate\Database\Eloquent\Builder;
@@ -53,10 +58,12 @@ use Illuminate\Database\Eloquent\Builder;
  * exposure was the whole life of a send and not a window at the start of it.
  *
  * So the aim is frozen onto the blast by the statement that commits it, and
- * from that moment this class reads `blasts.committed_prefixes` and never the
- * segment. The two halves are not a compromise between them: a draft is a
- * document the campaign may still change, and everything past draft is a record
- * of something it cannot.
+ * from that moment this class reads what was frozen and never the segment --
+ * `blasts.committed_prefixes` for a segment of ZIP code prefixes and
+ * `blasts.committed_zip_codes` for one narrowing by district (D-38), the column
+ * being what says which rule replays it. The two halves are not a compromise
+ * between them: a draft is a document the campaign may still change, and
+ * everything past draft is a record of something it cannot.
  *
  * **A count taken from here is a prediction, not a promise, and any surface
  * showing one has to say so.** The rule is evaluated again when sending starts,
@@ -79,6 +86,16 @@ final class BlastAudience
      * Returns a query rather than a result so that the same rule can be counted
      * for a compose page and walked in chunks by a send, which is what keeps
      * "who we told you it would go to" and "who it went to" the same question.
+     *
+     * **An aim now has two shapes, and this is where the shape picks the reader
+     * (D-38).** A rule of ZIP code prefixes is answered by
+     * App\Supporters\PostcodeNarrowing and a district by
+     * App\Districts\DistrictNarrowing, which disagree about a stored
+     * `02141abc` -- the first reaches it through `02141` and the second refuses
+     * to claim anything for a value that is not a ZIP code. So this method
+     * returns a query rather than composing one from a list of prefixes: a
+     * shared return type of `list<string>` could only have carried one of the
+     * two rules, and the caller would have had to guess which.
      *
      * @return Builder<Supporter>
      */
@@ -106,37 +123,98 @@ final class BlastAudience
             return $query;
         }
 
-        return PostcodeNarrowing::apply($query, self::prefixesFor($blast));
+        // A blast carrying its own rule, which is prefixes and can be nothing
+        // else: `blasts` has no column in which a blast could name a district
+        // of its own, and D-37 gave the district half to segments deliberately.
+        if ($blast->segment_id === null) {
+            return PostcodeNarrowing::apply($query, $blast->postcode_prefixes ?? []);
+        }
+
+        // **A committed blast reads what it froze, and the branch is drawn on
+        // the status rather than on a frozen column being populated (D-27).**
+        // The two would be equivalent for every row the database will hold,
+        // since `blasts_committed_aim_is_frozen` ties a frozen rule to exactly
+        // the committed segment-aimed rows -- but they fail differently, and
+        // only one of them fails safely. Asking whether a frozen rule is
+        // present would let a committed blast that somehow lacked one fall
+        // through to the live segment below, which is silently the exact defect
+        // these columns exist to close. Asking the status means a committed
+        // blast never reads a segment at all.
+        if ($blast->status->isCommitted()) {
+            return self::replayFrozenAim($query, $blast);
+        }
+
+        return self::followSegment($query, $blast);
     }
 
     /**
-     * The prefixes this blast's aim currently names.
+     * The audience a committed blast froze, replayed by the rule that froze it.
      *
-     * Only ever called for a blast that has an aim, because the widening branch
-     * above has already returned for the one that does not -- which is why
-     * every path out of here is a narrowing and none of them can be mistaken
-     * for "no rule".
+     * **The column a frozen value sits in is what says how to replay it, and
+     * that is the whole of D-38's reader question.** `committed_zip_codes` holds
+     * whole ZIP codes the relation claimed for a seat, and only
+     * DistrictNarrowing may answer them: replaying them through
+     * PostcodeNarrowing would compare leading characters, so a supporter stored
+     * as `02141abc` would be reached by a narrowing that the supporter list's
+     * District column says is not in the district at all. `committed_prefixes`
+     * holds prefixes, which are a postal question claiming no district, and
+     * PostcodeNarrowing is what a prefix means (D-24, D-29).
      *
-     * **The empty list returned for a segment that will not resolve is the
+     * **Neither column populated reaches nobody, which is the branch above
+     * being kept honest.** The check constraint makes that row
+     * unrepresentable, so this is what the application does if a future writer
+     * forgets or the constraint is dropped -- and it falls to nobody rather
+     * than to the whole list, because over-inclusion is the direction a send
+     * cannot take back.
+     *
+     * @param  Builder<Supporter>  $query
+     * @return Builder<Supporter>
+     */
+    private static function replayFrozenAim(Builder $query, Blast $blast): Builder
+    {
+        $zipCodes = $blast->committed_zip_codes;
+
+        if ($zipCodes !== null) {
+            return DistrictNarrowing::toZipCodes($query, $zipCodes);
+        }
+
+        return PostcodeNarrowing::apply($query, $blast->committed_prefixes ?? []);
+    }
+
+    /**
+     * The audience a draft's segment names, as it stands at the moment of
+     * asking.
+     *
+     * Read, never copied -- for a draft, which is the only thing that still
+     * points. An operator correcting a segment corrects every draft aimed at
+     * it, which is what makes a pointer worth having.
+     *
+     * **Composed by App\Segments\SegmentNarrowing rather than here, and that
+     * is D-29 applied to the segment's own rule.** That class is where a
+     * segment's two kinds are turned into a query for the supporter list and
+     * the export, and a second reading of `segments.district` in this file
+     * would be a copy free to drift from it -- with the two disagreeing being a
+     * blast reaching people the list said were somebody else's constituents. It
+     * narrows to nobody for a segment naming a seat the relation does not, and
+     * for one carrying neither rule.
+     *
+     * **The empty audience returned for a segment that will not resolve is the
      * safety here, and it is not a formality.** A segment reached through a
      * pointer cannot be missing -- `blasts.segment_id` restricts on delete --
-     * so that branch is unreachable through a stored row. It is written
-     * anyway, and written as an empty list rather than as null, because the
-     * two possible spellings of "I could not resolve the aim" differ by the
-     * entire supporter list: an empty list
-     * reaches nobody through PostcodeNarrowing's own fail-closed case, while a
-     * null would arrive back at the widening branch above. The cost of the
-     * wrong one is a message in every supporter's inbox, so it is spelled the
-     * safe way, and a test drives it by building the state through the model
-     * rather than through the table.
+     * so that branch is unreachable through a stored row. It is written anyway,
+     * and it narrows to nobody rather than returning the untouched query,
+     * because the two possible spellings of "I could not resolve the aim"
+     * differ by the entire supporter list. The cost of the wrong one is a
+     * message in every supporter's inbox, so it is spelled the safe way, and a
+     * test drives it by building the state through the model rather than
+     * through the table.
      *
      * **It is written as an explicit branch rather than as `?->` with a
      * fallback, because static analysis reads the relation as never null and
      * refuses the shorter spelling.** That disagreement is worth recording
      * rather than silencing: the analyser is describing the schema, which is
      * right, and the test is describing a model somebody built by hand, which
-     * is also right. The branch below satisfies both and reads more plainly for
-     * a safety this consequential.
+     * is also right.
      *
      * **The segment is fetched through the relation's query rather than through
      * `$blast->segment`, and the reason is that this is the one place a draft's
@@ -146,75 +224,51 @@ final class BlastAudience
      * operation, which is one, and buys the property that gives a pointer its
      * whole value.
      *
-     * @return list<string>
+     * @param  Builder<Supporter>  $query
+     * @return Builder<Supporter>
      */
-    private static function prefixesFor(Blast $blast): array
+    private static function followSegment(Builder $query, Blast $blast): Builder
     {
-        if ($blast->segment_id !== null) {
-            // **A committed blast reads what it froze, and the branch is drawn
-            // on the status rather than on the column being populated (D-27).**
-            // The two were equivalent for every row the database would hold
-            // while one column carried every frozen rule. `committed_zip_codes`
-            // ends that (D-38): a committed blast frozen as a district's ZIP
-            // codes carries a null `committed_prefixes`, which the constraint
-            // now permits and this method cannot yet read. They fail
-            // differently, and only one of them fails safely. Asking whether a
-            // frozen rule is present would let such a blast -- or one that
-            // somehow lacked a frozen rule of either kind -- fall through to
-            // the live segment below, which is silently the exact defect these
-            // columns exist to close. Asking the status means a committed blast
-            // never reads a segment at all, and a frozen rule this method
-            // cannot read reaches nobody instead.
-            if ($blast->status->isCommitted()) {
-                return $blast->committed_prefixes ?? [];
-            }
+        $segment = $blast->segment()->first();
 
-            // Read, never copied -- for a draft, which is the only thing that
-            // still points. The rule is the segment's as it stands at the
-            // moment of asking, which is what makes the pointer worth having.
-            $segment = $blast->segment()->first();
-
-            if ($segment === null) {
-                return [];
-            }
-
-            // **A segment that narrows by district has no prefixes, and a blast
-            // aimed at one reaches nobody (D-37).** What a committed blast
-            // should hold when the relation behind a district changes is D-38,
-            // and until it is answered no blast may be aimed by district:
-            // ComposeBlastRequest refuses such a segment and BlastController
-            // does not offer one. This is the line behind those two, and it
-            // falls the safe way -- nobody, never the widening branch above,
-            // which is drawn on the blast's own columns and a segment cannot
-            // reach. An empty audience is also one send() refuses, so no blast
-            // aimed this way can be committed at all.
-            return $segment->postcode_prefixes ?? [];
+        if ($segment === null) {
+            return $query->whereRaw('false');
         }
 
-        return $blast->postcode_prefixes ?? [];
+        return SegmentNarrowing::apply($query, $segment);
     }
 
     /**
-     * The rule to freeze onto this blast as the campaign commits it (D-27).
+     * The rule to freeze onto this blast as the campaign commits it, and which
+     * column it belongs in (D-27, D-38).
      *
-     * **Null for a blast whose aim cannot move, and that is the whole of what
-     * this answers.** A blast carrying its own `postcode_prefixes` already has
-     * its rule on its own row, where the only thing that could change it is its
-     * own compose form -- and `refuseCommitted()` closes that the moment the
+     * **Null for a blast whose aim cannot move, and that is the first half of
+     * what this answers.** A blast carrying its own `postcode_prefixes` already
+     * has its rule on its own row, where the only thing that could change it is
+     * its own compose form -- and `refuseCommitted()` closes that the moment the
      * blast leaves draft. A blast aimed at nothing has no rule to freeze. The
      * one aim that can move under a committed blast is a segment's, because a
      * segment is shared and stays editable by design, so that is the one this
      * returns.
      *
+     * **The second half is which of the two frozen columns the commit must
+     * fill, and it is answered here because the reader is chosen by the column
+     * (D-38).** Exactly one key is non-null in every returned pair, matching
+     * what `blasts_committed_aim_is_frozen` requires of the row: a segment of
+     * prefixes freezes the prefixes it names, and a segment of a district
+     * freezes the ZIP codes the shipped relation claims for its seat, because
+     * the seat's name would describe a different audience after any release
+     * that replaces the relation.
+     *
      * **It is here rather than in the controller because the resolution below
      * is the same resolution `for()` performs**, and D-29's whole finding is
      * that a rule with two spellings is a rule its two readers are free to
      * disagree about. A controller that read the segment itself would be a
-     * second copy of `prefixesFor()`, free to drift from the one the send uses
-     * -- and the two disagreeing is precisely a message going somewhere the
-     * campaign did not commit it to.
+     * second copy of this, free to drift from the one the send uses -- and the
+     * two disagreeing is precisely a message going somewhere the campaign did
+     * not commit it to.
      *
-     * @return list<string>|null
+     * @return array{committed_prefixes: list<string>|null, committed_zip_codes: list<string>|null}|null
      */
     public static function committedAimFor(Blast $blast): ?array
     {
@@ -222,7 +276,40 @@ final class BlastAudience
             return null;
         }
 
-        return self::prefixesFor($blast);
+        $segment = $blast->segment()->first();
+
+        // A pointer that resolves to nothing freezes an empty rule rather than
+        // no rule, for followSegment()'s reason one screen up: an empty list
+        // reaches nobody where a null would leave the row refused by the check
+        // constraint, and of the two a committed blast that reaches nobody is
+        // the one that does not also break the page it was committed from.
+        if ($segment === null) {
+            return ['committed_prefixes' => [], 'committed_zip_codes' => null];
+        }
+
+        if ($segment->postcode_prefixes !== null) {
+            return ['committed_prefixes' => $segment->postcode_prefixes, 'committed_zip_codes' => null];
+        }
+
+        return ['committed_prefixes' => null, 'committed_zip_codes' => self::claimableZipCodesFor($segment)];
+    }
+
+    /**
+     * The ZIP codes the shipped relation claims for a district segment's seat.
+     *
+     * Read through App\Districts\ZctaDistricts, which is the only reader of
+     * the relation (D-34), and answered as an empty list for a seat the
+     * relation does not name -- a list that narrows to nobody, never to
+     * everybody.
+     *
+     * @return list<string>
+     */
+    private static function claimableZipCodesFor(Segment $segment): array
+    {
+        $relation = ZctaDistricts::shipped();
+        $seat = $segment->seat($relation);
+
+        return $seat === null ? [] : DistrictClaim::claimableIn($seat, $relation);
     }
 
     /**

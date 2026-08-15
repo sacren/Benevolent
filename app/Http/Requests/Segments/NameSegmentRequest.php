@@ -45,10 +45,21 @@ use Stringable;
  * (D-37), chosen when it is named and not changed by re-aiming it.** A new
  * segment says which in `narrow_by`, and one already named keeps its kind: a
  * district segment's form edits its district and a prefix segment's edits its
- * prefixes, whatever else is posted. Fixed rather than switchable because a
- * blast may be aimed at a prefix segment and not, until D-38, at a district
- * one -- so turning the first into the second would re-aim every draft
- * pointing at it into an aim the sending path answers with nobody.
+ * prefixes, whatever else is posted.
+ *
+ * **The reason it is fixed has changed, because the first one expired.** It was
+ * that a blast could be aimed at a prefix segment and not at a district one,
+ * so turning the first into the second would re-aim every draft pointing at it
+ * into an aim the sending path answered with nobody. D-38 is decided and the
+ * sending path now resolves a district segment, so that sentence is no longer
+ * true. What survives is a promise rather than a failure: a prefix is a postal
+ * question that claims nothing about anybody's representation, and a district
+ * is a claim that each person reached is a constituent, so switching a named
+ * segment between them would change what every draft aimed at it asserts --
+ * silently, under a name the operator chose for the other meaning. The blast
+ * list's "has changed since" comparison says the same thing from its own side:
+ * it can report a rule that moved, and has no sentence for a rule that changed
+ * kind.
  *
  * Authority is not asked here. The controller asks the policy, so that the
  * ability checked and the ability performed are the same line of code; a
