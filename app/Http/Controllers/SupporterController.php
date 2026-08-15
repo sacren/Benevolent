@@ -453,6 +453,13 @@ class SupporterController extends Controller
      * erased supporter's own household simply reaches nobody afterwards — which
      * was run rather than asserted. The `segments` migration carries the
      * measurement and the one residual it leaves standing.
+     *
+     * **`blasts.committed_zip_codes` (D-38) joins that list rather than
+     * lengthening this path**, and by construction rather than by measurement:
+     * its values are a district's claimable ZIP codes as read from the relation
+     * that ships with the code, never a value copied from a supporter's row and
+     * never a string an operator typed about a person. An erasure has nothing
+     * to reach there, and nothing writes the column yet in any case.
      */
     public function destroy(Supporter $supporter): RedirectResponse
     {

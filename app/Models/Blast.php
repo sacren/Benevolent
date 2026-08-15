@@ -60,8 +60,23 @@ use Illuminate\Support\Carbon;
  * campaign has committed it. `committed_prefixes` is what the pointer said at
  * the moment of committing, written by the same statement that commits the
  * blast. It is a record and never an aim: `blasts_committed_aim_is_frozen` ties
- * it to exactly the rows that have one, and `blasts_aimed_one_way_only` is
- * untouched because this column is not one of the two it governs.
+ * a frozen rule to exactly the rows that have one, and
+ * `blasts_aimed_one_way_only` is untouched because this column is not one of
+ * the two it governs.
+ *
+ * **A segment that narrows by district freezes into a column of its own, and
+ * which one a blast used is which reader replays it (D-38).** A district's rule
+ * is not a literal the campaign typed: `MA-07` names whatever relation ships
+ * with the release in force when the send finally runs, so what is frozen is
+ * the ZIP codes themselves, in `committed_zip_codes`. The two frozen columns
+ * are read by different rules -- `committed_prefixes` by
+ * App\Supporters\PostcodeNarrowing, which reaches a stored `02141abc` through
+ * `02141`, and `committed_zip_codes` by
+ * App\Districts\DistrictNarrowing::toZipCodes(), which does not -- so the
+ * column a value sits in is what says how to replay it, rather than the kind of
+ * a segment a committed blast is not allowed to read. The constraint counts:
+ * exactly one of the two on a committed segment-aimed blast, neither on
+ * anything else.
  *
  * **A blast that has left Draft can never return to it.** `queued_at` is the
  * moment the campaign committed the message to sending, and it is set once. The
@@ -77,6 +92,7 @@ use Illuminate\Support\Carbon;
  * @property int|null $segment_id
  * @property list<string>|null $postcode_prefixes
  * @property list<string>|null $committed_prefixes
+ * @property list<string>|null $committed_zip_codes
  * @property-read Segment|null $segment
  * @property BlastStatus $status
  * @property Carbon|null $queued_at
@@ -135,6 +151,7 @@ class Blast extends Model
         return [
             'postcode_prefixes' => 'array',
             'committed_prefixes' => 'array',
+            'committed_zip_codes' => 'array',
             'status' => BlastStatus::class,
             'queued_at' => 'datetime',
             'finished_at' => 'datetime',

@@ -442,3 +442,146 @@ test('the frozen aim round-trips through the database as a list', function (): v
     expect(Blast::query()->whereKey($blast->getKey())->sole()->committed_prefixes)
         ->toBe(['902', '911 0']);
 });
+
+test('a committed blast aimed at a district freezes ZIP codes rather than prefixes', function (): void {
+    // **The row this column exists for (D-38).** A segment that narrows by seat
+    // has no prefixes to freeze, and freezing `MA-07` itself would freeze a
+    // name whose meaning ships with the release -- so what is recorded is the
+    // ZIP codes the relation claimed at the moment the campaign committed.
+    //
+    // Written through the table rather than through the factory because
+    // nothing in the application writes this column yet: the statement that
+    // fills it and the reader that prefers it are later commits, and this is
+    // the place they will land.
+    $segment = Segment::factory()->inDistrict('MA-07')->create();
+
+    DB::connection('tenant')->table('blasts')->insert([
+        'subject' => 'To everyone we can place in MA-07',
+        'body' => 'Committed.',
+        'segment_id' => $segment->getKey(),
+        'committed_prefixes' => null,
+        'committed_zip_codes' => json_encode(['02141', '02115']),
+        'status' => 'queued',
+        'queued_at' => now(),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $blast = Blast::query()->sole();
+
+    // The cast, pinned the way the prefixes one is: a json column read back as
+    // a string would reach DistrictNarrowing::toZipCodes() as something its
+    // five-digit check refuses, and the fail-closed branch would turn a
+    // committed send into a send to nobody.
+    expect($blast->committed_zip_codes)->toBe(['02141', '02115'])
+        ->and($blast->committed_prefixes)->toBeNull();
+});
+
+test('the database refuses a blast frozen two ways at once', function (): void {
+    // **Which column a frozen rule sits in is what says how to replay it**, so
+    // a row holding both says two things at once: PostcodeNarrowing reaches a
+    // stored `02141abc` through `02141` and DistrictNarrowing does not, and a
+    // send choosing between them would be choosing who the message goes to.
+    //
+    // **The draft half is not the same mistake written twice.** It is the row
+    // the obvious amendment admits: written as `(num_nonnulls(...) = 1) =
+    // (committed and segment-aimed)`, a draft carrying both passes, because two
+    // is not one and a draft is not committed, and false equals false. The
+    // constraint counts instead, so both rows below are refused.
+    $segment = Segment::factory()->narrowedToPostcodes(['902'])->create();
+
+    $frozenRow = fn (string $status, ?string $queuedAt): array => [
+        'subject' => 'Frozen two ways',
+        'body' => 'Refused.',
+        'segment_id' => $segment->getKey(),
+        'committed_prefixes' => json_encode(['902']),
+        'committed_zip_codes' => json_encode(['02141']),
+        'status' => $status,
+        'queued_at' => $queuedAt,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ];
+
+    $committed = refusalFrom(fn () => DB::connection('tenant')->table('blasts')->insert(
+        $frozenRow('queued', (string) now())
+    ));
+
+    $draft = refusalFrom(fn () => DB::connection('tenant')->table('blasts')->insert(
+        $frozenRow('draft', null)
+    ));
+
+    expect($committed)->not->toBeNull()
+        // SQLSTATE 23514 -- check violation. Asserted by code rather than by
+        // message so a reworded or translated error cannot weaken this.
+        ->and((string) $committed->getCode())->toBe('23514')
+        ->and($draft)->not->toBeNull()
+        ->and((string) $draft->getCode())->toBe('23514');
+
+    // The positive half, through the same table in the same run: without it
+    // both refusals above pass just as happily against a table that refuses
+    // every insert.
+    $committing = Blast::factory()->aimedAtSegment($segment)->queued()->create();
+
+    expect($committing->committed_prefixes)->toBe(['902'])
+        ->and($committing->committed_zip_codes)->toBeNull()
+        ->and(Blast::query()->count())->toBe(1);
+});
+
+test('the database refuses a draft that already carries frozen ZIP codes', function (): void {
+    // The district twin of the refusal one screen up, and it fails the same
+    // way: a draft that has already recorded an aim has stopped following the
+    // segment its operator is still editing, while the page goes on naming the
+    // segment.
+    $segment = Segment::factory()->inDistrict('MA-07')->create();
+
+    $refusal = refusalFrom(fn () => DB::connection('tenant')->table('blasts')->insert([
+        'subject' => 'A draft that has already made up its mind',
+        'body' => 'Refused.',
+        'segment_id' => $segment->getKey(),
+        'committed_zip_codes' => json_encode(['02141']),
+        'status' => 'draft',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]));
+
+    expect($refusal)->not->toBeNull()
+        ->and((string) $refusal->getCode())->toBe('23514');
+
+    // A draft may point at a district segment -- the database has never said
+    // otherwise, and what stops a blast being aimed that way today is the
+    // compose form. What it may not do is carry the record of a commitment it
+    // has not made.
+    $draft = Blast::factory()->aimedAtSegment($segment)->create();
+
+    expect($draft->exists)->toBeTrue()
+        ->and($draft->committed_zip_codes)->toBeNull()
+        ->and(Blast::query()->count())->toBe(1);
+});
+
+test('a blast that never pointed at a segment cannot freeze ZIP codes either', function (): void {
+    // The rows the constraint must go on leaving alone, asserted against the
+    // new column rather than assumed from the old one. A blast carrying its own
+    // prefixes and a blast aimed at everybody have nothing to freeze, and a
+    // frozen value on either would be a record of a commitment to an aim
+    // neither of them made.
+    $refusal = refusalFrom(fn () => DB::connection('tenant')->table('blasts')->insert([
+        'subject' => 'Frozen without ever pointing anywhere',
+        'body' => 'Refused.',
+        'segment_id' => null,
+        'committed_zip_codes' => json_encode(['02141']),
+        'status' => 'queued',
+        'queued_at' => now(),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]));
+
+    expect($refusal)->not->toBeNull()
+        ->and((string) $refusal->getCode())->toBe('23514');
+
+    $carrying = Blast::factory()->narrowedToPostcodes(['902'])->queued()->create();
+    $everyone = Blast::factory()->queued()->create();
+
+    expect($carrying->committed_zip_codes)->toBeNull()
+        ->and($everyone->committed_zip_codes)->toBeNull()
+        ->and(Blast::query()->count())->toBe(2);
+});

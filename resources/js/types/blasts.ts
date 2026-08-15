@@ -45,9 +45,11 @@ export type Blast = {
 
     /**
      * What the aim named at the moment the campaign committed the blast, for a
-     * blast that pointed at a segment (D-27). Null for a draft, for a blast
-     * carrying its own rule, and for one aimed at everybody — the database ties
-     * it to exactly the rows that have one.
+     * blast that pointed at a segment of ZIP code prefixes (D-27). Null for a
+     * draft, for a blast carrying its own rule, for one aimed at everybody, and
+     * for one aimed at a district — the database ties a frozen rule to exactly
+     * the rows that have one, and this is the column holding it for a segment
+     * that narrows by prefix.
      *
      * **This, and not the segment, is what a committed blast actually reached.**
      * A segment stays editable after a blast has gone out, so `segment` is a
@@ -56,6 +58,20 @@ export type Blast = {
      * campaign used.
      */
     committed_prefixes: string[] | null;
+
+    /**
+     * The other frozen rule: the ZIP codes a district-aimed blast was committed
+     * to, as the relation shipping at that moment claimed them (D-38). Null for
+     * a draft, for a blast carrying its own rule, for one aimed at everybody,
+     * and for a committed blast that pointed at a segment of prefixes — exactly
+     * one of the two frozen columns is set on a committed segment-aimed blast,
+     * and neither on anything else.
+     *
+     * A seat's name is deliberately not what is frozen: the set of ZIP codes it
+     * claims is a fact about data that ships with a release, so the name alone
+     * would describe a different audience after the next one.
+     */
+    committed_zip_codes: string[] | null;
     status: BlastStatus;
     queued_at: string | null;
     finished_at: string | null;

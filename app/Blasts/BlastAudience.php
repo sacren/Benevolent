@@ -153,14 +153,18 @@ final class BlastAudience
         if ($blast->segment_id !== null) {
             // **A committed blast reads what it froze, and the branch is drawn
             // on the status rather than on the column being populated (D-27).**
-            // The two are equivalent for any row the database will hold, since
-            // `blasts_committed_aim_is_frozen` ties them together -- but they
-            // fail differently, and only one of them fails safely. Asking
-            // whether a frozen rule is present would let a committed blast that
-            // somehow lacked one fall through to the live segment below, which
-            // is silently the exact defect this column exists to close. Asking
-            // the status means a committed blast never reads a segment at all,
-            // and a missing frozen rule reaches nobody instead.
+            // The two were equivalent for every row the database would hold
+            // while one column carried every frozen rule. `committed_zip_codes`
+            // ends that (D-38): a committed blast frozen as a district's ZIP
+            // codes carries a null `committed_prefixes`, which the constraint
+            // now permits and this method cannot yet read. They fail
+            // differently, and only one of them fails safely. Asking whether a
+            // frozen rule is present would let such a blast -- or one that
+            // somehow lacked a frozen rule of either kind -- fall through to
+            // the live segment below, which is silently the exact defect these
+            // columns exist to close. Asking the status means a committed blast
+            // never reads a segment at all, and a frozen rule this method
+            // cannot read reaches nobody instead.
             if ($blast->status->isCommitted()) {
                 return $blast->committed_prefixes ?? [];
             }
