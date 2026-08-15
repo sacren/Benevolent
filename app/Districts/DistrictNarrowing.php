@@ -47,12 +47,25 @@ use Illuminate\Database\Eloquent\Builder;
  * characters are already one of the district's ZIP codes, and `case` is the
  * form in which SQL promises an order of evaluation.
  *
+ * **The ZIP codes can also be handed in rather than worked out (D-38).** A list
+ * kept from an earlier reading of the relation cannot be worked out again once
+ * a release has replaced that relation, because only one Congress's relation
+ * ships at a time -- so toZipCodes() is the same statement over a list the
+ * caller already has, and such a list is answered by the district's rule rather
+ * than by PostcodeNarrowing's.
+ *
  * **Like PostcodeNarrowing, it narrows and does nothing else.** Subscribed-only
  * is BlastAudience's invariant and does not travel here, because the supporter
  * list may legitimately show somebody who unsubscribed.
  */
 final class DistrictNarrowing
 {
+    /**
+     * What each element of a list of ZIP codes must be before it is bound:
+     * five digits and nothing else.
+     */
+    private const string ZIP_CODE = '/^[0-9]{5}$/D';
+
     /**
      * Narrow a supporter query to the supporters the product may say are in
      * the seat, as the relation's Congress drew it.
@@ -66,11 +79,51 @@ final class DistrictNarrowing
      */
     public static function apply(Builder $query, Seat $seat, ZctaDistricts $relation): Builder
     {
+        return self::toZipCodes($query, DistrictClaim::claimableIn($seat, $relation));
+    }
+
+    /**
+     * Narrow a supporter query to the supporters whose ZIP code is one of these,
+     * by the rule apply() narrows to a district with.
+     *
+     * For a list of a district's claimable ZIP codes kept from an earlier
+     * reading of the relation rather than worked out now (D-38), so that it is
+     * replayed by the district's own rule. PostcodeNarrowing would reach a
+     * stored `02141abc` through `02141`, which this statement does not, and a
+     * narrowing to a district would then reach somebody the district column
+     * calls not a ZIP.
+     *
+     * **Any element that is not five digits narrows the whole list to nobody.**
+     * The list is bound as one array literal, joined with commas, so an element
+     * holding a comma is read by PostgreSQL as more than one ZIP code: measured,
+     * `["02141,90210", "02142"]` binds as `{02141,90210,02142}`, three elements,
+     * and `90210` matches. A list read from the relation cannot hold one; a list
+     * read back from a column is only as good as whatever last wrote the column,
+     * so it is checked here rather than trusted. Refusing the whole list rather
+     * than dropping the element is the fail-closed reading: a kept list that
+     * cannot be read as written is not one to narrow by. An empty list narrows to
+     * nobody too, because an empty array matches no row.
+     *
+     * @param  Builder<Supporter>  $query
+     * @param  array<array-key, mixed>  $zipCodes
+     * @return Builder<Supporter>
+     */
+    public static function toZipCodes(Builder $query, array $zipCodes): Builder
+    {
+        $checked = [];
+
+        foreach ($zipCodes as $zipCode) {
+            if (! is_string($zipCode) || preg_match(self::ZIP_CODE, $zipCode) !== 1) {
+                return $query->whereRaw('false');
+            }
+
+            $checked[] = $zipCode;
+        }
+
         $folded = PostcodeNarrowing::FOLDED_POSTCODE;
 
-        // Bound as one array literal rather than one placeholder per ZIP code.
-        // Every element is five digits read from the relation, never anything
-        // an operator typed.
+        // Bound as one array literal rather than one placeholder per ZIP code,
+        // which the check above is what makes safe.
         //
         // **No `::text[]` on the placeholder, and the cast is the whole
         // difference between 50 ms and 10 s.** Written `any(?::text[])`, the
@@ -82,7 +135,7 @@ final class DistrictNarrowing
         // the value once.
         return $query->whereRaw(
             "case when left({$folded}, 5) = any(?) then {$folded} ~ ? else false end",
-            ['{'.implode(',', DistrictClaim::claimableIn($seat, $relation)).'}', DistrictClaim::SHAPE],
+            ['{'.implode(',', $checked).'}', DistrictClaim::SHAPE],
         );
     }
 }

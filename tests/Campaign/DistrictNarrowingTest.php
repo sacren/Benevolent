@@ -116,3 +116,52 @@ test('a district the relation has no ZIP code for narrows to nobody, never to ev
     expect(DistrictNarrowing::apply(Supporter::query(), Seat::fromGeoid('0699'), $this->relation)->count())->toBe(0)
         ->and(Supporter::query()->count())->toBe(count(districtCorpus()));
 });
+
+test('a list of a district\'s ZIP codes handed in narrows by the district\'s rule, not the prefix matcher\'s', function (): void {
+    // A list kept from an earlier reading of the relation (D-38) has to reach
+    // exactly who the district did, including leaving out every value that
+    // only begins with one of its ZIP codes -- which the prefix matcher would
+    // reach.
+    $ids = [];
+
+    foreach (districtCorpus() as $what => $postcode) {
+        $ids[$what] = Supporter::factory()->create(['postcode' => $postcode])->getKey();
+    }
+
+    $seat = Seat::parse('MA-07', $this->relation);
+    $kept = DistrictClaim::claimableIn($seat, $this->relation);
+
+    expect(DistrictNarrowing::toZipCodes(Supporter::query(), $kept)->pluck('id')->all())
+        ->toEqualCanonicalizing([
+            $ids['MA-07, five digits'],
+            $ids['MA-07, ZIP+4 with a hyphen'],
+            $ids['MA-07, ZIP+4 with a space'],
+            $ids['MA-07, ZIP+4 run together'],
+            $ids['MA-07, with spaces around it'],
+            $ids['MA-07, another ZIP code wholly inside it'],
+        ])
+        ->toEqualCanonicalizing(DistrictNarrowing::apply(Supporter::query(), $seat, $this->relation)->pluck('id')->all());
+});
+
+test('a list holding anything but five-digit ZIP codes narrows to nobody, never to more', function (array $zipCodes): void {
+    // The list is bound as one array literal joined with commas, so an element
+    // holding a comma would be read as two ZIP codes. `02115` is reached only if
+    // that happens, and the first case is exactly that. Without the check, the
+    // comma, the line break and the bad element among good ones reach
+    // somebody, and the brace and the number raise instead; the empty list is
+    // kept at nobody by the statement itself.
+    $inTheList = Supporter::factory()->create(['postcode' => '02141']);
+    Supporter::factory()->create(['postcode' => '02115']);
+
+    // The positive half through the same call in the same run, so this is not a
+    // statement that reaches nobody for everything.
+    expect(DistrictNarrowing::toZipCodes(Supporter::query(), $zipCodes)->pluck('id')->all())->toBe([])
+        ->and(DistrictNarrowing::toZipCodes(Supporter::query(), ['02141'])->pluck('id')->all())->toBe([$inTheList->getKey()]);
+})->with([
+    'an element holding a comma' => [['02141,02115']],
+    'an element holding a brace' => [['02141}', '02115']],
+    'a ZIP code with a line break after it' => [["02141\n"]],
+    'a number rather than a string' => [[2141]],
+    'one bad element among good ones' => [['02141', '0211']],
+    'no ZIP codes at all' => [[]],
+]);

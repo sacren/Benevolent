@@ -246,6 +246,7 @@ test('across every seat the relation names, each claimable ZIP code belongs to e
     // who is in it.
     $seen = [];
     $placedElsewhere = [];
+    $notFiveDigits = [];
 
     foreach ($this->relation->districts() as $geoid) {
         if (str_ends_with($geoid, 'ZZ')) {
@@ -258,11 +259,19 @@ test('across every seat the relation names, each claimable ZIP code belongs to e
             if (DistrictClaim::for($zip, $this->relation)->claimed()?->geoid !== $geoid) {
                 $placedElsewhere[] = $zip.' in '.$geoid;
             }
+
+            // DistrictNarrowing::toZipCodes() narrows a whole list to nobody for
+            // one element that is not five digits, so a relation holding such
+            // a ZCTA would silently empty every narrowing to its district.
+            if (preg_match('/^[0-9]{5}$/D', $zip) !== 1) {
+                $notFiveDigits[] = $zip.' in '.$geoid;
+            }
         }
     }
 
     // 27,929: the claimable ZCTAs the sweeps above count one ZIP code at a time.
     expect($placedElsewhere)->toBe([])
+        ->and($notFiveDigits)->toBe([])
         ->and(array_filter($seen, fn (int $times): bool => $times > 1))->toBe([])
         ->and($seen)->toHaveCount(27929);
 });
