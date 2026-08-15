@@ -8,12 +8,14 @@ use App\Models\Blast;
 use App\Models\Segment;
 use App\Models\Supporter;
 use App\Models\Tenant;
+use App\Models\User;
 use App\Supporters\SubscriptionStatus;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Mail\Events\MessageSent;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Symfony\Component\Mime\Email;
@@ -771,4 +773,115 @@ test('a second attempt at the same send cannot widen who it reaches', function (
         // two readings of an unchanged row.
         ->and($segment->fresh()->postcode_prefixes)->toBe(['021'])
         ->and($blast->fresh()->committed_prefixes)->toBe(['902']);
+});
+
+/**
+ * Sign an Owner in for real, on their campaign's own hostname.
+ *
+ * Named apart from the identical helper in
+ * CampaignBlastSegmentHttpIsolationTest because a global function cannot be
+ * declared twice in one process and both files run in this suite.
+ */
+function signInForSend(string $host, string $email): void
+{
+    Auth::forgetGuards();
+
+    test()->post('http://'.$host.'/login', [
+        'email' => $email,
+        'password' => 'password',
+    ])->assertRedirect();
+}
+
+test('a district blast reaches the ZIP codes its seat claims and not the ones its boundary crosses', function (): void {
+    // **Phase 4 exit criterion 3, asked of the send rather than of the query.**
+    // The audience tests prove the rule selects the right rows; this proves the
+    // messages went to the right inboxes, through the commit that froze the aim
+    // and a worker that read the frozen list back -- the path a campaign
+    // actually uses, with nothing standing in for anything.
+    //
+    // The three supporters are chosen to make the exclusion mean something.
+    // 02141 lies wholly inside MA-07 and is claimed for it; 02139 straddles
+    // MA-05 and MA-07, so the product refuses to place it and the blast must
+    // miss that person even though they are two streets away; 90210 is in
+    // another state entirely and is the control for "narrowed at all".
+    $sent = messagesSent();
+
+    $harbor = sendingCampaign('harbor-cleanup');
+
+    tenancy()->initialize($harbor);
+
+    User::factory()->owner()->create(['email' => 'operator@harbor-cleanup.test']);
+
+    foreach ([
+        'placed@harbor.test' => '02141',
+        'crossing@harbor.test' => '02139',
+        'elsewhere@harbor.test' => '90210',
+    ] as $address => $postcode) {
+        Supporter::factory()->create([
+            'email' => $address,
+            'postcode' => $postcode,
+            'subscription_status' => SubscriptionStatus::Subscribed,
+        ]);
+    }
+
+    $segment = Segment::factory()->inDistrict('MA-07')->create(['name' => 'Home district list']);
+    $blast = Blast::factory()->aimedAtSegment($segment)->create([
+        'subject' => 'Constituent meeting',
+        'body' => 'Come to the meeting on Thursday.',
+    ]);
+
+    tenancy()->end();
+
+    // Committed through the route an operator uses, so the frozen ZIP codes are
+    // the product's own reading of the relation rather than a list this test
+    // wrote and then checked itself against.
+    signInForSend('harbor-cleanup.test', 'operator@harbor-cleanup.test');
+
+    $this->post('http://harbor-cleanup.test/blasts/'.$blast->getKey().'/send')
+        ->assertRedirect();
+
+    QueueWorker::runNextJob();
+
+    expect($sent)->toHaveCount(1)
+        ->and($sent[0]->getTo()[0]->getAddress())->toBe('placed@harbor.test');
+
+    tenancy()->initialize($harbor);
+
+    $committed = Blast::query()->sole();
+
+    expect($committed->status)->toBe(BlastStatus::Sent)
+        // What it froze, and the boundary-crossing ZIP code is not in it: the
+        // claim is refused at the source rather than filtered at the send.
+        ->and($committed->committed_zip_codes)->toContain('02141')
+        ->and($committed->committed_zip_codes)->not->toContain('02139')
+        ->and($committed->committed_prefixes)->toBeNull()
+        // And the record of who it reached names one person.
+        ->and(DB::table('blast_recipients')->count())->toBe(1);
+
+    // **The control, in the same campaign in the same run.** Without it every
+    // assertion above is satisfied by a campaign whose other two supporters
+    // were never sendable -- unsubscribed, mis-seeded, or absent. A blast
+    // aimed at nobody in particular reaches all three.
+    $everyone = Blast::factory()->queued()->create([
+        'subject' => 'Everyone',
+        'body' => 'A second Thursday.',
+    ]);
+
+    SendBlast::dispatch($everyone, (string) $harbor->getKey());
+
+    tenancy()->end();
+
+    QueueWorker::runNextJob();
+
+    expect($sent)->toHaveCount(4);
+
+    $reached = [];
+
+    foreach ($sent as $message) {
+        $reached[] = $message->getTo()[0]->getAddress();
+    }
+
+    expect(array_slice($reached, 1))->toEqualCanonicalizing([
+        'placed@harbor.test', 'crossing@harbor.test', 'elsewhere@harbor.test',
+    ]);
 });

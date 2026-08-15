@@ -99,6 +99,46 @@ function stockBlastSegments(Tenant $campaign, string $operatorEmail, string $pre
 }
 
 /**
+ * Put one Owner, one *district* segment and a supporter list into a campaign.
+ *
+ * The district twin of stockBlastSegments(), and the two campaigns get
+ * different seats over the same supporter ZIP codes on purpose: both hold
+ * somebody in MA-07 and somebody in CA-37, so a leak cannot hide behind a
+ * campaign that had nobody the other campaign's rule could have reached.
+ *
+ * **Named `stockBlastDistrictSegments` rather than the obvious
+ * `stockDistrictSegments`, which CampaignSegmentHttpIsolationTest already
+ * declares.** A global function cannot be declared twice in one process, and
+ * the collision is a PHP fatal at load rather than a failing test -- invisible
+ * to a run of this file alone, which is how it was found here: green on its
+ * own, fatal in the suite.
+ *
+ * @param  list<string>  $postcodes  one supporter per entry, subscribed
+ * @return array{0: User, 1: Segment}
+ */
+function stockBlastDistrictSegments(Tenant $campaign, string $operatorEmail, string $seat, array $postcodes): array
+{
+    tenancy()->initialize($campaign);
+
+    $operator = User::factory()->owner()->create(['email' => $operatorEmail]);
+
+    foreach ($postcodes as $index => $postcode) {
+        Supporter::factory()->create([
+            'email' => 'supporter'.$index.'@'.$campaign->slug.'.test',
+            'postcode' => $postcode,
+        ]);
+    }
+
+    $segment = Segment::factory()
+        ->inDistrict($seat)
+        ->create(['name' => 'Home district list']);
+
+    tenancy()->end();
+
+    return [$operator, $segment];
+}
+
+/**
  * Sign an operator in for real, on their campaign's own hostname.
  */
 function signInAt(string $host, string $email): void
@@ -403,4 +443,80 @@ test('editing one campaign\'s segment leaves the other campaign\'s frozen blast 
     expect(Segment::query()->sole()->postcode_prefixes)->toBe(['021'])
         ->and($ridgeBlast->fresh()->committed_prefixes)->toBe(['021']);
     tenancy()->end();
+});
+
+test('a district segment id both campaigns use freezes each campaign\'s own seat', function (): void {
+    // **Phase 4 exit criterion 4, asked of the aim this step opened.** The
+    // prefix half of this claim is two screens up; a district segment reaches
+    // people through a *mapping* rather than through a stored list, so the
+    // question is asked again of a rule that is read from a relation at commit
+    // time. A freeze computed against the wrong connection would write the
+    // other campaign's seat onto this campaign's blast, and the frozen list is
+    // what the send walks -- so that is not a wrong label but the wrong people
+    // receiving a message.
+    //
+    // Queue::fake() because the subject is the row each request wrote. What a
+    // worker does with it is CampaignBlastSendingTest's.
+    Queue::fake();
+
+    $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
+    $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
+
+    // Both campaigns hold the same two ZIP codes: one claimed for MA-07, one
+    // claimed for CA-37. Only the seat differs, so nothing but the connection
+    // can decide which supporter each campaign's blast reaches.
+    [, $harborSegment] = stockBlastDistrictSegments($harbor, 'operator@harbor-cleanup.test', 'MA-07', ['02141', '90232']);
+    [, $ridgeSegment] = stockBlastDistrictSegments($ridge, 'operator@ridge-restoration.test', 'CA-37', ['02141', '90232']);
+
+    // The premise, asserted rather than assumed: were the ids to stop
+    // colliding this would keep passing while testing nothing.
+    expect($harborSegment->getKey())->toBe($ridgeSegment->getKey());
+
+    foreach ([
+        ['harbor-cleanup', $harbor, $harborSegment],
+        ['ridge-restoration', $ridge, $ridgeSegment],
+    ] as [$slug, $campaign, $segment]) {
+        signInAt($slug.'.test', 'operator@'.$slug.'.test');
+
+        $this->post('http://'.$slug.'.test/blasts', [
+            'subject' => 'Aimed at our own district',
+            'body' => 'The consultation closes on Friday.',
+            'segment_id' => (string) $segment->getKey(),
+        ])->assertRedirect();
+
+        tenancy()->initialize($campaign);
+        $blast = Blast::query()->sole();
+        tenancy()->end();
+
+        // Still a draft, so nothing is frozen yet -- which makes the assertions
+        // below a change rather than a restatement.
+        expect($blast->committed_zip_codes)->toBeNull();
+
+        $this->post('http://'.$slug.'.test/blasts/'.$blast->getKey().'/send')
+            ->assertRedirect();
+    }
+
+    // Both campaigns read back together, because the failure this guards is one
+    // campaign's seat appearing on the other's blast, and a per-campaign
+    // assertion inside the loop can pass twice against a value captured once.
+    tenancy()->initialize($harbor);
+    $harborFrozen = Blast::query()->sole()->committed_zip_codes;
+    tenancy()->end();
+
+    tenancy()->initialize($ridge);
+    $ridgeFrozen = Blast::query()->sole()->committed_zip_codes;
+    tenancy()->end();
+
+    // Each campaign froze the ZIP codes of its own seat, named at both ends:
+    // the one it must hold and the one belonging to the other campaign's seat,
+    // which it must not.
+    expect($harborFrozen)->toContain('02141')
+        ->and($harborFrozen)->not->toContain('90232')
+        ->and($ridgeFrozen)->toContain('90232')
+        ->and($ridgeFrozen)->not->toContain('02141')
+        // The two seats claim different numbers of ZIP codes, measured off the
+        // relation at Step 3, so a list served to both campaigns would also be
+        // the wrong length for one of them.
+        ->and($harborFrozen)->toHaveCount(17)
+        ->and($ridgeFrozen)->toHaveCount(10);
 });
