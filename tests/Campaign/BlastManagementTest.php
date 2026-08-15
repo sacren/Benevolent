@@ -472,10 +472,12 @@ test('an operator who may not read segments still gets the compose page, without
         ->assertInertia(fn (Assert $page) => $page->count('segments', 0));
 });
 
-test('the compose form is not handed a segment that narrows by district', function (): void {
-    // A blast may not be aimed by district until the pages that describe an aim
-    // can say what a district one is (D-38), so the select offers only segments
-    // of ZIP code prefixes -- and still offers those.
+test('the compose form is handed every segment, of either kind, with the map a district is read against', function (): void {
+    // **The refusal is gone (D-38).** The district half of a segment was
+    // withheld from this control while the sending path could not freeze what
+    // such a blast was aimed at; it freezes the ZIP codes the seat claimed, so
+    // the control offers what the campaign named. The Congress rides with it,
+    // because "MA-07" is a claim about one map (D-43).
     Segment::factory()->create(['name' => 'Beverly Hills']);
     Segment::factory()->inDistrict('MA-07')->create(['name' => 'MA-07 supporters']);
 
@@ -484,16 +486,34 @@ test('the compose form is not handed a segment that narrows by district', functi
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->where('segments.0.name', 'Beverly Hills')
-            ->count('segments', 1)
+            ->where('segments.1.name', 'MA-07 supporters')
+            ->where('segments.1.district', 'MA-07')
+            ->count('segments', 2)
+            ->where('congress', '119th')
         );
 });
 
-test('a blast cannot be aimed at a segment that narrows by district, and is told why', function (): void {
-    // Posted around the page, which does not offer the segment. The refusal
-    // names the aim as the reason, which nothing else would: the audience now
-    // resolves such a segment live, so the draft would look sendable right up
-    // to the statement that commits it, where the freeze it owes is not yet
-    // written.
+test('a campaign whose segments are all ZIP codes is sent no Congress to name', function (): void {
+    // The negative half of the prop, and the reason it is computed rather than
+    // sent unconditionally: naming a map costs a read of the relation, about
+    // 14 ms and 11 MB, and a page with no district segment on it has no
+    // sentence to spend that on.
+    Segment::factory()->create(['name' => 'Beverly Hills']);
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/blasts/create'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->count('segments', 1)
+            ->where('congress', null)
+        );
+});
+
+test('a blast may be aimed at a segment that narrows by district', function (): void {
+    // The refusal this replaces said a blast could not be aimed by district
+    // yet. It can: the audience resolves the segment while the blast is a
+    // draft, and the statement that commits it freezes the ZIP codes the seat
+    // claimed, so the message cannot be re-aimed by a later map.
     $district = Segment::factory()->inDistrict('MA-07')->create();
     $postcodes = Segment::factory()->create();
     $operator = User::factory()->create();
@@ -501,14 +521,15 @@ test('a blast cannot be aimed at a segment that narrows by district, and is told
     $this->actingAs($operator)
         ->post($this->campaignUrl('/blasts'), [
             'subject' => 'Aimed by district',
-            'body' => 'Refused.',
+            'body' => 'Stored.',
             'segment_id' => (string) $district->getKey(),
         ])
-        ->assertInvalid(['segment_id' => 'That segment narrows by congressional district, and a blast cannot be aimed by district yet.']);
+        ->assertSessionHasNoErrors();
 
-    expect(Blast::query()->count())->toBe(0);
+    expect(Blast::query()->sole()->segment_id)->toBe($district->getKey());
 
-    // The positive half through the same route in the same run.
+    // The other kind through the same route in the same run, so this is a form
+    // that takes both rather than one that stopped checking.
     $this->actingAs($operator)
         ->post($this->campaignUrl('/blasts'), [
             'subject' => 'Aimed by ZIP code',
@@ -517,5 +538,6 @@ test('a blast cannot be aimed at a segment that narrows by district, and is told
         ])
         ->assertSessionHasNoErrors();
 
-    expect(Blast::query()->sole()->segment_id)->toBe($postcodes->getKey());
+    expect(Blast::query()->count())->toBe(2)
+        ->and(Blast::query()->orderByDesc('id')->first()->segment_id)->toBe($postcodes->getKey());
 });

@@ -68,9 +68,10 @@ defineOptions({
 
             <!--
                 Chosen once, when the segment is named: its edit form keeps the
-                kind it was named with. A blast may be aimed at a segment of ZIP
-                codes and not yet at a district one, so turning one into the
-                other would re-aim every draft pointing at it.
+                kind it was named with. A prefix claims nothing about anybody's
+                representation and a district claims everyone reached is a
+                constituent, so turning one into the other would change what
+                every draft pointing at it asserts.
             -->
             <fieldset class="grid gap-2">
                 <legend class="mb-2 text-sm font-medium">Narrows by</legend>

@@ -11,11 +11,18 @@ import { usePermissions } from '@/composables/usePermissions';
 import { edit, index } from '@/routes/blasts';
 import type { Blast, Segment } from '@/types';
 
-const { blast, audienceSize, replyTo, segments } = defineProps<{
+const { blast, audienceSize, replyTo, segments, congress } = defineProps<{
     blast: Blast;
     audienceSize: number;
     replyTo: string | null;
     segments: Segment[];
+
+    /**
+     * The map a district segment's seat is read against (D-43), sent only when
+     * one of the segments offered narrows by district. See blasts/Create.vue
+     * for why `false` is a value this may hold and is not printed.
+     */
+    congress: string | false | null;
 }>();
 
 const { can } = usePermissions();
@@ -194,19 +201,30 @@ defineOptions({
                     class="h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm dark:bg-input/30"
                 >
                     <option value="">No segment</option>
+                    <!-- See blasts/Create.vue for why the seat rides here. -->
                     <option
                         v-for="segment in segments"
                         :key="segment.id"
                         :value="segment.id"
                         :selected="segment.id === blast.segment_id"
                     >
-                        {{ segment.name }}
+                        {{ segment.name
+                        }}<template v-if="segment.district !== null">
+                            — {{ segment.district }}</template
+                        >
                     </option>
                 </select>
                 <p class="text-sm text-muted-foreground">
                     Aim this blast at a narrowing you have named. The blast
                     follows the segment, so correcting the segment corrects this
                     blast too.
+                    <template v-if="typeof congress === 'string'">
+                        A segment that narrows by a congressional district
+                        reaches only supporters whose ZIP code lies wholly
+                        inside it, as the {{ congress }} Congress drew it; the
+                        ZIP codes it reaches are recorded when the blast is
+                        sent, so a later map cannot change who it went to.
+                    </template>
                 </p>
                 <InputError :message="errors.segment_id" />
             </div>

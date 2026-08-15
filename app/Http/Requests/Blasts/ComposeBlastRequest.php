@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Blasts;
 
-use App\Models\Segment;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -66,7 +65,6 @@ class ComposeBlastRequest extends FormRequest
                 'nullable',
                 'integer',
                 Rule::exists('segments', 'id'),
-                $this->notAimedByDistrict(...),
                 $this->aimedOneWayOnly(...),
             ],
 
@@ -120,29 +118,6 @@ class ComposeBlastRequest extends FormRequest
     {
         if ($this->prefixes() !== null) {
             $fail(__('A blast is aimed one way. Choose a segment or type ZIP codes, not both.'));
-        }
-    }
-
-    /**
-     * Refuse a segment that narrows by congressional district (D-37).
-     *
-     * **D-38 is decided, the audience resolves such a segment and the commit
-     * freezes its ZIP codes, so what is left holding this shut is what the
-     * pages say.** The compose select offers only segments of prefixes and the
-     * blast list has no sentence for a committed district aim -- it falls back
-     * to naming the segment -- so an operator aiming a blast this way would get
-     * a message that sends correctly and a list that describes it wrongly.
-     * BlastController does not offer such a segment either, so this is reached
-     * by a form posted around the page, and it says why rather than leaving the
-     * aim to be refused somewhere that does not name it as the reason.
-     *
-     * **It goes when those pages learn the shape**, and this docblock and the
-     * message below go with it.
-     */
-    private function notAimedByDistrict(string $attribute, mixed $value, Closure $fail): void
-    {
-        if (is_numeric($value) && Segment::query()->whereKey((int) $value)->whereNotNull('district')->exists()) {
-            $fail(__('That segment narrows by congressional district, and a blast cannot be aimed by district yet.'));
         }
     }
 

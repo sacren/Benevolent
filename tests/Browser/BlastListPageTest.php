@@ -237,3 +237,71 @@ test('a sent blast whose narrowing has not moved is still named by that narrowin
         ->assertDontSee('Subscribed in 911')
         ->assertNoJavaScriptErrors();
 });
+
+test('a sent blast aimed at a district counts the ZIP codes it froze, and names no map', function (): void {
+    // **The district half of the reporting question (D-38).** A blast aimed at a
+    // seat froze the ZIP codes that seat claimed, so the page counts them and
+    // names the segment they came from. It deliberately names neither the seat
+    // nor the Congress: `committed_zip_codes` records neither, and reading the
+    // seat off the segment would describe an act committed under one map with a
+    // value free to have moved since -- which is what the freeze exists to stop.
+    //
+    // **The segment is named without its seat in the name on purpose**, so that
+    // the two absences below are assertions rather than decoration: a segment
+    // called "MA-07 supporters" would put the seat on the page through its own
+    // name and neither could fail.
+    $segment = Segment::factory()->inDistrict('MA-07')->create(['name' => 'Home district list']);
+
+    Blast::factory()
+        ->aimedAtSegment($segment)
+        ->sent()
+        ->frozenToZipCodes(['02141', '02115'])
+        ->create(['subject' => 'Committed under one map']);
+
+    // The control on the same page in the same run: a draft aimed at the same
+    // segment still follows it, and is named by the segment rather than counted.
+    Blast::factory()->aimedAtSegment($segment)->create(['subject' => 'Still being written']);
+
+    // The segment is re-aimed at a seat on the other coast after the send.
+    $segment->update(['district' => 'CA-37']);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    // The aim cell of the row whose subject this is, as one expression, so the
+    // two assertions below differ only in the row they read.
+    $aimCellOf = static fn (string $subject): string => "Array.from(document.querySelectorAll('tbody tr'))"
+        .".find(r => r.children[0].textContent.trim() === '{$subject}')"
+        .".children[1].textContent.replace(/\s+/g, ' ').trim()";
+
+    visit('/blasts')
+        ->assertSee('Committed under one map')
+        ->assertSee('Still being written')
+
+        // **Read as the whole of that row's aim cell rather than with
+        // assertSee, and the difference is measurable rather than stylistic.**
+        // assertSee matches a substring anywhere on the page, so a summary that
+        // appended the segment's current seat -- `… from Home district list —
+        // CA-37`, which is exactly the defect this test exists to catch --
+        // satisfied the substring and was caught only by the absence below.
+        // Comparing the cell's whole text catches it on the sentence itself.
+        //
+        // Counted rather than listed: a seat holds up to 494 ZIP codes, and a
+        // list of them is not a sentence anybody reads.
+        ->assertScript($aimCellOf('Committed under one map')
+            ." === 'Subscribed in the 2 ZIP codes frozen from Home district list'")
+
+        // The draft follows the pointer, so it is named by the segment -- and
+        // is read the same exact way, which is also what stops the two rows'
+        // sentences being confused for one another by a substring match.
+        ->assertScript($aimCellOf('Still being written')
+            ." === 'Subscribed in Home district list'")
+
+        // Neither seat reaches this page: not the one the segment names today,
+        // and not the one it named when the blast went out. The second is the
+        // one that can only pass by the page refusing to reconstruct it, since
+        // the row still points at the segment.
+        ->assertDontSee('CA-37')
+        ->assertDontSee('MA-07')
+
+        ->assertNoJavaScriptErrors();
+});

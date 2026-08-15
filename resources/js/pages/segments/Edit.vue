@@ -61,9 +61,10 @@ defineOptions({
 
             <!--
                 The segment keeps the kind it was named with (D-37), so the form
-                offers only the field that kind has. A blast may be aimed at a
-                segment of ZIP codes and not yet at a district one, and turning
-                one into the other would re-aim every draft pointing at it.
+                offers only the field that kind has. A prefix claims nothing
+                about anybody's representation and a district claims everyone
+                reached is a constituent, so turning one into the other would
+                change what every draft pointing at it asserts.
             -->
             <div v-if="segment.district === null" class="grid gap-2">
                 <Label for="postcode_prefixes">ZIP codes</Label>
@@ -114,8 +115,9 @@ defineOptions({
                 list shows everyone it names, including anyone who has
                 unsubscribed; a blast never writes to them.
                 <template v-if="segment.district !== null">
-                    A blast cannot yet be aimed at a segment that narrows by
-                    district.
+                    A blast aimed at this segment records the ZIP codes this
+                    district claims at the moment it is sent, so editing the
+                    segment afterwards does not change who that message went to.
                 </template>
             </p>
 

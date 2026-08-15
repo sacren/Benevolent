@@ -256,3 +256,57 @@ test('a campaign that has named no narrowings is offered no control for them', f
         ->assertValue('#postcode_prefixes', '902')
         ->assertNoJavaScriptErrors();
 });
+
+test('the control offers a district segment by its seat, and names the map that seat is read against', function (): void {
+    // **The aim the compose page refused until D-38 was answered.** Two
+    // segments, one of each kind, so the assertion is that the control carries
+    // both rather than that it stopped filtering: a page showing only the
+    // district one would pass a weaker version of this test.
+    Segment::factory()->narrowedToPostcodes(['902'])->create(['name' => 'Beverly Hills']);
+    Segment::factory()->inDistrict('MA-07')->create(['name' => 'Home district list']);
+
+    Supporter::factory()->create(['postcode' => '02141']);
+
+    $blast = Blast::factory()->create(['subject' => 'Dockside works begin']);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    visit('/blasts/'.$blast->getKey().'/edit')
+        ->assertSee('Dockside works begin')
+
+        // Both kinds are offered, and the district one carries its seat --
+        // read through the DOM because an option's label is not visible text
+        // until the list is opened.
+        ->assertScript(
+            "Array.from(document.querySelectorAll('#segment_id option'))"
+            ."   .map(o => o.textContent.replace(/\\s+/g, ' ').trim()).join('|')"
+            ."   === 'No segment|Beverly Hills|Home district list — MA-07'"
+        )
+
+        // **D-43 on this page.** A seat is a claim about one map, so the map is
+        // named -- once, beneath the control, rather than on every option.
+        ->assertSee('as the 119th Congress drew it')
+
+        // And what the freeze buys is said where the aim is chosen rather than
+        // discovered afterwards.
+        ->assertSee('recorded when the blast is sent')
+
+        ->assertNoJavaScriptErrors();
+});
+
+test('a campaign whose segments are all ZIP codes is told nothing about maps', function (): void {
+    // The control for the sentence above: shown unconditionally it would be
+    // decoration on every compose page in the product, and the test above could
+    // not tell the difference.
+    Segment::factory()->narrowedToPostcodes(['902'])->create(['name' => 'Beverly Hills']);
+
+    $blast = Blast::factory()->create(['subject' => 'Dockside works begin']);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    visit('/blasts/'.$blast->getKey().'/edit')
+        ->assertSee('Dockside works begin')
+        ->assertPresent('[data-test="aim-at-segment"]')
+        ->assertDontSee('Congress')
+        ->assertNoJavaScriptErrors();
+});

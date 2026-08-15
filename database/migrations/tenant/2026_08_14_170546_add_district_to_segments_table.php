@@ -38,8 +38,9 @@ use Illuminate\Support\Facades\Schema;
  * answered at Step 6** -- a committed blast freezes the ZIP codes the relation
  * claimed, in `blasts.committed_zip_codes` -- and the last clause is corrected
  * with it: that class resolves a draft's district segment live, through
- * App\Segments\SegmentNarrowing. The form still refuses the aim until the
- * statement that commits a blast writes the freeze.)
+ * App\Segments\SegmentNarrowing, and a blast may be aimed at a district
+ * segment: the statement that commits one records the ZIP codes its seat
+ * claimed, so what a sent message went to cannot be moved by a later map.)
  *
  * **`postcode_prefixes` becomes nullable, and a check constraint takes over the
  * guarantee NOT NULL used to give.** NOT NULL was there so that a segment

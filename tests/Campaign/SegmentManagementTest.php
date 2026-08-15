@@ -477,7 +477,8 @@ test('a segment keeps the kind it was named with when it is re-aimed', function 
         ->assertRedirect(route('segments.index'));
 
     // A ZIP code segment asked to become a district segment stays what it is:
-    // a blast may be aimed at it, and a blast may not be aimed by district.
+    // the two kinds claim different things, so a segment cannot switch between
+    // them under the drafts aimed at it (D-37).
     $this->actingAs($operator)
         ->patch($this->campaignUrl('/segments/'.$postcodes->getKey()), [
             'name' => 'By ZIP code',

@@ -143,17 +143,43 @@ function sameRule(one: string[], other: string[]): boolean {
 /**
  * What a blast the campaign has already committed was aimed at.
  *
- * **The null case stopped being unreachable when the second frozen column
- * arrived (D-38).** The check constraint still gives every committed
- * segment-aimed blast a frozen rule, but a district-aimed one keeps it in
- * `committed_zip_codes`, which this page does not read: it has no sentence for
- * a seat's worth of ZIP codes, and writing one is what opening the aim is
- * waiting on. That this page cannot describe such a blast is exactly why the
- * compose form still refuses to aim one. Meanwhile the fallback goes the way
- * the server's does: say the segment rather than name a rule this blast never
- * used.
+ * **Two frozen columns, and which one holds the rule is which sentence this
+ * writes (D-38).** A blast aimed at a segment of prefixes froze those prefixes
+ * and can be compared against the segment as it stands; one aimed at a district
+ * froze the ZIP codes its seat claimed, and is counted rather than listed --
+ * a seat holds up to 494 of them, and a list of 17 is no more readable than a
+ * number.
+ *
+ * **It names neither the seat nor the Congress, and that is a limit of the row
+ * rather than a choice about wording.** `committed_zip_codes` records the ZIP
+ * codes and nothing else: not the seat they were claimed for, and not the map
+ * they were claimed from. The segment still on the row carries today's seat,
+ * and reading it here would describe an act the campaign committed under one
+ * map using a value that has since been free to move -- which is the same
+ * defect the freeze exists to prevent, arriving through a sentence instead of
+ * through an audience. So the seat appears only as the segment's name, which is
+ * provenance rather than a claim, and D-43's requirement to name a Congress
+ * beside a district does not arise, because no district is named.
+ *
+ * The null-both case stays unreachable through a stored row -- the check
+ * constraint gives every committed segment-aimed blast exactly one frozen rule
+ * -- and is still written, in the same direction the server's fallback goes:
+ * say the segment rather than name a rule this blast never used.
  */
 function committedAudienceSummary(blast: Blast): string {
+    const zipCodes = blast.committed_zip_codes;
+
+    if (zipCodes !== null) {
+        const where =
+            zipCodes.length === 1
+                ? '1 ZIP code'
+                : `${zipCodes.length} ZIP codes`;
+
+        return blast.segment
+            ? `Subscribed in the ${where} frozen from ${blast.segment.name}`
+            : `Subscribed in the ${where} frozen when it was sent`;
+    }
+
     const frozen = blast.committed_prefixes;
 
     if (frozen === null) {

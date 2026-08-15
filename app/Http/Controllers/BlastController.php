@@ -7,6 +7,7 @@ namespace App\Http\Controllers;
 use App\Blasts\BlastAudience;
 use App\Blasts\BlastStatus;
 use App\Blasts\SendBlast;
+use App\Districts\ZctaDistricts;
 use App\Http\Requests\Blasts\ComposeBlastRequest;
 use App\Models\Blast;
 use App\Models\Segment;
@@ -17,6 +18,7 @@ use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Number;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -180,8 +182,11 @@ class BlastController extends Controller
     {
         $this->authorize('create', Blast::class);
 
+        $segments = $this->segments();
+
         return Inertia::render('blasts/Create', [
-            'segments' => $this->segments(),
+            'segments' => $segments,
+            'congress' => $this->congressFor($segments),
         ]);
     }
 
@@ -238,7 +243,10 @@ class BlastController extends Controller
             // The narrowings this campaign has named, so the operator can point
             // at one rather than retype it. See segments() for why an operator
             // who may not read them is still given this page.
-            'segments' => $this->segments(),
+            'segments' => $segments = $this->segments(),
+
+            // The map a district segment's seat is read against (D-43).
+            'congress' => $this->congressFor($segments),
 
             // **A prediction, not a promise, and the page says so in those
             // words.** The audience is a rule evaluated again when sending
@@ -413,6 +421,36 @@ class BlastController extends Controller
     }
 
     /**
+     * The Congress whose map the district segments on this page are read
+     * against (D-43), or null when none of them narrows by district.
+     *
+     * **Read only when a district segment is actually offered**, which is the
+     * difference from SegmentController's own pages: those exist to name a
+     * district, so the relation is worth about 14 ms and 11 MB to them every
+     * time. A compose page is mostly opened by campaigns that aim by ZIP code
+     * or at everybody, and making all of them pay for a sentence none of them
+     * sees would be a cost with no reader.
+     *
+     * Null is the absence of the sentence rather than an unknown Congress: the
+     * page renders no claim about a map, so there is no map to name. **`false`
+     * is a third thing again and is passed through rather than folded into
+     * null**, which is the answer SegmentController and SupporterController
+     * already record: `Number::ordinal()` returns `string|false`, and turning a
+     * formatting failure into "no district segment here" would drop a sentence
+     * the page owes rather than report that it could not be written.
+     *
+     * @param  Collection<int, Segment>  $segments
+     */
+    private function congressFor(Collection $segments): string|false|null
+    {
+        if ($segments->every(fn (Segment $segment): bool => $segment->district === null)) {
+            return null;
+        }
+
+        return Number::ordinal(ZctaDistricts::shipped()->congress());
+    }
+
+    /**
      * One half of a frozen aim, encoded for the statement that commits a blast.
      *
      * **Encoded rather than handed over as a list, because this is the query
@@ -481,14 +519,14 @@ class BlastController extends Controller
             return new Collection;
         }
 
-        // Only segments of ZIP code prefixes. The sending path is ready for a
-        // district segment -- the audience resolves one and send() freezes its
-        // ZIP codes -- but this page's select and the blast list's summaries
-        // have no sentence for that aim, so offering it would let an operator
-        // commit a message these pages then describe wrongly.
-        // ComposeBlastRequest refuses one posted around this page, and both go
-        // when the pages learn the shape.
-        return Segment::query()->whereNull('district')->orderBy('name')->get();
+        // **Every segment the campaign has named, of either kind (D-38).**
+        // The district half was withheld while the sending path could not
+        // freeze what such a blast was aimed at; it can now, so withholding it
+        // would be this page refusing a narrowing the campaign made for exactly
+        // this purpose. A segment is offered by name, which is the campaign's
+        // own words for it, and what each kind reaches is said beneath the
+        // control rather than guessed from the name.
+        return Segment::query()->orderBy('name')->get();
     }
 
     /**
