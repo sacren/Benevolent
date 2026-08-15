@@ -473,9 +473,9 @@ test('an operator who may not read segments still gets the compose page, without
 });
 
 test('the compose form is not handed a segment that narrows by district', function (): void {
-    // A blast may not be aimed by district until the statement that commits one
-    // writes the frozen ZIP codes (D-38), so the select offers only segments of
-    // ZIP code prefixes -- and still offers those.
+    // A blast may not be aimed by district until the pages that describe an aim
+    // can say what a district one is (D-38), so the select offers only segments
+    // of ZIP code prefixes -- and still offers those.
     Segment::factory()->create(['name' => 'Beverly Hills']);
     Segment::factory()->inDistrict('MA-07')->create(['name' => 'MA-07 supporters']);
 

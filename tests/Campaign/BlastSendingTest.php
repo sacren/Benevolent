@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Authorization\OperatorRole;
 use App\Authorization\Permission;
+use App\Blasts\BlastAudience;
 use App\Blasts\BlastStatus;
 use App\Blasts\SendBlast;
 use App\Models\Blast;
@@ -411,4 +412,91 @@ test('committing a blast that carries its own rule freezes nothing', function ()
     expect($committed->status)->toBe(BlastStatus::Queued)
         ->and($committed->committed_prefixes)->toBeNull()
         ->and($committed->postcode_prefixes)->toBe(['902']);
+});
+
+test('committing a blast aimed at a district freezes the ZIP codes its seat claims', function (): void {
+    // **The writing half of D-38.** A district segment's rule is not a literal
+    // the campaign typed: `MA-07` names whatever relation the release in force
+    // at send time ships, and with no worker running anywhere a committed blast
+    // can wait across releases. So what the commit copies is the ZIP codes
+    // themselves, and the column it copies them into is what tells the send to
+    // replay them by the district's rule rather than the prefix matcher's.
+    Queue::fake();
+
+    Supporter::factory()->create([
+        'postcode' => '02141',
+        'subscription_status' => SubscriptionStatus::Subscribed,
+    ]);
+
+    $segment = Segment::factory()->inDistrict('MA-07')->create();
+    $blast = Blast::factory()->aimedAtSegment($segment)->create();
+
+    // A draft holds neither half frozen, which is what makes the assertions
+    // after the commit a change rather than a restatement.
+    expect($blast->committed_zip_codes)->toBeNull()
+        ->and($blast->committed_prefixes)->toBeNull();
+
+    $this->actingAs(owner())
+        ->post($this->campaignUrl('/blasts/'.$blast->getKey().'/send'))
+        ->assertRedirect(route('blasts.index'));
+
+    $committed = $blast->fresh();
+
+    // The count is the relation's own, taken at Step 3 rather than from the
+    // call that produced this list, and the two ends that matter are named:
+    // 02141 lies wholly inside MA-07 and 02139 straddles its boundary.
+    expect($committed->status)->toBe(BlastStatus::Queued)
+        ->and($committed->committed_zip_codes)->toHaveCount(17)
+        ->and($committed->committed_zip_codes)->toContain('02141')
+        ->and($committed->committed_zip_codes)->not->toContain('02139')
+        // The other half stays null, which is the constraint's "exactly one"
+        // seen from the row: a blast frozen two ways would be one no reader
+        // could replay without choosing.
+        ->and($committed->committed_prefixes)->toBeNull()
+        // The pointer stays, for the reason a prefix-aimed commit keeps it: a
+        // campaign has to be able to say which narrowing a message was sent to.
+        ->and($committed->segment_id)->toBe($segment->getKey());
+
+    Queue::assertPushed(SendBlast::class);
+});
+
+test('a district blast holds what its seat claimed, not what the segment says afterwards', function (): void {
+    // The property the freeze buys, asked of the half that moves for a reason
+    // no operator can see: a district segment can be re-aimed at another seat,
+    // and a release can redraw the seat it already names. The first is what
+    // this drives, because it is the one a test can perform.
+    Queue::fake();
+
+    $frozenAudience = Supporter::factory()->create([
+        'postcode' => '02141',
+        'subscription_status' => SubscriptionStatus::Subscribed,
+    ]);
+    Supporter::factory()->create([
+        'postcode' => '90232',
+        'subscription_status' => SubscriptionStatus::Subscribed,
+    ]);
+
+    $segment = Segment::factory()->inDistrict('MA-07')->create();
+    $blast = Blast::factory()->aimedAtSegment($segment)->create();
+
+    $this->actingAs(owner())
+        ->post($this->campaignUrl('/blasts/'.$blast->getKey().'/send'))
+        ->assertRedirect(route('blasts.index'));
+
+    $frozen = $blast->fresh()->committed_zip_codes;
+
+    // Re-aimed at a seat on the other coast -- disjoint rather than wider, so
+    // the assertion distinguishes "the frozen list was used" from "the edited
+    // segment happened to name the same people". 90232 is claimed for CA-37.
+    $segment->update(['district' => 'CA-37']);
+
+    expect($blast->fresh()->committed_zip_codes)->toBe($frozen)
+        ->and($blast->fresh()->committed_zip_codes)->toContain('02141')
+        ->and($blast->fresh()->committed_zip_codes)->not->toContain('90232')
+        // The segment really did move, so this is a difference rather than two
+        // readings of an unchanged row.
+        ->and($segment->fresh()->district)->toBe('CA-37')
+        // And the audience the send will walk is still the one committed to.
+        ->and(BlastAudience::for($blast->fresh())->pluck('id')->all())
+        ->toBe([$frozenAudience->getKey()]);
 });

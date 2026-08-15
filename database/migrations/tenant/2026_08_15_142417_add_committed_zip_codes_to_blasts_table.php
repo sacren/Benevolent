@@ -62,14 +62,13 @@ use Illuminate\Support\Facades\Schema;
  * **Nothing read this column and nothing wrote it when this migration shipped,
  * and that was the whole of the commit that added it.** The place the freeze
  * lands is added before the statement that lands it, so that the writer cannot
- * ship without somewhere to write. **The tense is corrected here rather than
- * left to mislead:** the commit after this one taught App\Blasts\BlastAudience
- * to replay the column, so it is read now, and a blast still cannot be aimed by
- * district -- ComposeBlastRequest refuses such a segment and BlastController
- * does not offer one -- until the commit that writes the freeze. This
- * constraint leaves a committed district-aimed blast exactly as impossible as
- * it was while nothing writes the column, since both frozen columns would be
- * null and none is not one.
+ * ship without somewhere to write. The reader arrived in the commit after this
+ * one, App\Blasts\BlastAudience replaying the column for a committed blast,
+ * and the writer in the one after that, BlastController::send() filling it as
+ * it commits. **This paragraph is kept in the past tense deliberately:** a
+ * migration describes the moment it shipped, and two corrections in two
+ * commits were what showed that a sentence here about what the rest of the
+ * code does today is a sentence that expires.
  *
  * **Raw DDL for the seventh time in this project, and forced the same way the
  * other six were** rather than chosen: Blueprint has no check() method, so a

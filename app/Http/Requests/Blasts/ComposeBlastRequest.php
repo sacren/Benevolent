@@ -126,17 +126,18 @@ class ComposeBlastRequest extends FormRequest
     /**
      * Refuse a segment that narrows by congressional district (D-37).
      *
-     * **D-38 is decided and the freeze has somewhere to live, so what this now
-     * holds back is the writing half.** `blasts.committed_zip_codes` exists and
-     * App\Blasts\BlastAudience replays it, but the statement that commits a
-     * blast does not yet fill it, so a district-aimed blast could be composed
-     * and then not be committable. BlastController does not offer such a
-     * segment either, so this is reached by a form posted around the page, and
-     * it says why rather than leaving the operator at a page that refuses their
-     * send without naming the aim as the reason.
+     * **D-38 is decided, the audience resolves such a segment and the commit
+     * freezes its ZIP codes, so what is left holding this shut is what the
+     * pages say.** The compose select offers only segments of prefixes and the
+     * blast list has no sentence for a committed district aim -- it falls back
+     * to naming the segment -- so an operator aiming a blast this way would get
+     * a message that sends correctly and a list that describes it wrongly.
+     * BlastController does not offer such a segment either, so this is reached
+     * by a form posted around the page, and it says why rather than leaving the
+     * aim to be refused somewhere that does not name it as the reason.
      *
-     * **It stops being a refusal in the commit that writes the freeze**, and
-     * this docblock and the message below go with it.
+     * **It goes when those pages learn the shape**, and this docblock and the
+     * message below go with it.
      */
     private function notAimedByDistrict(string $attribute, mixed $value, Closure $fail): void
     {

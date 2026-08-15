@@ -374,22 +374,19 @@ class BlastController extends Controller
                 // on an attribute assigned to an instance, and nothing casts a
                 // value passed to update(). The column is json and the cast on
                 // the model reads it back as a list.
-                // **Only the prefixes half of the pair is written here, and
-                // the ZIP codes half is deliberately not (D-38).** A blast
-                // cannot be aimed at a district segment yet -- the page does
-                // not offer one and ComposeBlastRequest refuses one posted
-                // around it -- so no district-aimed blast can reach this
-                // statement through the product. One built directly and sent
-                // is refused by `blasts_committed_aim_is_frozen`, which
-                // requires exactly one frozen rule of a committed segment-aimed
-                // blast and gets none: a loud check violation rather than a
-                // frozen `[]` that would record an audience of nobody as
-                // though the campaign had committed to it. The commit that
-                // opens district aims writes the other key in this same
-                // statement.
-                'committed_prefixes' => $committedAim === null || $committedAim['committed_prefixes'] === null
-                    ? null
-                    : json_encode($committedAim['committed_prefixes'], JSON_THROW_ON_ERROR),
+                // **Both halves of the frozen aim are written here, and which
+                // one is non-null is what the send reads back (D-38).** A
+                // segment of ZIP code prefixes freezes its prefixes and a
+                // segment of a district freezes the ZIP codes the shipped
+                // relation claims for its seat, because a seat's name would
+                // describe a different audience after any release that replaces
+                // the relation -- and App\Blasts\BlastAudience replays each
+                // through the rule that wrote it. They are written in the one
+                // statement rather than one here and the other later, because
+                // `blasts_committed_aim_is_frozen` wants exactly one of them on
+                // this row and the pair is decided in one place.
+                'committed_prefixes' => $this->frozen($committedAim['committed_prefixes'] ?? null),
+                'committed_zip_codes' => $this->frozen($committedAim['committed_zip_codes'] ?? null),
 
                 // Who committed it, which is not who wrote it: Staff may draft a
                 // blast and only an Owner may send one, so `operator_id` answers
@@ -413,6 +410,26 @@ class BlastController extends Controller
         ]);
 
         return to_route('blasts.index');
+    }
+
+    /**
+     * One half of a frozen aim, encoded for the statement that commits a blast.
+     *
+     * **Encoded rather than handed over as a list, because this is the query
+     * builder rather than the model:** Eloquent's casts run on an attribute
+     * assigned to an instance, and nothing casts a value passed to update().
+     * Both columns are json and the casts on App\Models\Blast read them back
+     * as lists.
+     *
+     * Null passes through as null, which is how the half that was not frozen
+     * says so -- and `blasts_committed_aim_is_frozen` is what makes "exactly
+     * one of the two" a fact about the row rather than a habit of this method.
+     *
+     * @param  list<string>|null  $rule
+     */
+    private function frozen(?array $rule): ?string
+    {
+        return $rule === null ? null : json_encode($rule, JSON_THROW_ON_ERROR);
     }
 
     /**
@@ -464,12 +481,13 @@ class BlastController extends Controller
             return new Collection;
         }
 
-        // Only segments of ZIP code prefixes. D-38 is decided -- a committed
-        // district-aimed blast freezes the ZIP codes its seat claimed -- but
-        // the statement below that commits a blast does not write that column
-        // yet, so a district segment is still not something a blast may be
-        // aimed at, and it is not offered; ComposeBlastRequest refuses one
-        // posted around this page. Both go when the freeze is written.
+        // Only segments of ZIP code prefixes. The sending path is ready for a
+        // district segment -- the audience resolves one and send() freezes its
+        // ZIP codes -- but this page's select and the blast list's summaries
+        // have no sentence for that aim, so offering it would let an operator
+        // commit a message these pages then describe wrongly.
+        // ComposeBlastRequest refuses one posted around this page, and both go
+        // when the pages learn the shape.
         return Segment::query()->whereNull('district')->orderBy('name')->get();
     }
 

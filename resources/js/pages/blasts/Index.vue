@@ -146,11 +146,12 @@ function sameRule(one: string[], other: string[]): boolean {
  * **The null case stopped being unreachable when the second frozen column
  * arrived (D-38).** The check constraint still gives every committed
  * segment-aimed blast a frozen rule, but a district-aimed one keeps it in
- * `committed_zip_codes`, which this page does not read yet -- nothing can
- * commit such a blast until the statement that freezes one writes that column,
- * and the sentence for it lands with the page that offers the aim. Until then
- * the fallback goes the way the server's does: say the segment rather than
- * name a rule this blast never used.
+ * `committed_zip_codes`, which this page does not read: it has no sentence for
+ * a seat's worth of ZIP codes, and writing one is what opening the aim is
+ * waiting on. That this page cannot describe such a blast is exactly why the
+ * compose form still refuses to aim one. Meanwhile the fallback goes the way
+ * the server's does: say the segment rather than name a rule this blast never
+ * used.
  */
 function committedAudienceSummary(blast: Blast): string {
     const frozen = blast.committed_prefixes;
