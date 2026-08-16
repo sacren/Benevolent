@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Blasts\BlastStatus;
 use App\Blasts\SendBlast;
+use App\Districts\ZctaDistricts;
 use App\Models\Blast;
 use App\Models\Segment;
 use App\Models\Supporter;
@@ -64,6 +65,14 @@ beforeEach(function (): void {
 });
 
 afterEach(function (): void {
+    // Put back a relation deployDistrictRelation() stood aside, whether or not
+    // the test that moved it passed.
+    $shipped = resource_path(ZctaDistricts::fileFor(ZctaDistricts::SHIPPED_CONGRESS));
+
+    if (file_exists($shipped.'.shipped')) {
+        rename($shipped.'.shipped', $shipped);
+    }
+
     tenancy()->end();
 
     Tenant::all()->each(fn (Tenant $tenant) => $tenant->delete());
@@ -884,4 +893,116 @@ test('a district blast reaches the ZIP codes its seat claims and not the ones it
     expect(array_slice($reached, 1))->toEqualCanonicalizing([
         'placed@harbor.test', 'crossing@harbor.test', 'elsewhere@harbor.test',
     ]);
+});
+
+/**
+ * Commit Harbor's MA-07 blast through the route an operator uses, with one
+ * supporter placed in the seat and one whose ZIP code crosses its boundary.
+ *
+ * Returns the committed blast's id, with tenancy ended and the job waiting.
+ * Named for this file alone because a global function cannot be declared twice
+ * in one process, and a single-file run would not show the collision.
+ */
+function commitHomeDistrictBlast(Tenant $harbor): int
+{
+    tenancy()->initialize($harbor);
+
+    User::factory()->owner()->create(['email' => 'operator@harbor-cleanup.test']);
+
+    foreach (['placed@harbor.test' => '02141', 'crossing@harbor.test' => '02139'] as $address => $postcode) {
+        Supporter::factory()->create([
+            'email' => $address,
+            'postcode' => $postcode,
+            'subscription_status' => SubscriptionStatus::Subscribed,
+        ]);
+    }
+
+    $segment = Segment::factory()->inDistrict('MA-07')->create(['name' => 'Home district list']);
+    $blast = Blast::factory()->aimedAtSegment($segment)->create();
+
+    tenancy()->end();
+
+    signInForSend('harbor-cleanup.test', 'operator@harbor-cleanup.test');
+
+    test()->post('http://harbor-cleanup.test/blasts/'.$blast->getKey().'/send')
+        ->assertRedirect();
+
+    return $blast->getKey();
+}
+
+/**
+ * Stand in for a release that replaced the shipped relation: the shipped file
+ * is stood aside and these ZCTAs written where it was, or nothing at all when
+ * given null. afterEach() puts the shipped file back.
+ *
+ * App\Districts\ZctaDistricts reads the file on every call, so this is what a
+ * deploy looks like to the code that reads it. The file itself is moved rather
+ * than the resources directory, because resource_path() is derived from the
+ * base path and cannot be pointed elsewhere on its own.
+ *
+ * @param  array<string, list<string>>|null  $zctas
+ */
+function deployDistrictRelation(?array $zctas): void
+{
+    $path = resource_path(ZctaDistricts::fileFor(ZctaDistricts::SHIPPED_CONGRESS));
+    $shipped = ZctaDistricts::shipped();
+
+    rename($path, $path.'.shipped');
+
+    if ($zctas !== null) {
+        file_put_contents($path, ZctaDistricts::encode($shipped->congress(), $shipped->publishedOn(), $shipped->source(), $shipped->sourceSha256(), $zctas));
+    }
+}
+
+test('a map redrawn between the commit and the send moves nobody the blast was committed to', function (): void {
+    // **D-38's whole claim, asked of a changed map rather than of the code
+    // that makes it true.** Committing froze the ZIP codes MA-07 claimed; the
+    // relation is then replaced by one in which 02141 has moved to MA-05 and
+    // 02139 lies wholly inside MA-07 -- so a send that worked its audience out
+    // again would reach the other supporter, and one that replays what it
+    // froze reaches the same one.
+    $sent = messagesSent();
+
+    $harbor = sendingCampaign('harbor-cleanup');
+    $blastId = commitHomeDistrictBlast($harbor);
+
+    deployDistrictRelation(['02139' => ['2507'], '02141' => ['2505']]);
+
+    // The redeploy took effect, so a green result below is not a relation the
+    // test failed to replace.
+    expect(ZctaDistricts::shipped()->districtsTouching('02141'))->toBe(['2505']);
+
+    QueueWorker::runNextJob();
+
+    expect($sent)->toHaveCount(1)
+        ->and($sent[0]->getTo()[0]->getAddress())->toBe('placed@harbor.test');
+
+    tenancy()->initialize($harbor);
+
+    expect(Blast::query()->findOrFail($blastId)->status)->toBe(BlastStatus::Sent);
+});
+
+test('a send never opens the district relation, so a worker pays nothing for it', function (): void {
+    // **The worker reads the list the commit froze, and nothing else about
+    // districts.** The relation is about 14 ms and 11 MB per read; a send that
+    // opened it would pay that per job, for a list it already holds. Removing
+    // the relation outright makes any read a failed send rather than a cost
+    // nobody measures.
+    $sent = messagesSent();
+
+    $harbor = sendingCampaign('harbor-cleanup');
+    $blastId = commitHomeDistrictBlast($harbor);
+
+    deployDistrictRelation(null);
+
+    expect(fn () => ZctaDistricts::shipped())->toThrow(RuntimeException::class);
+
+    QueueWorker::runNextJob();
+
+    expect($sent)->toHaveCount(1)
+        ->and($sent[0]->getTo()[0]->getAddress())->toBe('placed@harbor.test');
+
+    tenancy()->initialize($harbor);
+
+    expect(Blast::query()->findOrFail($blastId)->status)->toBe(BlastStatus::Sent);
 });
