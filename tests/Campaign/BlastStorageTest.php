@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Blasts\BlastStatus;
+use App\Districts\ZctaDistricts;
 use App\Models\Blast;
 use App\Models\Segment;
 use App\Models\User;
@@ -584,4 +585,23 @@ test('a blast that never pointed at a segment cannot freeze ZIP codes either', f
     expect($carrying->committed_zip_codes)->toBeNull()
         ->and($everyone->committed_zip_codes)->toBeNull()
         ->and(Blast::query()->count())->toBe(2);
+});
+
+test('the shipped Congress stays the 119th until a committed district blast records its own', function (): void {
+    // **The one release that could lose which map a committed blast was frozen
+    // under.** `committed_zip_codes` records the ZIP codes a seat claimed and
+    // not the Congress whose relation claimed them. Every such row so far was
+    // frozen under the 119th Congress's relation, the only one this code has
+    // shipped, so which map produced it can be filled in exactly -- until
+    // ZctaDistricts::SHIPPED_CONGRESS moves. After that, rows from before and
+    // after the move would sit side by side with nothing to tell them apart.
+    //
+    // So the release that moves it must first give `blasts` a column recording
+    // the Congress and fill in 119 for every row carrying frozen ZIP codes.
+    // This fails the moment the constant moves without that column, and passes
+    // on its own once the column exists: it names the obligation rather than
+    // pinning a number.
+    expect(Schema::hasColumn('blasts', 'committed_congress') || ZctaDistricts::SHIPPED_CONGRESS === 119)
+        ->toBeTrue('SHIPPED_CONGRESS moved while committed district blasts do not record their Congress: '
+            .'add blasts.committed_congress and fill in 119 where committed_zip_codes is not null, in the release that moves it.');
 });

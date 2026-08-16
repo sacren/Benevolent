@@ -61,8 +61,17 @@ final class ZctaDistricts implements Countable, IteratorAggregate
      * The Congress whose relation this release reads.
      *
      * Files are named for their Congress, so a later Congress's file can be
-     * built beside this one, and moving to it is a deliberate one-line change
-     * here rather than something a rebuild does on its own.
+     * built beside this one, and moving to it is a deliberate change here
+     * rather than something a rebuild does on its own.
+     *
+     * **Not a one-line change once a blast has been committed to a district
+     * (D-38).** `blasts.committed_zip_codes` records the ZIP codes a seat
+     * claimed and not the Congress whose relation claimed them, and every such
+     * row so far was frozen under this one. So the release that moves this
+     * must first give `blasts` a column recording the Congress and fill in the
+     * old one for every row carrying frozen ZIP codes, while that is still
+     * exactly knowable. tests/Campaign/BlastStorageTest.php fails if this
+     * moves without that column.
      */
     public const int SHIPPED_CONGRESS = 119;
 
