@@ -1006,3 +1006,73 @@ test('a send never opens the district relation, so a worker pays nothing for it'
 
     expect(Blast::query()->findOrFail($blastId)->status)->toBe(BlastStatus::Sent);
 });
+
+/**
+ * Every column in the active campaign's database whose text holds the needle,
+ * as `table.column`.
+ *
+ * Asks the schema rather than a list of columns somebody thought to name, so a
+ * column added later is searched without anybody remembering to add it.
+ *
+ * @return list<string>
+ */
+function campaignColumnsHolding(string $needle): array
+{
+    $found = [];
+
+    $columns = DB::connection('tenant')->select(
+        "select table_name, column_name from information_schema.columns where table_schema = 'public' order by table_name, column_name"
+    );
+
+    foreach ($columns as $column) {
+        $holding = DB::connection('tenant')
+            ->table($column->table_name)
+            ->whereRaw('position(? in lower(cast('.DB::connection('tenant')->getQueryGrammar()->wrap($column->column_name).' as text))) > 0', [strtolower($needle)])
+            ->exists();
+
+        if ($holding) {
+            $found[] = $column->table_name.'.'.$column->column_name;
+        }
+    }
+
+    return $found;
+}
+
+test('erasing a supporter a district blast reached leaves them nowhere in the campaign\'s database', function (): void {
+    // **The seventh-home question, asked by running a deletion.** A district
+    // send adds a column the erasure path does not touch --
+    // `blasts.committed_zip_codes` -- and a recipient row. The frozen column is
+    // filled from the relation rather than from anybody's row, so this is the
+    // measurement behind that claim: after the supporter is removed through the
+    // route an operator uses, neither their address nor their unsubscribe token
+    // is in any column of any table, and what the campaign keeps is the
+    // district's ZIP codes and a keyless record that a message went.
+
+    $harbor = sendingCampaign('harbor-cleanup');
+    $blastId = commitHomeDistrictBlast($harbor);
+
+    QueueWorker::runNextJob();
+
+    tenancy()->initialize($harbor);
+
+    $placed = Supporter::query()->where('email', 'placed@harbor.test')->sole();
+    $token = (string) $placed->unsubscribe_token;
+    $frozen = Blast::query()->findOrFail($blastId)->committed_zip_codes;
+
+    // Present before the deletion, so an empty result below is the deletion
+    // rather than a search that could find nothing.
+    expect(campaignColumnsHolding('placed@harbor.test'))->toBe(['supporters.email'])
+        ->and(campaignColumnsHolding($token))->toBe(['supporters.unsubscribe_token']);
+
+    tenancy()->end();
+
+    test()->delete('http://harbor-cleanup.test/supporters/'.$placed->getKey())
+        ->assertRedirect();
+
+    tenancy()->initialize($harbor);
+
+    expect(campaignColumnsHolding('placed@harbor.test'))->toBe([])
+        ->and(campaignColumnsHolding($token))->toBe([])
+        ->and(Blast::query()->findOrFail($blastId)->committed_zip_codes)->toBe($frozen)
+        ->and(DB::table('blast_recipients')->whereNull('supporter_id')->whereNotNull('sent_at')->count())->toBe(1);
+});

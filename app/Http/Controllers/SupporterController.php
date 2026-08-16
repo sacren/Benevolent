@@ -455,11 +455,13 @@ class SupporterController extends Controller
      * measurement and the one residual it leaves standing.
      *
      * **`blasts.committed_zip_codes` (D-38) joins that list rather than
-     * lengthening this path**, and by construction rather than by measurement:
-     * its values are a district's claimable ZIP codes as read from the relation
-     * that ships with the code, never a value copied from a supporter's row and
-     * never a string an operator typed about a person. An erasure has nothing
-     * to reach there, and nothing writes the column yet in any case.
+     * lengthening this path.** Its values are a district's claimable ZIP codes
+     * as read from the relation that ships with the code, never a value copied
+     * from a supporter's row and never a string an operator typed about a
+     * person. Measured at Phase 4 Step 7 by running a deletion after a district
+     * send: afterwards neither the supporter's address nor their unsubscribe
+     * token is in any column of any campaign table, the frozen ZIP codes are
+     * unchanged, and the recipient row keeps `sent_at` with its key nulled.
      */
     public function destroy(Supporter $supporter): RedirectResponse
     {
