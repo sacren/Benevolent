@@ -192,8 +192,10 @@ function committedAudienceSummary(blast: Blast): string {
         return `Subscribed in ${where}`;
     }
 
-    // A segment's prefixes are null only when it narrows by district, which no
-    // blast can be aimed at (D-37): read as a rule this one never used.
+    // A segment's prefixes are null only when it narrows by district, and a
+    // segment keeps the kind it was named with (D-37), so a blast that froze
+    // prefixes cannot find its segment narrowing by district: read as a rule
+    // this one never used.
     if (sameRule(frozen, blast.segment.postcode_prefixes ?? [])) {
         return `Subscribed in ${blast.segment.name}`;
     }

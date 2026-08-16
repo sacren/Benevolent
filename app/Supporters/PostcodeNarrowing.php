@@ -50,8 +50,9 @@ use Illuminate\Database\Eloquent\Builder;
  *     place that owns it, and it is unreachable through a segment: a segment's
  *     prefixes are null only when it narrows by district (D-37), which
  *     App\Segments\SegmentNarrowing answers with App\Districts\DistrictNarrowing
- *     and BlastAudience answers with nobody. A matcher that widened on an empty
- *     rule would put the widening back.
+ *     -- for a draft blast as well, and a committed one replays the ZIP codes
+ *     it froze through the same class (D-38). A matcher that widened on an
+ *     empty rule would put the widening back.
  */
 final class PostcodeNarrowing
 {

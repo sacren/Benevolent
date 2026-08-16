@@ -157,11 +157,15 @@ defineOptions({
                 one place the two consumers of a rule differ and the difference
                 is easy to assume the wrong way round.
             -->
-            <p class="text-sm text-muted-foreground">
+            <p
+                class="text-sm text-muted-foreground"
+                data-test="segment-consumers"
+            >
                 A segment says where, not who may be written to. The supporter
                 list shows everyone it names, including anyone who has
-                unsubscribed; a blast never writes to them. A blast cannot yet
-                be aimed at a segment that narrows by district.
+                unsubscribed; a blast never writes to them. A blast aimed at a
+                segment that narrows by district records the ZIP codes that
+                district claims at the moment it is sent.
             </p>
 
             <div class="flex items-center gap-3">

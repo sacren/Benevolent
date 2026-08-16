@@ -100,7 +100,7 @@ class SupporterController extends Controller
      * already named, already validated and already the product's one definition
      * of what a prefix means, so the list gets the rule the blast module gets
      * rather than a second one typed into a box. A segment may also name a
-     * congressional district (D-37), which the blast module cannot yet aim at;
+     * congressional district (D-37), which a blast may be aimed at as well;
      * App\Segments\SegmentNarrowing is where the list and its export turn
      * either kind into a query, so the two cannot come to answer differently.
      *

@@ -238,6 +238,18 @@ test('naming a segment by district shows the district field, offers the campaign
         $page->assertPresent('#postcode_prefixes')
             ->assertMissing('#district');
 
+        // What a blast does with a district segment, read as the paragraph's
+        // whole text rather than with assertSee: until Step 7 this page told a
+        // campaign a blast could not be aimed by district at all, and a
+        // substring match would pass with that sentence still beside the new
+        // one.
+        $page->assertScript(
+            "document.querySelector('[data-test=\"segment-consumers\"]').textContent.replace(/\\s+/g, ' ').trim()"
+            ." === 'A segment says where, not who may be written to. The supporter list shows everyone it names,"
+            .' including anyone who has unsubscribed; a blast never writes to them. A blast aimed at a segment'
+            ." that narrows by district records the ZIP codes that district claims at the moment it is sent.'"
+        );
+
         // Defect class 6. After it: the field swapped, the ZIP code field gone
         // -- asserted first, for the reason the edit test gives -- and the
         // district field filled in with the campaign's seat.

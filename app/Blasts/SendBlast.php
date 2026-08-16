@@ -71,10 +71,13 @@ use Throwable;
  * is a different answer from the importer's, and a better one. Phase 1 had to
  * guard two statements whose bindings were addresses, because a QueryException
  * inlines every binding into the SQL it prints. Nothing here does: the audience
- * query binds a status and folded postcode prefixes, and the claim and its
- * resolution bind two integers and a timestamp. The one place an address exists
- * in this file is the mail envelope, which is not a database binding -- and the
- * transport's *complaint* about it is scrubbed below before it is stored.
+ * query binds a status and either folded postcode prefixes or a district's ZIP
+ * codes with the pattern that checks them -- a rule an operator wrote or ZIP
+ * codes read from the shipped relation, never a value from a supporter's row --
+ * and the claim and its resolution bind two integers and a timestamp. The one
+ * place an address exists in this file is the mail envelope, which is not a
+ * database binding -- and the transport's *complaint* about it is scrubbed
+ * below before it is stored.
  */
 final class SendBlast implements ShouldQueue
 {
