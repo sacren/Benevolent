@@ -42,7 +42,7 @@ test('the matcher narrows on postcode and on nothing else', function (): void {
 
     // Both directions in one assertion, so a later edit cannot drop the half
     // that does the work: the unsubscribed supporter is in because status is
-    // not this class's business, and the Edinburgh postcode is out because the
+    // not this class's business, and the Cambridge ZIP code is out because the
     // prefix is.
     expect($narrowed->pluck('id')->all())
         ->toEqualCanonicalizing([$subscribed->getKey(), $unsubscribed->getKey()]);

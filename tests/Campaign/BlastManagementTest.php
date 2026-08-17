@@ -186,7 +186,7 @@ test('changing a draft re-aims it, and the count follows the new aim', function 
 
     $this->actingAs(User::factory()->create())
         ->patch($this->campaignUrl('/blasts/'.$blast->getKey()), [
-            'subject' => 'Now aimed at Edinburgh',
+            'subject' => 'Now aimed at Cambridge',
             'body' => 'Rewritten.',
             'postcode_prefixes' => '021',
         ])

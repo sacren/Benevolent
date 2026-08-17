@@ -173,7 +173,7 @@ test('the narrowing survives paging, on the links the page actually carries', fu
         ->get((string) $nextPage)
         ->assertInertia(fn (Assert $page) => $page
             ->where('supporters.total', 60)
-            // Ten of the sixty, and none of the Edinburgh rows: a narrowing
+            // Ten of the sixty, and none of the Cambridge rows: a narrowing
             // dropped here would show 70 in total and put them on this page.
             ->has('supporters.data', 10)
         );

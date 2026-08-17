@@ -84,11 +84,11 @@ function stockSegments(Tenant $campaign, string $operatorEmail, string $prefix):
     $operator = User::factory()->owner()->create(['email' => $operatorEmail]);
 
     Supporter::factory()->create([
-        'email' => 'manchester@'.$campaign->slug.'.test',
+        'email' => 'beverly-hills@'.$campaign->slug.'.test',
         'postcode' => '90210',
     ]);
     Supporter::factory()->create([
-        'email' => 'edinburgh@'.$campaign->slug.'.test',
+        'email' => 'cambridge-02139@'.$campaign->slug.'.test',
         'postcode' => '02139',
     ]);
 
@@ -224,11 +224,11 @@ test('a narrowed supporter list is narrowed by the host campaign\'s own rule, on
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->where('supporters.total', 1)
-            ->where('supporters.data.0.email', 'manchester@harbor-cleanup.test')
+            ->where('supporters.data.0.email', 'beverly-hills@harbor-cleanup.test')
         )
-        // Neither the other campaign's supporter nor this campaign's Edinburgh
+        // Neither the other campaign's supporter nor this campaign's Cambridge
         // one, which are two different mistakes and would both show here.
-        ->assertDontSee('edinburgh@harbor-cleanup.test')
+        ->assertDontSee('cambridge-02139@harbor-cleanup.test')
         ->assertDontSee('ridge-restoration.test');
 
     Auth::forgetGuards();
@@ -240,7 +240,7 @@ test('a narrowed supporter list is narrowed by the host campaign\'s own rule, on
         ->assertInertia(fn ($page) => $page
             ->where('auth.user.email', 'operator@ridge-restoration.test')
             ->where('supporters.total', 1)
-            ->where('supporters.data.0.email', 'edinburgh@ridge-restoration.test')
+            ->where('supporters.data.0.email', 'cambridge-02139@ridge-restoration.test')
         )
         ->assertDontSee('harbor-cleanup.test');
 });
@@ -267,8 +267,8 @@ test('a narrowed export carries the host campaign\'s own people and nobody else\
         ->assertOk()
         ->streamedContent();
 
-    expect($harborFile)->toContain('manchester@harbor-cleanup.test')
-        ->and($harborFile)->not->toContain('edinburgh@harbor-cleanup.test')
+    expect($harborFile)->toContain('beverly-hills@harbor-cleanup.test')
+        ->and($harborFile)->not->toContain('cambridge-02139@harbor-cleanup.test')
         ->and($harborFile)->not->toContain('ridge-restoration.test');
 
     Auth::forgetGuards();
@@ -277,7 +277,7 @@ test('a narrowed export carries the host campaign\'s own people and nobody else\
         ->assertOk()
         ->streamedContent();
 
-    expect($ridgeFile)->toContain('edinburgh@ridge-restoration.test')
+    expect($ridgeFile)->toContain('cambridge-02139@ridge-restoration.test')
         ->and($ridgeFile)->not->toContain('harbor-cleanup.test');
 });
 
