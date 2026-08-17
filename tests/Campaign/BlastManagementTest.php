@@ -541,3 +541,43 @@ test('a blast may be aimed at a segment that narrows by district', function (): 
     expect(Blast::query()->count())->toBe(2)
         ->and(Blast::query()->orderByDesc('id')->first()->segment_id)->toBe($postcodes->getKey());
 });
+
+test('a draft re-aimed at a district segment counts only the supporters that district claims', function (): void {
+    // **The route half of what BlastAudienceTest proves of the model.** A draft
+    // can be aimed at a district segment through the form that edits it, and
+    // the page it lands back on counts what the seat claims: the supporter
+    // whose ZIP code lies wholly inside MA-07, not the one whose ZIP code
+    // crosses its boundary, and not the one elsewhere. The count is the
+    // product's claim about who is in the district, made before anything is
+    // sent (exit criterion 3), so it is asserted where an operator reads it.
+    Supporter::factory()->create(['postcode' => '02141']);
+    Supporter::factory()->create(['postcode' => '02139']);
+    Supporter::factory()->create(['postcode' => '90210']);
+
+    $district = Segment::factory()->inDistrict('MA-07')->create(['name' => 'Home district list']);
+    $blast = Blast::factory()->narrowedToPostcodes(['902'])->create();
+    $operator = User::factory()->create();
+
+    $this->actingAs($operator)
+        ->patch($this->campaignUrl('/blasts/'.$blast->getKey()), [
+            'subject' => 'Now aimed at the district',
+            'body' => 'Rewritten.',
+            'segment_id' => (string) $district->getKey(),
+        ])
+        ->assertSessionHasNoErrors()
+        ->assertRedirect(route('blasts.edit', $blast));
+
+    expect($blast->fresh()->segment_id)->toBe($district->getKey())
+        ->and($blast->fresh()->postcode_prefixes)->toBeNull();
+
+    $this->actingAs($operator)
+        ->get($this->campaignUrl('/blasts/'.$blast->getKey().'/edit'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('blasts/Edit')
+            ->where('blast.segment_id', $district->getKey())
+            ->where('audienceSize', 1)
+            // The seat is a claim about one map, so the page is told which.
+            ->where('congress', '119th')
+        );
+});
