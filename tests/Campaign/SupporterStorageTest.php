@@ -418,4 +418,22 @@ test('erasing a supporter takes their token with them', function (): void {
     );
 
     expect(array_column($homes, 'table_name'))->toBe(['supporters']);
+
+    // **And no second credential of the same kind exists under another name.**
+    // The query above asks for a column *called* `unsubscribe_token`, so it
+    // cannot see a token stored anywhere under a different name -- measured
+    // at Phase 5 Step 1, where a per-recipient `link_token` beside it left that
+    // query returning `['supporters']` unchanged. Asked here by what a token
+    // *is*: a link credential for somebody with no account is a `uuid` the
+    // database generates, as this one is, so a new one cannot arrive without
+    // appearing below, and cannot turn this green until somebody has said
+    // what an erasure does to it. The two queries catch different mistakes
+    // -- the one above a copy of this token stored as text, this one a new
+    // token under a new name -- so both stay.
+    $credentials = DB::connection('tenant')->select(
+        "select table_name || '.' || column_name as home from information_schema.columns "
+        ."where table_schema = current_schema() and data_type = 'uuid' order by 1"
+    );
+
+    expect(array_column($credentials, 'home'))->toBe(['supporters.unsubscribe_token']);
 });
