@@ -1076,3 +1076,59 @@ test('erasing a supporter a district blast reached leaves them nowhere in the ca
         ->and(Blast::query()->findOrFail($blastId)->committed_zip_codes)->toBe($frozen)
         ->and(DB::table('blast_recipients')->whereNull('supporter_id')->whereNotNull('sent_at')->count())->toBe(1);
 });
+
+test('erasing a supporter who withdrew keeps the withdrawal and leaves nobody in it', function (): void {
+    // **D-49's first half, asked by running a deletion against the schema
+    // before anything writes it.** The same scan as the district erasure
+    // above, drawn from information_schema, so `unsubscribes` is searched
+    // because it exists rather than because anybody named it. Nothing in the
+    // application writes a withdrawal yet, so the two rows are written straight
+    // to the table: one following this supporter's copy of the blast, and one
+    // the link could not attribute.
+    $harbor = sendingCampaign('harbor-cleanup');
+
+    tenancy()->initialize($harbor);
+    User::factory()->owner()->create(['email' => 'operator@harbor-cleanup.test']);
+    SendBlast::dispatch(committedBlastFor(['leaving@harbor.test', 'staying@harbor.test']), (string) $harbor->getKey());
+    tenancy()->end();
+
+    QueueWorker::runNextJob();
+
+    tenancy()->initialize($harbor);
+
+    $leaving = Supporter::query()->where('email', 'leaving@harbor.test')->sole();
+    $token = (string) $leaving->unsubscribe_token;
+    $copy = (int) DB::table('blast_recipients')->where('supporter_id', $leaving->getKey())->value('id');
+
+    DB::table('unsubscribes')->insert([
+        ['blast_recipient_id' => $copy, 'created_at' => now()],
+        ['blast_recipient_id' => null, 'created_at' => now()],
+    ]);
+
+    // Present before the deletion, so an empty result below is the deletion
+    // rather than a search that could find nothing.
+    expect(campaignColumnsHolding('leaving@harbor.test'))->toBe(['supporters.email'])
+        ->and(campaignColumnsHolding($token))->toBe(['supporters.unsubscribe_token']);
+
+    tenancy()->end();
+
+    signInForSend('harbor-cleanup.test', 'operator@harbor-cleanup.test');
+
+    test()->delete('http://harbor-cleanup.test/supporters/'.$leaving->getKey())
+        ->assertRedirect();
+
+    tenancy()->initialize($harbor);
+
+    expect(campaignColumnsHolding('leaving@harbor.test'))->toBe([])
+        ->and(campaignColumnsHolding($token))->toBe([]);
+
+    // **And what the campaign keeps is the withdrawal, still attributed.** The
+    // row following their copy points at a recipient row that no longer says
+    // who, which is D-10's answer arriving one table further out: the blast's
+    // record of what happened after it stays true, and the person is gone
+    // from it. Deleting the recipient row instead would take the withdrawal
+    // with it, and the blast would afterwards claim nobody left.
+    expect(DB::table('unsubscribes')->orderBy('id')->pluck('blast_recipient_id')->all())->toBe([$copy, null])
+        ->and(DB::table('blast_recipients')->where('id', $copy)->value('supporter_id'))->toBeNull()
+        ->and(DB::table('blast_recipients')->where('id', $copy)->value('sent_at'))->not->toBeNull();
+});

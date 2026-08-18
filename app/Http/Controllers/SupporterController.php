@@ -462,6 +462,14 @@ class SupporterController extends Controller
      * send: afterwards neither the supporter's address nor their unsubscribe
      * token is in any column of any campaign table, the frozen ZIP codes are
      * unchanged, and the recipient row keeps `sent_at` with its key nulled.
+     *
+     * **`unsubscribes` (D-47) is untouched as well, and needs no step here
+     * (D-49).** It carries no supporter key: a withdrawal the link could not
+     * attribute names nobody, and one it could points at a recipient row whose
+     * key this deletion nulls. Measured at Phase 5 Step 2 by the same search:
+     * afterwards the address and the token are in no column, and both
+     * withdrawals are still there, the attributed one still pointing at the
+     * recipient row.
      */
     public function destroy(Supporter $supporter): RedirectResponse
     {
