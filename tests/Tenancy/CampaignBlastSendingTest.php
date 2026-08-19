@@ -1078,12 +1078,13 @@ test('erasing a supporter a district blast reached leaves them nowhere in the ca
 });
 
 test('erasing a supporter who withdrew keeps the withdrawal and leaves nobody in it', function (): void {
-    // **D-49's first half, asked by running a deletion against the schema
-    // before anything writes it.** The same scan as the district erasure
-    // above, drawn from information_schema, so `unsubscribes` is searched
-    // because it exists rather than because anybody named it. Nothing in the
-    // application writes a withdrawal yet, so the two rows are written straight
-    // to the table: one following this supporter's copy of the blast, and one
+    // **D-49's first half, asked by running a deletion against the schema.**
+    // The same scan as the district erasure above, drawn from
+    // information_schema, so `unsubscribes` is searched because it exists
+    // rather than because anybody named it. The unsubscribe request writes
+    // only unattributed rows while every link carries the supporter's token,
+    // so the two rows are written straight to the table: one following this
+    // supporter's copy of the blast, which no request can write yet, and one
     // the link could not attribute.
     $harbor = sendingCampaign('harbor-cleanup');
 

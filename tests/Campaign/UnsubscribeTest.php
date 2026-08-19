@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 use App\Blasts\BlastAudience;
 use App\Models\Blast;
+use App\Models\BlastRecipient;
 use App\Models\Supporter;
+use App\Models\Unsubscribe;
 use App\Supporters\SubscriptionStatus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
@@ -121,7 +123,11 @@ test('a link scanner following the link does not unsubscribe anybody', function 
     $this->get($this->campaignUrl('unsubscribe/'.$token))->assertOk();
     $this->get($this->campaignUrl('unsubscribe/'.$token))->assertOk();
 
-    expect($supporter->fresh()->subscription_status)->toBe(SubscriptionStatus::Subscribed);
+    expect($supporter->fresh()->subscription_status)->toBe(SubscriptionStatus::Subscribed)
+        // And nothing is recorded as an outcome either: a GET is evidence of a
+        // scanner as readily as of a person, which is why D-45 took only the
+        // POST.
+        ->and(Unsubscribe::query()->count())->toBe(0);
 });
 
 test('following the link twice is not an error and does not rewrite the record', function (): void {
@@ -167,7 +173,58 @@ test('following the link twice is not an error and does not rewrite the record',
         // Eloquent issuing no statement for a model whose attributes have not
         // changed. An explicit status comparison in the controller reddened
         // nothing and was removed rather than kept as a comment with syntax.
-        ->and($writes)->toBeEmpty();
+        ->and($writes)->toBeEmpty()
+        // One withdrawal, not two: the repeat changed nothing, so it is not a
+        // second act by the person (D-47).
+        ->and(Unsubscribe::query()->count())->toBe(1);
+});
+
+test('leaving records one withdrawal, and credits it to no message', function (): void {
+    // **The link in every inbox today carries the supporter's token**, which
+    // names a person and no message. So the withdrawal is recorded, and
+    // recorded as unattributed -- never credited to the latest blast they were
+    // sent, which is the one mistake D-46 says no later change can repair.
+    // They were sent two, so a writer choosing one would have one to choose.
+    $supporter = Supporter::factory()->create();
+
+    BlastRecipient::factory()->forSupporter($supporter)->sent()->create();
+    BlastRecipient::factory()->forSupporter($supporter)->sent()->create();
+
+    $this->post($this->campaignUrl('unsubscribe/'.$supporter->fresh()->unsubscribe_token))->assertRedirect();
+
+    expect(Unsubscribe::query()->pluck('blast_recipient_id')->all())->toBe([null])
+        ->and(Unsubscribe::query()->sole()->created_at)->not->toBeNull();
+});
+
+test('leaving again after an operator put them back is a second withdrawal', function (): void {
+    // One link, two real changes of status, measured at Step 2 (D-47): an
+    // operator's re-subscription is not evidence the person changed their
+    // mind, so the link used afterwards records what it did again.
+    $supporter = Supporter::factory()->create();
+    $token = $supporter->fresh()->unsubscribe_token;
+
+    $this->post($this->campaignUrl('unsubscribe/'.$token))->assertRedirect();
+
+    $supporter->fresh()->forceFill(['subscription_status' => SubscriptionStatus::Subscribed])->save();
+
+    $this->post($this->campaignUrl('unsubscribe/'.$token))->assertRedirect();
+
+    expect(Unsubscribe::query()->count())->toBe(2)
+        ->and($supporter->fresh()->subscription_status)->toBe(SubscriptionStatus::Unsubscribed);
+});
+
+test('somebody unsubscribed before withdrawals were recorded gains no record by using the link', function (): void {
+    // **The §3 convention: nothing is back-filled.** The demo campaign's own
+    // shape -- a supporter already unsubscribed with no row saying when or
+    // why. Their link still answers, and asks for the state already held, so
+    // it records nothing; a row here would date an act to a request that did
+    // not perform it.
+    $supporter = Supporter::factory()->create(['subscription_status' => SubscriptionStatus::Unsubscribed]);
+
+    $this->post($this->campaignUrl('unsubscribe/'.$supporter->fresh()->unsubscribe_token))->assertRedirect();
+
+    expect($supporter->fresh()->subscription_status)->toBe(SubscriptionStatus::Unsubscribed)
+        ->and(Unsubscribe::query()->count())->toBe(0);
 });
 
 test('a blast sent afterwards does not reach them', function (): void {

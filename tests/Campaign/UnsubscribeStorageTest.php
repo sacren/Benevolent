@@ -14,8 +14,9 @@ use Illuminate\Support\Facades\Schema;
 // is never applied during this run and the absence would hold whether or not
 // it is true.
 //
-// Nothing in the application writes this table yet, so every row here is
-// written past any model, straight to the table the schema defines.
+// Every row here is written past any model, straight to the table the schema
+// defines, because these tests are about what the schema accepts rather than
+// what the one writer -- the unsubscribe request -- chooses to write.
 
 test('a withdrawal holds when it happened and which copy it followed, and nothing about the person', function (): void {
     // **D-47 and D-49 asked as a column list rather than as a promise**, the

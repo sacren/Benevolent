@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Models\Supporter;
+use App\Models\Unsubscribe;
 use App\Supporters\SubscriptionStatus;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -44,7 +46,10 @@ use Inertia\Response;
  * may act in this campaign and with what authority; its three cases are all
  * roster changes. A supporter is not an operator and unsubscribing is not an
  * exercise of campaign authority, so this is further outside the trail's scope
- * than a send was -- and D-17 already answered that one no.
+ * than a send was -- and D-17 already answered that one no. **What is recorded
+ * is the withdrawal itself, in `unsubscribes` (D-47)**: a module table of
+ * events that a person, not an operator, caused, which is exactly why it is
+ * not the trail.
  */
 class UnsubscribeController extends Controller
 {
@@ -90,12 +95,22 @@ class UnsubscribeController extends Controller
      * lands on a browser warning about resending a form for an act they were
      * told could not be undone.
      *
-     * **The write is one column, and there is deliberately nothing else.** The
-     * supporter is kept rather than deleted, because the record of the request
-     * is what stops a later import putting them back -- the importer omits
+     * **The write is the status, and a record that it changed.** The supporter
+     * is kept rather than deleted, because the record of the request is what
+     * stops a later import putting them back -- the importer omits
      * `subscription_status` from its update list precisely so this holds, and a
      * test pins it. `BlastAudience` enforces subscribed-only in the query, so a
      * blast composed before this and sent after correctly leaves them out.
+     *
+     * **The withdrawal is recorded only when the status changes (D-47), in the
+     * same transaction as the status.** A second POST asks for the state
+     * already held, so it is not a second withdrawal and writes nothing; a POST
+     * after an operator has put somebody back on the list is one, and is
+     * recorded again. Recorded as **unattributed**: the token here is the
+     * supporter's, which names a person and no message, so the row says so
+     * rather than crediting whichever blast was sent last (D-46). One
+     * transaction, so a withdrawal can never be recorded without the change it
+     * records, nor the change made without its record.
      *
      * **This link unsubscribes and can never re-subscribe (D-21).** The
      * symmetric page looks kinder and is not: a link that could opt somebody
@@ -128,8 +143,19 @@ class UnsubscribeController extends Controller
         // days. Note that a `touch()` does *not* redden it and is not a
         // counter-example: within the same second it sets `updated_at` to the
         // value already held, so Eloquent finds the model clean there too.
-        $supporter->subscription_status = SubscriptionStatus::Unsubscribed;
-        $supporter->save();
+        //
+        // **The same behaviour now decides whether a withdrawal happened.**
+        // `wasChanged()` reads what that save actually wrote, so "the status
+        // changed" is answered by the write itself rather than by a comparison
+        // made beforehand that could disagree with it.
+        DB::transaction(function () use ($supporter): void {
+            $supporter->subscription_status = SubscriptionStatus::Unsubscribed;
+            $supporter->save();
+
+            if ($supporter->wasChanged('subscription_status')) {
+                Unsubscribe::create(['blast_recipient_id' => null]);
+            }
+        });
 
         return to_route('unsubscribe.show', ['token' => $token]);
     }

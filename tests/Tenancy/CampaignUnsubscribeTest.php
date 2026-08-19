@@ -89,6 +89,20 @@ function statusIn(string $slug, string $email): SubscriptionStatus
     return $status;
 }
 
+/**
+ * How many withdrawals one campaign has recorded.
+ */
+function withdrawalsIn(string $slug): int
+{
+    tenancy()->initialize(Tenant::query()->where('slug', $slug)->firstOrFail());
+
+    $count = DB::table('unsubscribes')->count();
+
+    tenancy()->end();
+
+    return $count;
+}
+
 test('one campaign\'s link cannot unsubscribe another campaign\'s supporter', function (): void {
     // **The defect this mechanism exists to make impossible**, and the one a
     // relative signature would have permitted outright.
@@ -102,14 +116,45 @@ test('one campaign\'s link cannot unsubscribe another campaign\'s supporter', fu
     // Neither campaign's supporter moved -- the negative alone would be
     // satisfied by a route that refuses everybody.
     expect(statusIn('ridge-restoration', 'ridge@example.test'))->toBe(SubscriptionStatus::Subscribed)
-        ->and(statusIn('harbor-cleanup', 'harbor@example.test'))->toBe(SubscriptionStatus::Subscribed);
+        ->and(statusIn('harbor-cleanup', 'harbor@example.test'))->toBe(SubscriptionStatus::Subscribed)
+        // Nor did either campaign record a withdrawal -- a record in Ridge
+        // would be an outcome credited to a campaign whose mail nobody used.
+        ->and(withdrawalsIn('ridge-restoration'))->toBe(0)
+        ->and(withdrawalsIn('harbor-cleanup'))->toBe(0);
 
     // And the same token on its *own* campaign's hostname works, in the same
     // run. Without this the refusals above prove only that the route is broken.
     $this->post('http://harbor-cleanup.test/unsubscribe/'.$harborToken)->assertRedirect();
 
     expect(statusIn('harbor-cleanup', 'harbor@example.test'))->toBe(SubscriptionStatus::Unsubscribed)
-        ->and(statusIn('ridge-restoration', 'ridge@example.test'))->toBe(SubscriptionStatus::Subscribed);
+        ->and(statusIn('ridge-restoration', 'ridge@example.test'))->toBe(SubscriptionStatus::Subscribed)
+        // The withdrawal lands in the campaign whose link it was, and only
+        // there, which is what makes the zeros above a boundary.
+        ->and(withdrawalsIn('harbor-cleanup'))->toBe(1)
+        ->and(withdrawalsIn('ridge-restoration'))->toBe(0);
+});
+
+test('a withdrawal that cannot be recorded leaves the supporter where they were', function (): void {
+    // **The status and its record are one act, so they commit together or not
+    // at all.** Asked here rather than in the campaign suite because that
+    // suite wraps every test in a transaction of its own, so a controller that
+    // wrote the status outside one would still be rolled back by the test and
+    // this could not fail. Here nothing wraps the request.
+    //
+    // The record is made impossible by moving its table out of the way, in
+    // Harbor only; the request then fails, and the status it would have
+    // changed must still read subscribed. Without the transaction the status
+    // is written first and stays written, a supporter who left with nothing
+    // recording that they did.
+    $harborToken = supporterIn('harbor-cleanup', 'harbor@example.test');
+
+    tenancy()->initialize(Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail());
+    DB::statement('alter table "unsubscribes" rename to "unsubscribes_elsewhere"');
+    tenancy()->end();
+
+    $this->post('http://harbor-cleanup.test/unsubscribe/'.$harborToken)->assertServerError();
+
+    expect(statusIn('harbor-cleanup', 'harbor@example.test'))->toBe(SubscriptionStatus::Subscribed);
 });
 
 test('one person on two campaigns\' lists leaves one without leaving the other', function (): void {
