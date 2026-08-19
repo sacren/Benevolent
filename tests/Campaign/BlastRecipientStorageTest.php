@@ -5,7 +5,9 @@ declare(strict_types=1);
 use App\Models\Blast;
 use App\Models\BlastRecipient;
 use App\Models\Supporter;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 
 // The matching claim -- that the central database carries no blast recipients --
@@ -45,7 +47,103 @@ test('a recipient row holds no part of the person it names', function (): void {
         'failure_reason',
         'created_at',
         'updated_at',
+        'link_token',
     ]);
+});
+
+test('a copy of a message names itself, and stops naming anybody when its reader is erased', function (): void {
+    // **`link_token` is the one column here that is not a fact about the send
+    // (D-46), so it is the one that has to answer D-10 for itself.** It is a
+    // credential rather than a name or an address, and it resolves to a person
+    // while it exists -- Step 2 measured it to be a join key back to an
+    // address in copies outside the schema, because the request log holds it
+    // with a timestamp and the `log` mailer writes it beside the address it
+    // mailed. So a token that outlived its supporter would undo the nulling
+    // that keeps this table honest.
+    $supporter = Supporter::factory()->create();
+    $recipient = BlastRecipient::factory()->forSupporter($supporter)->sent()->create();
+
+    // Minted by the column rather than by whoever wrote the row, which is what
+    // makes it true of every writer -- the same reason the supporter's own
+    // token is a default (D-16(a)).
+    $token = DB::connection('tenant')->table('blast_recipients')->where('id', $recipient->getKey())->value('link_token');
+
+    expect($token)->not->toBeEmpty();
+
+    $supporter->delete();
+
+    $row = DB::connection('tenant')->table('blast_recipients')->where('id', $recipient->getKey())->first();
+
+    // The row stays and the count stays honest; what goes is everything that
+    // could say whose copy it was.
+    expect($row)->not->toBeNull()
+        ->and($row->supporter_id)->toBeNull()
+        ->and($row->link_token)->toBeNull()
+        ->and($row->sent_at)->not->toBeNull();
+});
+
+test('a copy claimed before per-recipient links carries no token its message never held', function (): void {
+    // **The property the migration is split in two statements for, and the
+    // only test that can see it.** Every campaign in this suite is migrated
+    // before it holds a row, so a default that arrives with the column and one
+    // that arrives after it are indistinguishable here -- which is exactly how
+    // this went unguarded until the break for it came back green. So the
+    // migration is re-run against a row that predates it: the column and its
+    // trigger are taken off, a claim is written the way one was written before
+    // this step, and the migration's own up() is what puts them back.
+    //
+    // Measured on PostgreSQL 18.1: a nullable column added *with* a volatile
+    // default fills every existing row. Those rows record messages whose
+    // inboxes hold only the old link, so a token on them would make "non-null"
+    // false as "this copy carried a per-recipient link" -- the reading the
+    // surface needs to tell *not recorded* from *none* (D-49).
+    DB::connection('tenant')->statement('drop trigger "blast_recipients_forget_link_token" on "blast_recipients"');
+    DB::connection('tenant')->statement('drop function "blast_recipients_forget_link_token"()');
+    DB::connection('tenant')->statement('alter table "blast_recipients" drop column "link_token"');
+
+    $blast = Blast::factory()->create();
+    $supporter = Supporter::factory()->create();
+
+    DB::connection('tenant')->table('blast_recipients')->insert([
+        'blast_id' => $blast->getKey(),
+        'supporter_id' => $supporter->getKey(),
+        'sent_at' => now(),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $migration = require Arr::first(File::glob(database_path('migrations/tenant/*_add_link_token_to_blast_recipients_table.php')));
+    $migration->up();
+
+    // The copy that predates the column says so by holding nothing.
+    expect(DB::connection('tenant')->table('blast_recipients')->value('link_token'))->toBeNull();
+
+    // And the column really is working for rows written afterwards, so the
+    // null above is the migration's choice rather than a default that never
+    // arrived.
+    $later = BlastRecipient::factory()->sent()->create();
+
+    expect(DB::connection('tenant')->table('blast_recipients')->where('id', $later->getKey())->value('link_token'))
+        ->not->toBeEmpty();
+});
+
+test('a row written with no supporter cannot carry a token either', function (): void {
+    // The same rule asked of an insert rather than an erasure. The trigger
+    // that removes the token fires on both, and the reason it must is that a
+    // trigger written for the erasure alone leaves the forbidden state one
+    // hand-written insert away -- measured: such a row still took the column
+    // default. Nothing in the application writes one, which is exactly why the
+    // schema rather than the sending path is what refuses it.
+    $blast = Blast::factory()->create();
+
+    DB::connection('tenant')->table('blast_recipients')->insert([
+        'blast_id' => $blast->getKey(),
+        'supporter_id' => null,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    expect(DB::connection('tenant')->table('blast_recipients')->whereNull('supporter_id')->value('link_token'))->toBeNull();
 });
 
 test('a recipient written in campaign context lands in the campaign database', function (): void {

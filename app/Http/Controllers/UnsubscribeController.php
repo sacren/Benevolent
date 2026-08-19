@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Models\BlastRecipient;
 use App\Models\Supporter;
 use App\Models\Unsubscribe;
 use App\Supporters\SubscriptionStatus;
@@ -35,9 +36,12 @@ use Inertia\Response;
  *
  * **An unknown token is a 404, and that is the honest answer in every case that
  * produces one** -- a stranger guessing, a link belonging to another campaign,
- * or a supporter who has since been erased. After an erasure there is no row,
- * so there is nobody to unsubscribe and nothing to say about who used to be
- * there. A malformed token never reaches a query at all: the column is `uuid`,
+ * or a supporter who has since been erased. After an erasure there is no
+ * supporter row, and the recipient row that outlives them has had its own
+ * token removed as the key was nulled, so neither credential in a mailed
+ * message resolves to anybody: there is nobody to unsubscribe and nothing to
+ * say about who used to be there. A malformed token never reaches a query at
+ * all: both columns are `uuid`,
  * PostgreSQL raises SQLSTATE 22P02 rather than matching nothing, and the
  * route's `whereUuid` constraint answers 404 from the router first.
  *
@@ -106,11 +110,14 @@ class UnsubscribeController extends Controller
      * same transaction as the status.** A second POST asks for the state
      * already held, so it is not a second withdrawal and writes nothing; a POST
      * after an operator has put somebody back on the list is one, and is
-     * recorded again. Recorded as **unattributed**: the token here is the
-     * supporter's, which names a person and no message, so the row says so
-     * rather than crediting whichever blast was sent last (D-46). One
-     * transaction, so a withdrawal can never be recorded without the change it
-     * records, nor the change made without its record.
+     * recorded again. **Credited to the copy of the message the link came
+     * from, and to nothing at all when the link cannot name one**: a message
+     * sent since per-recipient links names itself, and one sent before carries
+     * the supporter's token, which names a person and no message, so its
+     * withdrawal is recorded as unattributed rather than credited to whichever
+     * blast was sent last (D-46). One transaction, so a withdrawal can never be
+     * recorded without the change it records, nor the change made without its
+     * record.
      *
      * **This link unsubscribes and can never re-subscribe (D-21).** The
      * symmetric page looks kinder and is not: a link that could opt somebody
@@ -122,7 +129,7 @@ class UnsubscribeController extends Controller
      */
     public function store(string $token): RedirectResponse
     {
-        $supporter = $this->supporterFor($token);
+        [$supporter, $copy] = $this->linkFor($token);
 
         // Written unconditionally, and the repeat is still free -- **which is
         // Eloquent's doing rather than this method's, and that is worth saying
@@ -148,12 +155,12 @@ class UnsubscribeController extends Controller
         // `wasChanged()` reads what that save actually wrote, so "the status
         // changed" is answered by the write itself rather than by a comparison
         // made beforehand that could disagree with it.
-        DB::transaction(function () use ($supporter): void {
+        DB::transaction(function () use ($supporter, $copy): void {
             $supporter->subscription_status = SubscriptionStatus::Unsubscribed;
             $supporter->save();
 
             if ($supporter->wasChanged('subscription_status')) {
-                Unsubscribe::create(['blast_recipient_id' => null]);
+                Unsubscribe::create(['blast_recipient_id' => $copy?->getKey()]);
             }
         });
 
@@ -170,9 +177,57 @@ class UnsubscribeController extends Controller
      */
     private function supporterFor(string $token): Supporter
     {
-        return Supporter::query()
-            ->where('unsubscribe_token', $token)
-            ->firstOrFail();
+        return $this->linkFor($token)[0];
+    }
+
+    /**
+     * Whose link this is, and which message it came from if it can say.
+     *
+     * **Two credentials answer here, and they are asked for in the order the
+     * inboxes will hold them (D-46).** A message sent since per-recipient links
+     * carries `blast_recipients.link_token`, which names one copy of one
+     * message; every message sent before carries the supporter's own token,
+     * which names a person and no message. Both are random uuids stored in this
+     * campaign's own database, so both are scoped the way D-16(a) chose, and
+     * one minted in another campaign matches no row here for the reason a
+     * supporter does not.
+     *
+     * **The per-recipient lookup requires a live supporter, and the join is
+     * what requires it.** A recipient row outlives the person: an erasure nulls
+     * `supporter_id` and keeps the row, so a lookup by token alone would find a
+     * message that belonged to somebody who no longer exists and could record
+     * an outcome against them. Measured with the trigger removed, a lookup by
+     * token alone finds that row and the joined lookup finds none. The schema
+     * closes the same door from the other side by nulling the token as the key
+     * goes; this closes it here, because a resolver that trusted the schema
+     * would be trusting a guarantee it cannot see.
+     *
+     * **A withdrawal through an old link is recorded as unattributed**, never
+     * as the latest blast that supporter was sent -- which is the failure D-46
+     * says no later change repairs, and which is why the second lookup returns
+     * no message rather than going looking for one.
+     *
+     * @return array{0: Supporter, 1: BlastRecipient|null}
+     */
+    private function linkFor(string $token): array
+    {
+        $copy = BlastRecipient::query()
+            ->where('link_token', $token)
+            ->whereHas('supporter')
+            ->with('supporter')
+            ->first();
+
+        if ($copy !== null) {
+            /** @var Supporter $supporter */
+            $supporter = $copy->supporter;
+
+            return [$supporter, $copy];
+        }
+
+        return [
+            Supporter::query()->where('unsubscribe_token', $token)->firstOrFail(),
+            null,
+        ];
     }
 
     /**

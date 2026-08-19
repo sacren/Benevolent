@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Models\BlastRecipient;
 use App\Models\Supporter;
 use App\Models\Tenant;
 use App\Supporters\SubscriptionStatus;
@@ -103,6 +104,23 @@ function withdrawalsIn(string $slug): int
     return $count;
 }
 
+/**
+ * Put one supporter on one campaign's list, claim them a copy of a blast, and
+ * hand back the token that copy's link carries.
+ */
+function linkTokenIn(string $slug, string $email): string
+{
+    tenancy()->initialize(Tenant::query()->where('slug', $slug)->firstOrFail());
+
+    $supporter = Supporter::factory()->create(['email' => $email]);
+    $recipient = BlastRecipient::factory()->forSupporter($supporter)->sent()->create();
+    $token = (string) DB::table('blast_recipients')->where('id', $recipient->getKey())->value('link_token');
+
+    tenancy()->end();
+
+    return $token;
+}
+
 test('one campaign\'s link cannot unsubscribe another campaign\'s supporter', function (): void {
     // **The defect this mechanism exists to make impossible**, and the one a
     // relative signature would have permitted outright.
@@ -131,6 +149,40 @@ test('one campaign\'s link cannot unsubscribe another campaign\'s supporter', fu
         // The withdrawal lands in the campaign whose link it was, and only
         // there, which is what makes the zeros above a boundary.
         ->and(withdrawalsIn('harbor-cleanup'))->toBe(1)
+        ->and(withdrawalsIn('ridge-restoration'))->toBe(0);
+});
+
+test('a message\'s own link is refused by every campaign but the one that sent it', function (): void {
+    // **§7 criterion 2's other direction, and D-16(a)'s property asked of the
+    // second credential.** The per-recipient token is scoped the way the
+    // supporter's is -- by the campaign's own database, not by anything inside
+    // the string -- so a link minted in Harbor matches no row in Ridge, where
+    // recipient ids restart at 1 exactly as supporter ids do.
+    $harborLink = linkTokenIn('harbor-cleanup', 'harbor@example.test');
+    $ridgeLink = linkTokenIn('ridge-restoration', 'ridge@example.test');
+
+    // The two campaigns' first recipient rows are both id 1, which is why the
+    // credential cannot be an id (D-46, finding 3).
+    expect($harborLink)->not->toBe($ridgeLink);
+
+    $this->get('http://ridge-restoration.test/unsubscribe/'.$harborLink)->assertNotFound();
+    $this->post('http://ridge-restoration.test/unsubscribe/'.$harborLink)->assertNotFound();
+
+    expect(statusIn('ridge-restoration', 'ridge@example.test'))->toBe(SubscriptionStatus::Subscribed)
+        ->and(statusIn('harbor-cleanup', 'harbor@example.test'))->toBe(SubscriptionStatus::Subscribed)
+        ->and(withdrawalsIn('ridge-restoration'))->toBe(0)
+        ->and(withdrawalsIn('harbor-cleanup'))->toBe(0);
+
+    // And on its own campaign's host the same link works and is attributed,
+    // so the refusals above are a boundary rather than a broken route.
+    $this->post('http://harbor-cleanup.test/unsubscribe/'.$harborLink)->assertRedirect();
+
+    tenancy()->initialize(Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail());
+    $attributed = DB::table('unsubscribes')->pluck('blast_recipient_id')->all();
+    $copy = DB::table('blast_recipients')->where('link_token', $harborLink)->value('id');
+    tenancy()->end();
+
+    expect($attributed)->toBe([$copy])
         ->and(withdrawalsIn('ridge-restoration'))->toBe(0);
 });
 

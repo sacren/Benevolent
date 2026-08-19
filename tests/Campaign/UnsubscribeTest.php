@@ -180,11 +180,13 @@ test('following the link twice is not an error and does not rewrite the record',
 });
 
 test('leaving records one withdrawal, and credits it to no message', function (): void {
-    // **The link in every inbox today carries the supporter's token**, which
-    // names a person and no message. So the withdrawal is recorded, and
-    // recorded as unattributed -- never credited to the latest blast they were
-    // sent, which is the one mistake D-46 says no later change can repair.
-    // They were sent two, so a writer choosing one would have one to choose.
+    // **A link mailed before messages named themselves carries the supporter's
+    // token**, which names a person and no message. Those links keep working,
+    // because that is what D-16 promised the person holding one, and the
+    // withdrawal is recorded as unattributed -- never credited to the latest
+    // blast they were sent, which is the one mistake D-46 says no later change
+    // can repair. They were sent two, so a writer choosing one would have one
+    // to choose.
     $supporter = Supporter::factory()->create();
 
     BlastRecipient::factory()->forSupporter($supporter)->sent()->create();
@@ -194,6 +196,63 @@ test('leaving records one withdrawal, and credits it to no message', function ()
 
     expect(Unsubscribe::query()->pluck('blast_recipient_id')->all())->toBe([null])
         ->and(Unsubscribe::query()->sole()->created_at)->not->toBeNull();
+});
+
+test('a withdrawal through a message\'s own link names that message, and not the latest', function (): void {
+    // **§7 criterion 2, in the direction that is easiest to get wrong.** This
+    // supporter was sent two blasts; the link they used is the first one's.
+    // Crediting the withdrawal to the blast that happens to be most recent
+    // would be telling a campaign that a message caused something it did not,
+    // which is the failure D-46 says no later change repairs.
+    $supporter = Supporter::factory()->create();
+
+    $first = BlastRecipient::factory()->forSupporter($supporter)->sent()->create();
+    $latest = BlastRecipient::factory()->forSupporter($supporter)->sent()->create();
+
+    $token = DB::connection('tenant')->table('blast_recipients')->where('id', $first->getKey())->value('link_token');
+
+    // The page answers to this credential as readily as to the supporter's
+    // own, and says whose address it is about, because the copy knows its
+    // reader.
+    $this->get($this->campaignUrl('unsubscribe/'.$token))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->component('Unsubscribe')->where('email', $supporter->email));
+
+    $this->post($this->campaignUrl('unsubscribe/'.$token))->assertRedirect();
+
+    expect($supporter->fresh()->subscription_status)->toBe(SubscriptionStatus::Unsubscribed)
+        ->and(Unsubscribe::query()->pluck('blast_recipient_id')->all())->toBe([$first->getKey()])
+        // Named rather than left implicit: the row the writer must not have
+        // chosen is the newer one, and it exists.
+        ->and($latest->getKey())->toBeGreaterThan($first->getKey());
+});
+
+test('a link whose reader has been erased resolves to nobody', function (): void {
+    // **D-46's condition, which the schema and the resolver answer
+    // separately.** A recipient row outlives the person: an erasure nulls its
+    // key and keeps the row, so a lookup by token alone would find a message
+    // belonging to somebody who no longer exists. The column's trigger removes
+    // the token as the key goes, which makes that state unreachable -- and
+    // that is exactly why this test disables the trigger. What is under test
+    // here is the resolver's own refusal, which must hold whether or not the
+    // schema is also holding; a guard that depended on the trigger would be
+    // reporting the trigger twice and the join never.
+    DB::connection('tenant')->statement('alter table "blast_recipients" disable trigger "blast_recipients_forget_link_token"');
+
+    $supporter = Supporter::factory()->create();
+    $recipient = BlastRecipient::factory()->forSupporter($supporter)->sent()->create();
+    $token = DB::connection('tenant')->table('blast_recipients')->where('id', $recipient->getKey())->value('link_token');
+
+    $supporter->delete();
+
+    // The row and its token really did survive, so the 404 below is the
+    // resolver refusing rather than there being nothing to find.
+    expect(DB::connection('tenant')->table('blast_recipients')->where('link_token', $token)->count())->toBe(1);
+
+    $this->get($this->campaignUrl('unsubscribe/'.$token))->assertNotFound();
+    $this->post($this->campaignUrl('unsubscribe/'.$token))->assertNotFound();
+
+    expect(Unsubscribe::query()->count())->toBe(0);
 });
 
 test('leaving again after an operator put them back is a second withdrawal', function (): void {

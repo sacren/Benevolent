@@ -9,6 +9,7 @@ use App\Models\Supporter;
 use App\Tenancy\CampaignContact;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
@@ -48,9 +49,9 @@ use Throwable;
  * and a second worker takes it *while the first is still running* -- by
  * default, with nothing misconfigured. That is one campaign, one blast, one
  * dispatch and two senders, which no dispatch-time lock addresses at all. The
- * unique index on (blast_id, supporter_id) is what holds; `insertOrIgnore`
- * turns "has this person already had it?" into the write itself rather than a
- * read another worker can race.
+ * unique index on (blast_id, supporter_id) is what holds; a claim that
+ * conflicts on exactly that pair turns "has this person already had it?" into
+ * the write itself rather than a read another worker can race.
  *
  * **The campaign goes in the lock key, never in the container (deferral 23,
  * L-27).** WithoutOverlapping resolves the container's cache repository, which
@@ -78,6 +79,14 @@ use Throwable;
  * place an address exists in this file is the mail envelope, which is not a
  * database binding -- and the transport's *complaint* about it is scrubbed
  * below before it is stored.
+ *
+ * **The claim now also carries a credential back out, and both directions are
+ * accounted for.** It binds no more than it did; what changed is that it
+ * *returns* the token the message's link will hold, which goes into one
+ * message and nowhere else. A unique violation would print such a token in the
+ * database's own DETAIL, so that exception is rethrown below with the SQLSTATE
+ * and nothing else, rather than reaching a log, a failed job, or the
+ * `failure_reason` an operator reads.
  */
 final class SendBlast implements ShouldQueue
 {
@@ -210,7 +219,9 @@ final class SendBlast implements ShouldQueue
      */
     private function deliver(Blast $blast, Supporter $supporter, string $campaignName, ?string $replyTo): void
     {
-        if (! $this->claim($blast, $supporter)) {
+        $linkToken = $this->claim($blast, $supporter);
+
+        if ($linkToken === null) {
             // Already reached, by an earlier attempt at this job or by another
             // worker running it right now. Skipped in silence: a duplicate claim
             // is the mechanism working rather than anything to report.
@@ -224,7 +235,7 @@ final class SendBlast implements ShouldQueue
                 $blast,
                 $campaignName,
                 $replyTo,
-                $this->unsubscribeUrlFor($supporter),
+                $this->unsubscribeUrlFor($linkToken),
             ));
         } catch (Throwable $exception) {
             $failure = $this->withoutNamingAnybody($exception, $supporter->email);
@@ -243,9 +254,20 @@ final class SendBlast implements ShouldQueue
      * Where this one supporter goes to stop receiving mail.
      *
      * **The one value in a blast that differs per recipient, and the reason it
-     * is built here rather than read from a column.** The token is the
-     * supporter's; the URL around it is this campaign's hostname plus a route,
-     * neither of which belongs in the database.
+     * is built here rather than read from a column.** The token names this
+     * copy of this message and is minted by the claim; the URL around it is
+     * this campaign's hostname plus a route, neither of which belongs in the
+     * database.
+     *
+     * **It is the message's token rather than the supporter's, and that is the
+     * whole of attribution (D-46).** A per-supporter token is the same in every
+     * message somebody was ever sent, so the request that unsubscribes them
+     * cannot say which one prompted it, and no later commit can work out what
+     * the request did not carry. Links already mailed keep working -- the
+     * supporter's token still resolves, exactly as D-16 promised the person
+     * holding it -- and the withdrawal they produce is recorded as
+     * unattributed rather than credited to whichever blast happened to be
+     * last.
      *
      * **The absolute host is the load-bearing part, and it is the thing most
      * likely to be wrong in exactly this context.** A queued job has no request
@@ -264,30 +286,70 @@ final class SendBlast implements ShouldQueue
      * signature over the platform-wide APP_KEY would add a second one that
      * separates campaigns only by the hostname inside it.
      */
-    private function unsubscribeUrlFor(Supporter $supporter): string
+    private function unsubscribeUrlFor(string $linkToken): string
     {
-        return route('unsubscribe.show', ['token' => $supporter->unsubscribe_token]);
+        return route('unsubscribe.show', ['token' => $linkToken]);
     }
 
     /**
-     * Take this supporter's copy of this blast, or report that somebody already has.
+     * Take this supporter's copy of this blast, and hand back what the link in
+     * it will say -- or nothing at all, when somebody already has.
      *
-     * `insertOrIgnore` rather than an insert in a try: PostgreSQL's
-     * `on conflict do nothing` neither raises nor aborts the surrounding
-     * transaction, where a refused insert would do both -- and every test in
-     * the campaign suite runs inside one, so a claim written the other way
-     * would take the whole test with it.
+     * `on conflict do nothing` rather than an insert in a try: PostgreSQL's
+     * form neither raises nor aborts the surrounding transaction, where a
+     * refused insert would do both -- and every test in the campaign suite runs
+     * inside one, so a claim written the other way would take the whole test
+     * with it.
+     *
+     * **The conflict is named rather than left open, and the difference is a
+     * measured defect rather than a nicety.** `insertOrIgnore` compiles to a
+     * bare `on conflict do nothing`, which swallows *every* unique violation,
+     * not the claim's. With a second unique index on this table that is wrong
+     * in the worst available direction: measured, a claim that was new except
+     * for a colliding `link_token` returned 0 and was read as "already
+     * claimed", leaving that supporter with no message *and no row* -- which
+     * breaks the promise this table is built on, that an unsent recipient is a
+     * row that says so. Naming `(blast_id, supporter_id)` keeps "already
+     * claimed" meaning exactly that, and lets anything else be an error.
+     *
+     * **The token comes back from the write itself.** The column's default
+     * mints it, and `returning` hands it back in the same statement, so no
+     * second query and no model hook stands between the claim and the link --
+     * which is also what keeps the claim a single statement that two workers
+     * can race safely.
+     *
+     * **A collision is rethrown without the database's own words.** A unique
+     * violation prints the colliding value in its DETAIL, and here that value
+     * is a live credential for somebody else's message -- which would then be
+     * written to the log on every attempt, and into this campaign's own
+     * `failure_reason` where an operator reads it. That is the same door
+     * Phase 1 shut on a QueryException's inlined bindings, and the reason D-49
+     * refused a check constraint. What survives is the SQLSTATE, which is what
+     * anybody actually debugs from. The job then fails rather than losing
+     * somebody quietly, and a retry mints a fresh token for the row that was
+     * never written.
      */
-    private function claim(Blast $blast, Supporter $supporter): bool
+    private function claim(Blast $blast, Supporter $supporter): ?string
     {
         $now = now();
 
-        return DB::table('blast_recipients')->insertOrIgnore([
-            'blast_id' => $blast->getKey(),
-            'supporter_id' => $supporter->getKey(),
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]) === 1;
+        try {
+            $claimed = DB::table('blast_recipients')->insertOrIgnoreReturning([
+                'blast_id' => $blast->getKey(),
+                'supporter_id' => $supporter->getKey(),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ], ['link_token'], ['blast_id', 'supporter_id']);
+        } catch (UniqueConstraintViolationException $exception) {
+            throw new RuntimeException(sprintf(
+                'A recipient could not be claimed: the database refused the write (SQLSTATE %s).',
+                $exception->getCode(),
+            ));
+        }
+
+        $row = $claimed->first();
+
+        return $row === null ? null : (string) $row->link_token;
     }
 
     /**

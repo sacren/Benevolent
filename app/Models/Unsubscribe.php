@@ -24,9 +24,11 @@ use Illuminate\Support\Carbon;
  * only when the request changes somebody's status -- a repeat of an act
  * already recorded is not a second withdrawal.
  *
- * **Every row it writes today is unattributed.** Every link in every inbox
- * carries the supporter's own token, which names a person and no message, so
- * `blast_recipient_id` is null: the true statement that the link could not say
+ * **A row names the copy of the message its link came from, or nothing at
+ * all.** A message sent since per-recipient links carries its own token and
+ * names itself; one sent before carries the supporter's token, which names a
+ * person and no message, so its withdrawal is recorded with
+ * `blast_recipient_id` null -- the true statement that the link could not say
  * which message it came from. It is never filled in with the latest blast,
  * which would tell a campaign a message did something it may not have done
  * (D-46).

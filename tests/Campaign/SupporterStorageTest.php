@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Models\BlastRecipient;
 use App\Models\Supporter;
 use App\Supporters\SubscriptionStatus;
 use Illuminate\Database\Query\Expression;
@@ -391,19 +392,27 @@ test('erasing a supporter takes their token with them', function (): void {
     // D-10 asked for the third time, and answered the way Blueprint §5 requires
     // -- by running a deletion and counting rows rather than by reading the
     // schema. The token is a credential, so where it lives is a data-lifecycle
-    // question; it lives on the one table an erasure already reaches, so the
-    // resolution needs no amendment.
+    // question; this one lives on the table an erasure already empties, so the
+    // resolution needs no amendment for it. **A second credential has since
+    // arrived on a table an erasure deliberately does *not* empty**, and the
+    // end of this test is where it answers for itself.
     $supporter = Supporter::factory()->create(['email' => 'leaving@example.test']);
     $id = $supporter->getKey();
 
+    // A copy of a message addressed to them, so the second credential below is
+    // actually present before the deletion. Without it the last assertion here
+    // would be counting a table that was empty either way.
+    BlastRecipient::factory()->forSupporter($supporter)->sent()->create();
+
     expect(DB::connection('tenant')->table('supporters')->where('id', $id)->value('unsubscribe_token'))
-        ->not->toBeEmpty();
+        ->not->toBeEmpty()
+        ->and(DB::connection('tenant')->table('blast_recipients')->whereNotNull('link_token')->count())->toBe(1);
 
     $supporter->delete();
 
     expect(DB::connection('tenant')->table('supporters')->where('id', $id)->count())->toBe(0);
 
-    // **And the token has exactly one home, which is what makes the deletion
+    // **And this token has exactly one home, which is what makes the deletion
     // above mean anything.** The assertion before this one is satisfied by a
     // schema that keeps tokens in a table of their own and leaves them there
     // forever -- the erasure would still empty the supporters row, and D-10
@@ -419,21 +428,29 @@ test('erasing a supporter takes their token with them', function (): void {
 
     expect(array_column($homes, 'table_name'))->toBe(['supporters']);
 
-    // **And no second credential of the same kind exists under another name.**
-    // The query above asks for a column *called* `unsubscribe_token`, so it
-    // cannot see a token stored anywhere under a different name -- measured
-    // at Phase 5 Step 1, where a per-recipient `link_token` beside it left that
-    // query returning `['supporters']` unchanged. Asked here by what a token
-    // *is*: a link credential for somebody with no account is a `uuid` the
-    // database generates, as this one is, so a new one cannot arrive without
-    // appearing below, and cannot turn this green until somebody has said
-    // what an erasure does to it. The two queries catch different mistakes
-    // -- the one above a copy of this token stored as text, this one a new
-    // token under a new name -- so both stay.
+    // **And every credential of the same kind is named here, with what an
+    // erasure does to it.** The query above asks for a column *called*
+    // `unsubscribe_token`, so it cannot see a token stored under a different
+    // name -- measured at Phase 5 Step 1, where a per-recipient `link_token`
+    // beside it left that query returning `['supporters']` unchanged. Asked
+    // here by what a token *is*: a link credential for somebody with no
+    // account is a `uuid` the database generates, so a new one cannot arrive
+    // without appearing below. **There are two now**, and the list is extended
+    // rather than loosened, because a query that stopped naming its homes
+    // would go quiet on exactly the arrival it exists to catch.
     $credentials = DB::connection('tenant')->select(
         "select table_name || '.' || column_name as home from information_schema.columns "
         ."where table_schema = current_schema() and data_type = 'uuid' order by 1"
     );
 
-    expect(array_column($credentials, 'home'))->toBe(['supporters.unsubscribe_token']);
+    expect(array_column($credentials, 'home'))
+        ->toBe(['blast_recipients.link_token', 'supporters.unsubscribe_token']);
+
+    // **The second home answers the erasure differently and has to, which is
+    // why naming it is not enough on its own.** This one is not on a row the
+    // deletion removes: a recipient row outlives the person, keeping a blast's
+    // count honest (D-10). What removes the credential is the trigger the
+    // column arrived with, and the assertion that it did is the one that makes
+    // the list above a question rather than an inventory.
+    expect(DB::connection('tenant')->table('blast_recipients')->whereNotNull('link_token')->count())->toBe(0);
 });

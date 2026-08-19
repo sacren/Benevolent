@@ -569,7 +569,7 @@ test('every message carries a way off the list, and no two carry the same one', 
 
     tenancy()->initialize($harbor);
     $blast = committedBlastFor(['ama@harbor.test', 'bo@harbor.test']);
-    $tokens = Supporter::query()->pluck('unsubscribe_token', 'email');
+    $supporterTokens = Supporter::query()->pluck('unsubscribe_token', 'email');
     SendBlast::dispatch($blast, (string) $harbor->getKey());
     tenancy()->end();
 
@@ -577,22 +577,128 @@ test('every message carries a way off the list, and no two carry the same one', 
 
     expect($sent)->toHaveCount(2);
 
+    tenancy()->initialize($harbor);
+    $linkTokens = DB::table('blast_recipients')
+        ->join('supporters', 'supporters.id', '=', 'blast_recipients.supporter_id')
+        ->where('blast_recipients.blast_id', $blast->getKey())
+        ->pluck('blast_recipients.link_token', 'supporters.email');
+    tenancy()->end();
+
     foreach ($sent as $message) {
         $address = $message->getTo()[0]->getAddress();
 
-        // **The one value that differs between two recipients' copies.** Until
-        // this step the same bytes went to everybody; a per-supporter link
-        // makes that false, which is addressing rather than personalization --
-        // it says which envelope this copy belongs to and still says nothing
-        // about who is reading it.
-        expect($message->getTextBody())->toContain('/unsubscribe/'.$tokens[$address]);
+        // **The one value that differs between two recipients' copies, and it
+        // now names the copy rather than the reader (D-46).** A per-supporter
+        // token is identical in every message that person was ever sent, so
+        // the request it produces cannot say which message prompted it. This
+        // one is minted by the claim, so each copy of each blast carries its
+        // own.
+        expect($message->getTextBody())->toContain('/unsubscribe/'.$linkTokens[$address])
+            // And the supporter's own token is *not* in the message, which is
+            // what makes the assertion above a change rather than an addition
+            // -- both are uuids on this campaign's rows, so a message carrying
+            // both would satisfy the first assertion while attributing
+            // nothing.
+            ->and($message->getTextBody())->not->toContain((string) $supporterTokens[$address]);
     }
 
     // And they really are different links, so the assertion above is not
     // satisfied by one token shared between two people -- which is the schema
     // defect the unique index exists to refuse and which would look exactly
     // like a working send from here.
-    expect($tokens['ama@harbor.test'])->not->toBe($tokens['bo@harbor.test']);
+    expect($linkTokens['ama@harbor.test'])->not->toBe($linkTokens['bo@harbor.test']);
+});
+
+test('a refused claim says the SQLSTATE and never the credential it collided on', function (): void {
+    // **The second unique index changes what a refused claim means, and the
+    // message it would print.** `insertOrIgnore` compiles to a bare `on
+    // conflict do nothing`, which swallows every unique violation: measured, a
+    // claim colliding only on `link_token` came back as "already claimed",
+    // leaving that supporter with no message and no row at all. Naming the
+    // pair instead lets a token collision raise -- and a unique violation
+    // prints the colliding value in its DETAIL, which here is a live
+    // credential for somebody else's copy, on its way to the log, the failed
+    // job and the `failure_reason` an operator reads.
+    //
+    // **The collision is forced by pinning the column's default**, because two
+    // random uuids do not collide and a guard that waited for one would never
+    // run. **handle() directly rather than the worker**, deliberately: the
+    // claim is what is under test, and a worker would retry the failure three
+    // times and bury the message this asserts inside failed_jobs.
+    $harbor = sendingCampaign('harbor-cleanup');
+
+    tenancy()->initialize($harbor);
+
+    $blast = committedBlastFor(['ama@harbor.test', 'bo@harbor.test']);
+    $pinned = '11111111-2222-4333-8444-555555555555';
+
+    // Inlined rather than bound: PostgreSQL cannot infer a parameter's type in
+    // a DDL default and answers 42P18. The value is this file's own constant.
+    DB::statement('alter table "blast_recipients" alter column "link_token" set default \''.$pinned.'\'::uuid');
+
+    $thrown = null;
+
+    try {
+        (new SendBlast($blast, (string) $harbor->getKey()))->handle();
+    } catch (Throwable $exception) {
+        $thrown = $exception;
+    }
+
+    expect($thrown)->not->toBeNull()
+        ->and($thrown->getMessage())->toContain('SQLSTATE 23505')
+        // The whole point: the database's own words carried the token, and
+        // these do not.
+        ->and($thrown->getMessage())->not->toContain($pinned)
+        // Nor is the original attached, which would put its message straight
+        // back into whatever records this one (the importer's rule).
+        ->and($thrown->getPrevious())->toBeNull();
+
+    // One supporter was claimed and one was not, and the one that was not has
+    // no row -- which is the state the job now fails loudly on instead of
+    // treating as somebody who had already been written to.
+    expect(DB::table('blast_recipients')->count())->toBe(1)
+        ->and(DB::table('blast_recipients')->value('link_token'))->toBe($pinned);
+
+    tenancy()->end();
+});
+
+test('a second blast to the same person carries a different link from the first', function (): void {
+    // **The property that makes attribution possible at all**, and the one a
+    // per-supporter token cannot have: the same reader, two messages, two
+    // links. Without it "which message prompted this?" has no answer in the
+    // request, which is where D-46 found attribution missing.
+    $sent = messagesSent();
+
+    $harbor = sendingCampaign('harbor-cleanup');
+
+    tenancy()->initialize($harbor);
+    $first = committedBlastFor(['ama@harbor.test'], 'First meeting');
+    SendBlast::dispatch($first, (string) $harbor->getKey());
+    tenancy()->end();
+
+    QueueWorker::runNextJob();
+
+    tenancy()->initialize($harbor);
+    $second = Blast::factory()->queued()->create(['subject' => 'Second meeting', 'body' => 'Another Thursday.']);
+    SendBlast::dispatch($second, (string) $harbor->getKey());
+    tenancy()->end();
+
+    QueueWorker::runNextJob();
+
+    expect($sent)->toHaveCount(2);
+
+    tenancy()->initialize($harbor);
+    $tokens = DB::table('blast_recipients')->orderBy('blast_id')->pluck('link_token', 'blast_id');
+    tenancy()->end();
+
+    expect($tokens)->toHaveCount(2)
+        ->and($tokens[$first->getKey()])->not->toBe($tokens[$second->getKey()])
+        // Each blast's own token is in its own message and in no other, read
+        // out of what was mailed rather than rebuilt from the rows.
+        ->and($sent[0]->getTextBody())->toContain('/unsubscribe/'.$tokens[$first->getKey()])
+        ->and($sent[0]->getTextBody())->not->toContain((string) $tokens[$second->getKey()])
+        ->and($sent[1]->getTextBody())->toContain('/unsubscribe/'.$tokens[$second->getKey()])
+        ->and($sent[1]->getTextBody())->not->toContain((string) $tokens[$first->getKey()]);
 });
 
 test('the link in a queued message points at the campaign\'s own host, never the platform\'s', function (): void {
@@ -685,6 +791,17 @@ test('following the link from the message takes the supporter off the list, and 
     $this->post($matches[0])->assertRedirect();
 
     tenancy()->initialize($harbor);
+
+    // **The withdrawal is attributed to the copy whose link was clicked**, and
+    // this is the only place that is asserted against a link that really was
+    // mailed rather than one read out of a row. The recipient row it names is
+    // ama's copy of the first blast, which is the message that prompted it.
+    $amaCopy = DB::table('blast_recipients')
+        ->join('supporters', 'supporters.id', '=', 'blast_recipients.supporter_id')
+        ->where('supporters.email', 'ama@harbor.test')
+        ->value('blast_recipients.id');
+
+    expect(DB::table('unsubscribes')->pluck('blast_recipient_id')->all())->toBe([$amaCopy]);
 
     expect(Supporter::query()->whereEmailMatches('ama@harbor.test')->sole()->subscription_status)
         ->toBe(SubscriptionStatus::Unsubscribed)
@@ -1081,11 +1198,10 @@ test('erasing a supporter who withdrew keeps the withdrawal and leaves nobody in
     // **D-49's first half, asked by running a deletion against the schema.**
     // The same scan as the district erasure above, drawn from
     // information_schema, so `unsubscribes` is searched because it exists
-    // rather than because anybody named it. The unsubscribe request writes
-    // only unattributed rows while every link carries the supporter's token,
-    // so the two rows are written straight to the table: one following this
-    // supporter's copy of the blast, which no request can write yet, and one
-    // the link could not attribute.
+    // rather than because anybody named it. The two rows are written straight
+    // to the table rather than through the request, so that both shapes are
+    // present at once: one following this supporter's copy of the blast, and
+    // one that no link could attribute.
     $harbor = sendingCampaign('harbor-cleanup');
 
     tenancy()->initialize($harbor);
