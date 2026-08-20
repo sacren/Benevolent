@@ -5,7 +5,9 @@ declare(strict_types=1);
 use App\Authorization\Permission;
 use App\Blasts\BlastStatus;
 use App\Models\Blast;
+use App\Models\BlastRecipient;
 use App\Models\Segment;
+use App\Models\Unsubscribe;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -215,4 +217,205 @@ test('a draft carries no frozen rule to the page, so the list keeps naming its s
             ->where('blasts.0.committed_prefixes', null)
             ->where('blasts.0.segment.name', 'Beverly Hills')
         );
+});
+
+test('the list says how many people left because of each message', function (): void {
+    // The module's whole subject, on the surface that shows a campaign its
+    // messages. Two of the three copies were followed by a withdrawal through
+    // that copy's own link, which is the only thing that can credit a blast.
+    $blast = Blast::factory()->sent()->create(['subject' => 'Object before Friday']);
+
+    $copies = BlastRecipient::factory()->count(3)->ofBlast($blast)->sent()->create();
+
+    Unsubscribe::create(['blast_recipient_id' => $copies[0]->getKey()]);
+    Unsubscribe::create(['blast_recipient_id' => $copies[1]->getKey()]);
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/blasts'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('blasts.0.withdrawn_count', 2)
+            // And the basis the count is drawn from: all three copies carried a
+            // link, so the two is the whole answer rather than a floor.
+            ->where('blasts.0.attributable_count', 3)
+            ->where('blasts.0.reached_count', 3)
+        );
+});
+
+test('a blast whose copies carried no link reports no basis, which is not the same as no withdrawals', function (): void {
+    // **The state §7 criterion 3 exists for.** These copies were claimed before
+    // messages carried their own link, so nobody who left through one of them
+    // could ever have been counted here. The page must be able to tell that
+    // from a message nobody left over, and it cannot unless the server sends
+    // the basis as well as the count.
+    $blast = Blast::factory()->sent()->create(['subject' => 'Sent before any of this']);
+
+    BlastRecipient::factory()->count(3)->ofBlast($blast)->sent()->withoutLinkToken()->create();
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/blasts'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('blasts.0.attributable_count', 0)
+            ->where('blasts.0.withdrawn_count', 0)
+            // The send itself is untouched and still says what it did. Without
+            // this the assertions above are satisfied by a blast that reached
+            // nobody, which is a different fact entirely.
+            ->where('blasts.0.reached_count', 3)
+        );
+});
+
+test('a blast whose copies are only partly attributable says how many could speak', function (): void {
+    // **Reachable through SendBlast's resumption**, which is why it is guarded
+    // rather than dismissed: a send interrupted across the migration that added
+    // `link_token` claims the rest of its recipients afterwards, so one blast
+    // holds copies of both kinds. A surface reading this as a simple yes or no
+    // would report two of four as the whole answer.
+    $blast = Blast::factory()->sent()->create(['subject' => 'Interrupted and resumed']);
+
+    $carrying = BlastRecipient::factory()->count(2)->ofBlast($blast)->sent()->create();
+    BlastRecipient::factory()->count(2)->ofBlast($blast)->sent()->withoutLinkToken()->create();
+
+    Unsubscribe::create(['blast_recipient_id' => $carrying[0]->getKey()]);
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/blasts'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('blasts.0.reached_count', 4)
+            // Two of the four copies could name themselves, so one withdrawal
+            // is one out of two rather than one out of four.
+            ->where('blasts.0.attributable_count', 2)
+            ->where('blasts.0.withdrawn_count', 1)
+        );
+});
+
+test('a link minted for a message that never went is not counted as a basis', function (): void {
+    // **The fifth state Step 3 recorded, and it is not an outcome.** A claim
+    // carries a token from the moment it is written, before the message is
+    // handed to the mailer -- so a copy that failed holds a link that reached
+    // nobody. Counting it would make the basis a promise about inboxes the
+    // campaign never got to.
+    $blast = Blast::factory()->failed()->create(['subject' => 'Stopped early']);
+
+    BlastRecipient::factory()->ofBlast($blast)->sent()->create();
+    BlastRecipient::factory()->count(2)->ofBlast($blast)->failed()->create();
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/blasts'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('blasts.0.reached_count', 1)
+            ->where('blasts.0.failed_count', 2)
+            // One, not three: the two failed copies hold tokens the database
+            // minted and no message ever carried anywhere.
+            ->where('blasts.0.attributable_count', 1)
+        );
+});
+
+test('one copy followed by two withdrawals counts twice without inflating what the send reached', function (): void {
+    // **Two assertions with different standing, and saying which is which is
+    // the point of this comment.** D-47 measured that one copy can be followed
+    // by more than one real withdrawal: somebody leaves, an operator puts them
+    // back, they leave again.
+    //
+    // The `withdrawn_count` half is a live guard. It goes red against a count
+    // of the copies that were left rather than of the acts of leaving --
+    // `count(distinct blast_recipient_id)` reports 1 where 2 is the truth,
+    // confirmed by running it.
+    //
+    // **The `reached_count` half is a tripwire for a shape this page does not
+    // currently have, and no mutation available today can reach it.** Each
+    // aggregate here is its own correlated subquery, so `unsubscribes` cannot
+    // touch the reach count whatever is done to the withdrawal count. It is
+    // written for the grouped single-pass shape filed for Step 5, where the
+    // two counts share one GROUP BY and a doubled withdrawal multiplies the
+    // recipient row: measured on 4,000 supporters, that shape reported 3,981
+    // reached where 3,980 was the truth. Said here rather than left for a
+    // reader to assume it was measured (Blueprint v0.27).
+    $blast = Blast::factory()->sent()->create(['subject' => 'Left twice']);
+
+    $copy = BlastRecipient::factory()->ofBlast($blast)->sent()->create();
+
+    Unsubscribe::create(['blast_recipient_id' => $copy->getKey()]);
+    Unsubscribe::create(['blast_recipient_id' => $copy->getKey()]);
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/blasts'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('blasts.0.withdrawn_count', 2)
+            ->where('blasts.0.reached_count', 1)
+            ->where('blasts.0.attributable_count', 1)
+        );
+});
+
+test('a withdrawal that names no message is counted for the campaign and against no blast', function (): void {
+    // **Where an unattributed row lives, which is the question it forces.** It
+    // points at no copy, so there is no row on this page it belongs to, and
+    // adding it to one would be exactly the misattribution D-46 exists to
+    // prevent. It belongs to the campaign, so the campaign is what carries it.
+    $blast = Blast::factory()->sent()->create(['subject' => 'Object before Friday']);
+
+    $copy = BlastRecipient::factory()->ofBlast($blast)->sent()->create();
+
+    // **An attributed withdrawal sits beside them deliberately**, and without it
+    // this test cannot fail for the reason it names: with only unattributed
+    // rows in the table, "the withdrawals that name no message" and "every
+    // withdrawal" are the same number, and a figure counting the whole table
+    // passes exactly as the right one does. Measured -- the first version of
+    // this test stayed green against precisely that defect.
+    Unsubscribe::create(['blast_recipient_id' => $copy->getKey()]);
+
+    // Two people left through links mailed before messages carried their own,
+    // which keep working and can name only a person.
+    Unsubscribe::create(['blast_recipient_id' => null]);
+    Unsubscribe::create(['blast_recipient_id' => null]);
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/blasts'))
+        ->assertInertia(fn (Assert $page) => $page
+            // Two of the three, so a figure reading the whole table says 3.
+            ->where('unattributedWithdrawals', 2)
+            // And the blast is credited with the one that named its copy, and
+            // with neither of the two that named none.
+            ->where('blasts.0.withdrawn_count', 1)
+        );
+});
+
+test('a campaign with no withdrawals at all carries a zero rather than nothing', function (): void {
+    // The control for the assertion above. Without it, a server that never sent
+    // the campaign-level figure would satisfy every other test here, and the
+    // page would have to decide what an absent prop meant.
+    Blast::factory()->sent()->create();
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/blasts'))
+        ->assertInertia(fn (Assert $page) => $page->where('unattributedWithdrawals', 0));
+});
+
+test('the withdrawal count does not add a query per blast', function (): void {
+    // The sibling of the segment guard above, on the aggregate this step added.
+    // It is the cheap protection against somebody later "fixing" this into a
+    // per-row lookup, which is the shape the page already refuses for an
+    // audience count and which no assertion about values would notice.
+    $blasts = Blast::factory()->count(3)->sent()->create();
+
+    foreach ($blasts as $blast) {
+        $copy = BlastRecipient::factory()->ofBlast($blast)->sent()->create();
+        Unsubscribe::create(['blast_recipient_id' => $copy->getKey()]);
+    }
+
+    $unsubscribeQueries = 0;
+
+    DB::listen(function ($query) use (&$unsubscribeQueries): void {
+        if (str_contains($query->sql, '"unsubscribes"')) {
+            $unsubscribeQueries++;
+        }
+    });
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/blasts'))
+        ->assertOk();
+
+    // Two for three blasts: the list's own statement, which carries the
+    // per-blast count as a subselect, and the campaign-level count beside it.
+    // Written as an exact number rather than "fewer than four", because the
+    // claim is that neither grows with the list.
+    expect($unsubscribeQueries)->toBe(2);
 });

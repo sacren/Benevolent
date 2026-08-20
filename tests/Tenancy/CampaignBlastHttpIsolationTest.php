@@ -3,7 +3,9 @@
 declare(strict_types=1);
 
 use App\Models\Blast;
+use App\Models\BlastRecipient;
 use App\Models\Tenant;
+use App\Models\Unsubscribe;
 use App\Models\User;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
@@ -174,4 +176,110 @@ test('a blast addressed by an id both campaigns use resolves against the host, n
     $this->get('http://ridge-restoration.test/blasts/'.$ridgeBlast->getKey().'/edit')
         ->assertRedirectContains('ridge-restoration.test')
         ->assertRedirectContains('/login');
+});
+
+test('the outcome numbers on the list are drawn from the host campaign alone', function (): void {
+    // **DEC-1 restated for what Phase 5 Step 4 put on this page.** The blast
+    // list now carries three numbers that are counted rather than stored --
+    // how many of a blast's copies could name themselves, how many people used
+    // one of those links to leave, and how many withdrawals named no message
+    // at all. Each is an aggregate over a *different* table from `blasts`, and
+    // the last of them is a campaign-wide count answering no blast at all.
+    //
+    // **That last one is why this test exists rather than riding on the two
+    // above.** A per-blast count that leaked would show against a row, where
+    // the test above would already see the wrong subject. A campaign-level
+    // figure has no row to be wrong on: it would simply read too high, and
+    // nothing else on the page would look different.
+    $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
+    $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
+
+    [, $harborBlast] = stock($harbor, 'operator@harbor-cleanup.test', 'Dredging starts Monday');
+    [, $ridgeBlast] = stock($ridge, 'operator@ridge-restoration.test', 'The ridge path reopens');
+
+    expect($harborBlast->getKey())->toBe($ridgeBlast->getKey());
+
+    // Harbor: one copy, left through its own link, and one withdrawal that
+    // named no message.
+    tenancy()->initialize($harbor);
+    $harborCopy = BlastRecipient::factory()->ofBlast($harborBlast)->sent()->create();
+    Unsubscribe::create(['blast_recipient_id' => $harborCopy->getKey()]);
+    Unsubscribe::create(['blast_recipient_id' => null]);
+    tenancy()->end();
+
+    // Ridge: deliberately larger on every axis, so any leak reads high rather
+    // than merely different, and so no assertion below can be satisfied by a
+    // coincidence of equal numbers.
+    tenancy()->initialize($ridge);
+    $ridgeCopies = BlastRecipient::factory()->count(4)->ofBlast($ridgeBlast)->sent()->create();
+    Unsubscribe::create(['blast_recipient_id' => $ridgeCopies[0]->getKey()]);
+    Unsubscribe::create(['blast_recipient_id' => $ridgeCopies[1]->getKey()]);
+    Unsubscribe::create(['blast_recipient_id' => $ridgeCopies[2]->getKey()]);
+    Unsubscribe::create(['blast_recipient_id' => null]);
+    Unsubscribe::create(['blast_recipient_id' => null]);
+    Unsubscribe::create(['blast_recipient_id' => null]);
+    tenancy()->end();
+
+    $this->post('http://harbor-cleanup.test/login', [
+        'email' => 'operator@harbor-cleanup.test',
+        'password' => 'password',
+    ])->assertRedirect();
+
+    $this->get('http://harbor-cleanup.test/blasts')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('blasts/Index')
+            ->has('blasts', 1)
+            ->where('blasts.0.subject', 'Dredging starts Monday')
+            // Harbor's own, every one of them. A leak in either direction moves
+            // these off the values Harbor alone can account for.
+            ->where('blasts.0.reached_count', 1)
+            ->where('blasts.0.attributable_count', 1)
+            ->where('blasts.0.withdrawn_count', 1)
+            ->where('unattributedWithdrawals', 1)
+        );
+});
+
+test('a withdrawal recorded in one campaign is invisible in the other, counted from its own host', function (): void {
+    // The other direction, through the other host in the same run. Without it
+    // the test above is satisfied by a page that reads one campaign's numbers
+    // for everybody -- which, if that campaign happened to be Harbor, is
+    // exactly what a correct page looks like from Harbor's side.
+    $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
+    $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
+
+    [, $harborBlast] = stock($harbor, 'operator@harbor-cleanup.test', 'Dredging starts Monday');
+    [, $ridgeBlast] = stock($ridge, 'operator@ridge-restoration.test', 'The ridge path reopens');
+
+    tenancy()->initialize($harbor);
+    $harborCopy = BlastRecipient::factory()->ofBlast($harborBlast)->sent()->create();
+    Unsubscribe::create(['blast_recipient_id' => $harborCopy->getKey()]);
+    Unsubscribe::create(['blast_recipient_id' => null]);
+    tenancy()->end();
+
+    tenancy()->initialize($ridge);
+    $ridgeCopies = BlastRecipient::factory()->count(4)->ofBlast($ridgeBlast)->sent()->create();
+    Unsubscribe::create(['blast_recipient_id' => $ridgeCopies[0]->getKey()]);
+    Unsubscribe::create(['blast_recipient_id' => $ridgeCopies[1]->getKey()]);
+    Unsubscribe::create(['blast_recipient_id' => $ridgeCopies[2]->getKey()]);
+    Unsubscribe::create(['blast_recipient_id' => null]);
+    Unsubscribe::create(['blast_recipient_id' => null]);
+    Unsubscribe::create(['blast_recipient_id' => null]);
+    tenancy()->end();
+
+    $this->post('http://ridge-restoration.test/login', [
+        'email' => 'operator@ridge-restoration.test',
+        'password' => 'password',
+    ])->assertRedirect();
+
+    $this->get('http://ridge-restoration.test/blasts')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('blasts', 1)
+            ->where('blasts.0.subject', 'The ridge path reopens')
+            ->where('blasts.0.reached_count', 4)
+            ->where('blasts.0.attributable_count', 4)
+            ->where('blasts.0.withdrawn_count', 3)
+            ->where('unattributedWithdrawals', 3)
+        );
 });

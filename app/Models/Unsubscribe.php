@@ -16,13 +16,29 @@ use Illuminate\Support\Carbon;
  * answer to "may this person be written to", and it is what `BlastAudience`
  * reads. The two disagree in both directions without either being wrong, which
  * the migration explains; this model has no supporter key and no status, so
- * nothing can come to read it as whether somebody is subscribed.
+ * nothing can come to read it as whether somebody is subscribed. **The blast
+ * list reads this table as of Phase 5 Step 4 and does not change that**: it
+ * counts withdrawals per blast and counts the ones attributed to no blast at
+ * all, which are questions about events. Neither asks whether anybody is
+ * subscribed, and neither could be answered from here.
  *
  * **The migration's "Nothing writes this table yet" stopped being true with
  * this model, and the correction lives here because migrations are frozen
  * once run.** The unsubscribe request is the table's one writer, and it writes
  * only when the request changes somebody's status -- a repeat of an act
  * already recorded is not a second withdrawal.
+ *
+ * **The migration's "Not indexed: nothing reads this table yet" is the second
+ * sentence this model now corrects.** The blast list reads it, and the
+ * measurement that sentence deferred has been taken: at 4,507 withdrawals over
+ * 2.5M copies, a per-blast count costs 193.4 ms and no extra query, and adding
+ * an index on `blast_recipient_id` changed the page by -3.2 ms. It is never
+ * consulted, because PostgreSQL reads the whole of this table and looks each
+ * row's copy up by primary key rather than searching this column. So the table
+ * is still not indexed, now on evidence rather than for want of a reader, and
+ * the question of whether it ever should be is D-51's at Step 5 -- decided by
+ * how large this table grows, which is the quantity that moves (Blueprint
+ * v0.28), and not by how many people a campaign writes to.
  *
  * **A row names the copy of the message its link came from, or nothing at
  * all.** A message sent since per-recipient links carries its own token and

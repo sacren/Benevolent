@@ -11,12 +11,14 @@ use App\Districts\ZctaDistricts;
 use App\Http\Requests\Blasts\ComposeBlastRequest;
 use App\Models\Blast;
 use App\Models\Segment;
+use App\Models\Unsubscribe;
 use App\Tenancy\CampaignContact;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Number;
 use Inertia\Inertia;
@@ -76,17 +78,39 @@ class BlastController extends Controller
      * scanning that blast's own recipients -- roughly 117 ms apiece on the
      * measurement above, so a full page would be slower than the whole
      * unpaginated list is today. Paging fixes a page that carries too much;
-     * this page carries almost nothing and *computes* too much. The structural
-     * answer is to stop counting -- a reached and a refused column on `blasts`,
-     * maintained by the sending path, turning the page into one row read -- and
-     * it is deliberately not built, because no campaign on this platform is
-     * within two orders of magnitude of needing it (Blueprint §3).
+     * this page carries almost nothing and *computes* too much.
+     *
+     * **Phase 5 Step 4 re-checked that trigger rather than inheriting it
+     * (Blueprint §3), and found a third shape the reasoning above never
+     * named.** The paragraph above offers two remedies -- paginate, or stop
+     * counting by maintaining columns on `blasts` -- and both vary *whether*
+     * the recipient table is scanned. Neither varies *how many times*. Measured
+     * on the same corpus this docblock already describes, ten blasts of 250,000
+     * recipients: the four counts this page now carries cost 1,984.3 ms as the
+     * correlated subplans below, and 417.6 ms as two grouped passes that read
+     * `blast_recipients` once for the whole page rather than once per aggregate
+     * per row -- against 1,157.3 ms for the two counts this page carried before
+     * Step 4. So the grouped shape is cheaper than the status quo while
+     * carrying twice as many numbers, and it needs no migration and no column
+     * maintained by the sending path.
+     *
+     * **It is deliberately not taken here**, and the reason is scope rather
+     * than doubt: Step 4's subject is what a campaign is told a blast achieved,
+     * and rewriting this page's query shape is a change to Phase 2's recorded
+     * design that deserves its own step and its own approval. The measurement
+     * is filed in the Phase 5 plan's Step 4 record for Step 5 to inherit.
      *
      * **Trigger to revisit, replacing the one above:** the first campaign whose
-     * `blast_recipients` table passes roughly a million rows, which is where
-     * this page crosses half a second; or the first thing that creates blasts
-     * other than an operator typing one, which is the half of the old trigger
-     * that was measuring the right quantity and is kept.
+     * `blast_recipients` table passes roughly a million rows -- which is where
+     * this page crossed half a second when it carried two counts, and which it
+     * now reaches sooner, because `attributable_count` scans each blast's whole
+     * recipient set a third time. The withdrawal count does not: it reads
+     * `unsubscribes` and probes recipients by primary key, so it grows with
+     * that table rather than with this one. The other half of the trigger is
+     * the first thing that creates blasts other than an operator typing one,
+     * which is what the old trigger was measuring correctly and is kept.
+     * **When it fires, the grouped shape above is the remedy to reach for
+     * first**, because it is measured and the other two are not.
      *
      * The id tie-break is kept even so, and for the reason it is kept on the
      * supporter list rather than by imitation: `created_at` is a timestamp two
@@ -117,7 +141,7 @@ class BlastController extends Controller
                 // secret, which SegmentController::index() states and which is
                 // a property of today's columns rather than a guarantee.
                 ->with('segment')
-                // **What a send has actually done, as two aggregates rather
+                // **What a send has actually done, as three aggregates rather
                 // than a query per row.** This is the counterpart to the
                 // trigger recorded against putting an *audience* count here:
                 // that would be one BlastAudience query per blast, while these
@@ -168,10 +192,101 @@ class BlastController extends Controller
                 ->withCount([
                     'recipients as reached_count' => fn (Builder $query) => $query->whereNotNull('sent_at'),
                     'recipients as failed_count' => fn (Builder $query) => $query->whereNotNull('failure_reason'),
+
+                    // **How many of this blast's copies could have said which
+                    // message they came from (D-48).** A copy carries its own
+                    // link only if it was claimed after
+                    // `2026_08_19_134402_add_link_token_to_blast_recipients_table`;
+                    // one claimed before holds a null token, because that
+                    // migration set the default in a second statement
+                    // deliberately, so an older copy says in the schema that
+                    // its message went out when every link named a person.
+                    //
+                    // **`sent_at` is in the predicate and it is not
+                    // decoration.** A token on a copy whose message never went
+                    // -- a claim that failed, or one a stopped send never
+                    // reached -- says a link was *minted*, not mailed, and no
+                    // withdrawal can ever arrive through it. Counting it would
+                    // make this number a promise about inboxes the campaign
+                    // never reached, which is the fifth state Step 3 recorded
+                    // as not being an outcome at all.
+                    //
+                    // **Counted rather than asked as an EXISTS, on a
+                    // measurement that went the other way from the obvious
+                    // reading.** "Does any copy carry a token" looks like one
+                    // predicate per blast against a count's whole scan, and on
+                    // ten blasts of 250,000 recipients the EXISTS cost 2,074.7
+                    // ms against this count's 561.5 ms. No index covers
+                    // `link_token is not null`, so PostgreSQL scans
+                    // sequentially and stops at the first match -- which for
+                    // the blast that has *no* token, the one this number exists
+                    // to find, means reading all 2.5M rows. A partial index on
+                    // (blast_id) where link_token is null moved the page by
+                    // 6.0 ms, so none is built.
+                    //
+                    // **And it cannot be answered by sampling one row**, which
+                    // would be cheapest of all. SendBlast resumes: a send
+                    // interrupted across that migration claims the rest of its
+                    // recipients afterwards, so a blast can hold both kinds at
+                    // once. Measured on one, 125,000 of 250,000 copies carried
+                    // a token while the single row a sample read said they all
+                    // did.
+                    'recipients as attributable_count' => fn (Builder $query) => $query
+                        ->whereNotNull('link_token')
+                        ->whereNotNull('sent_at'),
+                ])
+
+                // **How many people used one of this blast's links to leave
+                // (D-48).** Reached through `blast_recipients` because that is
+                // the only thing an `unsubscribes` row points at: the table
+                // holds events and carries no blast of its own, deliberately,
+                // so a withdrawal names the copy of the message whose link was
+                // used and the copy names the blast.
+                //
+                // **Its own subselect rather than a fourth count folded into
+                // the three above, and the difference is correctness rather
+                // than taste.** One copy may be followed by more than one
+                // withdrawal -- D-47 measured exactly that sequence, an
+                // unsubscribe, an operator putting the person back, and a
+                // second unsubscribe -- so joining `unsubscribes` into the same
+                // pass multiplies the recipient row. Run on a copy carrying
+                // two, the folded shape reported 3,981 reached where 3,980 was
+                // the truth: it silently inflates the number this page was
+                // built around, in the direction that overstates what a
+                // campaign achieved.
+                //
+                // **The cost noun here is rows in `unsubscribes`, not
+                // recipients** (Blueprint v0.28). Measured at 4,507
+                // withdrawals over 2.5M copies, this adds 193.4 ms and no
+                // extra query: PostgreSQL reads the whole of `unsubscribes`
+                // and looks each row's copy up by primary key, so it never
+                // consults `blast_recipient_id` as a search key at all. That
+                // is why an index on it changed this page by -3.2 ms and is
+                // not built here; whether one is ever owed is D-51's, and it
+                // is decided by how large `unsubscribes` grows rather than by
+                // how many people a campaign writes to.
+                ->addSelect(['withdrawn_count' => DB::table('unsubscribes')
+                    ->selectRaw('count(*)')
+                    ->join('blast_recipients', 'blast_recipients.id', '=', 'unsubscribes.blast_recipient_id')
+                    ->whereColumn('blast_recipients.blast_id', 'blasts.id'),
                 ])
                 ->orderByDesc('created_at')
                 ->orderByDesc('id')
                 ->get(),
+
+            // **The withdrawals that belong to no blast, and so to the campaign
+            // (D-48).** A row whose `blast_recipient_id` is null was recorded
+            // from a link that names a person and not a message -- every link
+            // mailed before per-recipient links existed, which keep working and
+            // are never credited to the most recent blast (D-46).
+            //
+            // It is a campaign-level figure because there is no honest row to
+            // put it on: adding it to any blast's count would be the
+            // misattribution D-46 exists to prevent, and spreading it across
+            // them would be the same claim made quietly. Counted here rather
+            // than derived on the page, because a page cannot see rows no blast
+            // carries. Measured at 0.7 ms over 4,507 withdrawals.
+            'unattributedWithdrawals' => Unsubscribe::query()->whereNull('blast_recipient_id')->count(),
         ]);
     }
 
