@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Models\Blast;
 use App\Models\BlastRecipient;
 use App\Models\Segment;
+use App\Models\Unsubscribe;
 use App\Models\User;
 use Tests\Concerns\RunsInCampaignContext;
 use Tests\Support\LoopbackHost;
@@ -42,6 +43,16 @@ use Tests\Support\LoopbackHost;
  *     blast froze. The server sends all three and cannot tell which the page
  *     chose; the difference is one sentence, and a campaign reading it has no
  *     other way to learn that its narrowing has moved since the message went.
+ *   - **A zero that means "nobody left" and a zero that means "nothing could be
+ *     recorded" are the same number, and only the rendered sentence separates
+ *     them (D-48).** A blast whose copies predate per-message links carries
+ *     `withdrawn_count: 0` exactly as a blast nobody left does. The server
+ *     sends both as 0 and sends the basis beside them, so every server-side
+ *     assertion is satisfied by a page that reads the count and ignores the
+ *     basis -- which reports an absence of evidence as evidence of absence, on
+ *     the one page a campaign would learn it from. This is D-42's lesson
+ *     arriving where §5 predicted, and this file is the only place the three
+ *     sentences are read.
  *
  * Reaching the page is Tests\Support\LoopbackHost's job -- see that class for
  * why claiming the address begins by releasing whoever holds it, and note that
@@ -303,5 +314,167 @@ test('a sent blast aimed at a district counts the ZIP codes it froze, and names 
         ->assertDontSee('CA-37')
         ->assertDontSee('MA-07')
 
+        ->assertNoJavaScriptErrors();
+});
+
+test('the list says what came back, and never shows a zero where nothing could have been recorded', function (): void {
+    // **§7 criterion 3, on the surface it is written about.** Three blasts that
+    // all went out, whose outcome cells must read as three different answers:
+    //
+    //   - one whose copies carried their own links and two people used them;
+    //   - one whose copies carried links and nobody used any;
+    //   - one whose copies predate per-message links, so nobody who left
+    //     through one of them could ever have been counted.
+    //
+    // The third is the one that matters. Its withdrawal count is 0 exactly as
+    // the second's is, and the server sends both as 0 -- so no assertion about
+    // the count can tell them apart, and only the rendered sentence can. A page
+    // showing it "Nobody" would be reporting an absence of evidence as evidence
+    // of absence, which is what D-42 recorded as teaching an operator to ignore
+    // the word.
+    $left = Blast::factory()->sent()->create(['subject' => 'Two people left']);
+    $copies = BlastRecipient::factory()->count(3)->ofBlast($left)->sent()->create();
+    Unsubscribe::create(['blast_recipient_id' => $copies[0]->getKey()]);
+    Unsubscribe::create(['blast_recipient_id' => $copies[1]->getKey()]);
+
+    $quiet = Blast::factory()->sent()->create(['subject' => 'Nobody left']);
+    BlastRecipient::factory()->count(3)->ofBlast($quiet)->sent()->create();
+
+    $older = Blast::factory()->sent()->create(['subject' => 'Sent before any of this']);
+    BlastRecipient::factory()->count(3)->ofBlast($older)->sent()->withoutLinkToken()->create();
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    // The whole of one row's outcome cell, so a sentence that merely *contains*
+    // the right words cannot satisfy it -- the lesson the district test at the
+    // foot of this file recorded after assertSee passed against a cell carrying
+    // an extra clause.
+    $outcomeOf = static fn (int $id): string => "document.querySelector('[data-test=\"blast-outcome-{$id}\"]').textContent.trim()";
+
+    visit('/blasts')
+        ->assertSee('Two people left')
+        ->assertSee('Nobody left')
+        ->assertSee('Sent before any of this')
+
+        ->assertScript($outcomeOf($left->getKey())." === '2'")
+        ->assertScript($outcomeOf($quiet->getKey())." === 'Nobody'")
+        ->assertScript($outcomeOf($older->getKey())
+            ." === 'Not recorded — these copies carried no per-message link'")
+
+        // And the three rows really are three different sentences, which is the
+        // claim a reader takes from this page. Without this, a page rendering
+        // one answer for everything satisfies whichever assertion above happens
+        // to match it.
+        ->assertScript(
+            'new Set(Array.from(document.querySelectorAll(\'[data-test^="blast-outcome-"]\'))'
+            .'.map(n => n.textContent.trim())).size === 3'
+        )
+
+        ->assertNoJavaScriptErrors();
+});
+
+test('a message still being written is not reported as one nobody left', function (): void {
+    // The control the three answers above need. A draft has reached nobody, so
+    // it has no outcome at all -- and "Nobody" would be a claim about inboxes
+    // this message has never been near. Without this the summary could answer
+    // "Nobody" for every unsent blast in the product and nothing would notice.
+    $draft = Blast::factory()->create(['subject' => 'Still being written']);
+    $queued = Blast::factory()->queued()->create(['subject' => 'Waiting to go']);
+
+    // And a send whose every copy was refused, which is the same shape arriving
+    // from the other direction: it is past draft, and it still reached nobody.
+    $refused = Blast::factory()->failed()->create(['subject' => 'Every copy refused']);
+    BlastRecipient::factory()->count(2)->ofBlast($refused)->failed()->create();
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    $outcomeOf = static fn (int $id): string => "document.querySelector('[data-test=\"blast-outcome-{$id}\"]').textContent.trim()";
+
+    visit('/blasts')
+        ->assertSee('Still being written')
+        ->assertSee('Waiting to go')
+        ->assertSee('Every copy refused')
+
+        ->assertScript($outcomeOf($draft->getKey())." === '—'")
+        ->assertScript($outcomeOf($queued->getKey())." === '—'")
+        ->assertScript($outcomeOf($refused->getKey())." === '—'")
+
+        ->assertNoJavaScriptErrors();
+});
+
+test('a send that could only partly be recorded says so rather than reporting a total', function (): void {
+    // **The state SendBlast's resumption makes reachable**, and the one a yes-
+    // or-no reading of the basis would get wrong in the direction that
+    // understates. Two of this blast's four copies carried their own link; one
+    // person used one. "1" alone would present a floor as a total.
+    $blast = Blast::factory()->sent()->create(['subject' => 'Interrupted and resumed']);
+
+    $carrying = BlastRecipient::factory()->count(2)->ofBlast($blast)->sent()->create();
+    BlastRecipient::factory()->count(2)->ofBlast($blast)->sent()->withoutLinkToken()->create();
+
+    Unsubscribe::create(['blast_recipient_id' => $carrying[0]->getKey()]);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    $outcomeOf = static fn (int $id): string => "document.querySelector('[data-test=\"blast-outcome-{$id}\"]').textContent.trim()";
+
+    visit('/blasts')
+        ->assertSee('Interrupted and resumed')
+
+        // The reach is still the whole send, in the cell beside it, so the two
+        // numbers are readable together: four went, two could speak, one did.
+        ->assertSee('4 reached')
+        ->assertScript($outcomeOf($blast->getKey())." === '1 of 2 copies that carried a link'")
+
+        ->assertNoJavaScriptErrors();
+});
+
+test('withdrawals that name no message are shown beside the list and charged to no blast', function (): void {
+    // They point at no copy, so there is no row they belong to. The page says
+    // so once, above the table, rather than folding them into a blast's number
+    // -- which would be the one failure this module cannot repair.
+    $blast = Blast::factory()->sent()->create(['subject' => 'One person left through this']);
+    $copy = BlastRecipient::factory()->ofBlast($blast)->sent()->create();
+    Unsubscribe::create(['blast_recipient_id' => $copy->getKey()]);
+
+    // Two more, through links mailed before messages carried their own.
+    Unsubscribe::create(['blast_recipient_id' => null]);
+    Unsubscribe::create(['blast_recipient_id' => null]);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    $outcomeOf = static fn (int $id): string => "document.querySelector('[data-test=\"blast-outcome-{$id}\"]').textContent.trim()";
+
+    visit('/blasts')
+        ->assertSee('One person left through this')
+
+        ->assertPresent('[data-test="unattributed-withdrawals"]')
+        ->assertSee('2 withdrawals could not say which message prompted them')
+
+        // The blast keeps its own one and is charged with neither of the two.
+        // A page that added them would render 3 here, which is the misreading
+        // this sentence exists to prevent.
+        ->assertScript($outcomeOf($blast->getKey())." === '1'")
+
+        ->assertNoJavaScriptErrors();
+});
+
+test('a campaign with nothing unattributed is not told about it', function (): void {
+    // The control for the line above, and the reason it is conditional: a
+    // campaign whose every withdrawal names its message is not owed a sentence
+    // about a problem it does not have. Without this the line could be rendered
+    // unconditionally -- reading "0 withdrawals could not say which message
+    // prompted them" to every campaign in the product -- and the test above
+    // would not notice.
+    $blast = Blast::factory()->sent()->create(['subject' => 'Everything here is attributed']);
+    $copy = BlastRecipient::factory()->ofBlast($blast)->sent()->create();
+    Unsubscribe::create(['blast_recipient_id' => $copy->getKey()]);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    visit('/blasts')
+        ->assertMissing('[data-test="unattributed-withdrawals"]')
+        ->assertDontSee('could not say which message')
+        ->assertSee('Everything here is attributed')
         ->assertNoJavaScriptErrors();
 });

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
 import Heading from '@/components/Heading.vue';
 import { Badge } from '@/components/ui/badge';
@@ -6,8 +7,14 @@ import { Button } from '@/components/ui/button';
 import { create, edit, index } from '@/routes/blasts';
 import type { Blast, BlastStatus } from '@/types';
 
-defineProps<{
+const props = defineProps<{
     blasts: Blast[];
+
+    /**
+     * The campaign's withdrawals that name no message at all, which is why they
+     * arrive beside the list rather than inside a row (D-48).
+     */
+    unattributedWithdrawals: number;
 }>();
 
 /**
@@ -68,6 +75,89 @@ const progressSummaries: Record<BlastStatus, (blast: Blast) => string> = {
 function progressSummary(blast: Blast): string {
     return progressSummaries[blast.status](blast);
 }
+
+/**
+ * What came back after this message went out, in the campaign's own terms.
+ *
+ * **Keyed by the status union for the same reason the two lookups above are**,
+ * and the `draft` and `queued` arms are not padding: a message nobody has sent
+ * has no outcome to report, and a page that answered "Nobody" for it would be
+ * making a claim about inboxes it has never reached. The em dash says there is
+ * nothing to say yet, which is a different statement from "nobody left".
+ */
+const outcomeSummaries: Record<BlastStatus, (blast: Blast) => string> = {
+    draft: () => '—',
+    queued: () => '—',
+    sending: (blast) => outcomeOf(blast),
+    sent: (blast) => outcomeOf(blast),
+    failed: (blast) => outcomeOf(blast),
+};
+
+/**
+ * The four answers a message that has actually gone out can give.
+ *
+ * **The order of these branches is the whole honesty of this function, in the
+ * same way the audience summary's order is its correctness.** `withdrawn_count`
+ * is meaningless on its own: it is a count of people who used a link that could
+ * name this message, and a blast whose copies carried no such link has a zero
+ * that means *nobody could have been counted* rather than *nobody left*. So the
+ * basis is asked about before the count, every time.
+ *
+ * **This is D-42's lesson arriving where §5 predicted it would.** That decision
+ * found four unrelated reasons a supporter's district could be unknown, all
+ * rendered as one word, and recorded that a page reporting the same word for
+ * unrelated reasons teaches an operator to ignore the word. The same trap is
+ * here with three reasons for a zero -- nobody left, nothing could be recorded,
+ * and only some of the copies could speak -- and each one gets its own sentence
+ * rather than a shared one.
+ *
+ * `reached_count === 0` comes first of all, because a send that reached nobody
+ * has no basis for any of the three. A blast whose every copy was refused is
+ * that case, and it is not "not recorded": nothing was mailed to be recorded
+ * about.
+ */
+function outcomeOf(blast: Blast): string {
+    if (blast.reached_count === 0) {
+        return '—';
+    }
+
+    if (blast.attributable_count === 0) {
+        return 'Not recorded — these copies carried no per-message link';
+    }
+
+    if (blast.attributable_count < blast.reached_count) {
+        // A floor rather than a total, so the basis is named beside it. This
+        // arm exists because a send resumed across the release that added
+        // per-message links holds copies of both kinds, which is a state the
+        // database permits and no writer prevents.
+        const basis =
+            blast.attributable_count === 1
+                ? '1 copy that carried a link'
+                : `${blast.attributable_count} copies that carried a link`;
+
+        return `${blast.withdrawn_count} of ${basis}`;
+    }
+
+    return blast.withdrawn_count === 0 ? 'Nobody' : `${blast.withdrawn_count}`;
+}
+
+function outcomeSummary(blast: Blast): string {
+    return outcomeSummaries[blast.status](blast);
+}
+
+/**
+ * The withdrawals this campaign cannot attribute to any message.
+ *
+ * Shown beside the list rather than in it, because there is no row they belong
+ * to: they arrived through links that name a person and not a message, so
+ * crediting them to any blast -- or spreading them across all of them -- would
+ * be the misattribution the module is built to refuse.
+ */
+const unattributedSummary = computed(() =>
+    props.unattributedWithdrawals === 1
+        ? '1 withdrawal could not say which message prompted it'
+        : `${props.unattributedWithdrawals} withdrawals could not say which message prompted them`,
+);
 
 /**
  * How a blast describes who it is aimed at, in a list with no room for a count.
@@ -234,6 +324,20 @@ defineOptions({
             </Button>
         </div>
 
+        <!--
+            Rendered only when there are any, because a campaign with none is
+            not owed a sentence about a thing that has not happened. It sits
+            above the table rather than in it for the reason the summary
+            explains: these withdrawals belong to no blast on this page.
+        -->
+        <p
+            v-if="unattributedWithdrawals > 0"
+            class="text-sm text-muted-foreground"
+            data-test="unattributed-withdrawals"
+        >
+            {{ unattributedSummary }}
+        </p>
+
         <div
             v-if="blasts.length === 0"
             class="rounded-xl border border-sidebar-border/70 p-8 text-center dark:border-sidebar-border"
@@ -265,6 +369,9 @@ defineOptions({
                             Status
                         </th>
                         <th scope="col" class="px-4 py-3 font-medium">Sent</th>
+                        <th scope="col" class="px-4 py-3 font-medium">
+                            Asked to stop
+                        </th>
                         <th scope="col" class="px-4 py-3">
                             <span class="sr-only">Actions</span>
                         </th>
@@ -301,6 +408,17 @@ defineOptions({
                                 :data-test="`blast-failure-${blast.id}`"
                                 >{{ blast.failure_reason }}</span
                             >
+                        </td>
+                        <td class="px-4 py-3 text-muted-foreground">
+                            <!--
+                                What came back, which the module exists to be
+                                able to say at all. It is a sentence rather than
+                                a bare number wherever a bare number would be
+                                read as a total it is not.
+                            -->
+                            <span :data-test="`blast-outcome-${blast.id}`">{{
+                                outcomeSummary(blast)
+                            }}</span>
                         </td>
                         <td class="px-4 py-3 text-right">
                             <!--

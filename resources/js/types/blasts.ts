@@ -87,6 +87,34 @@ export type Blast = {
      */
     reached_count: number;
     failed_count: number;
+
+    /**
+     * How many of this blast's copies went out carrying a link that could name
+     * the message it came from (D-48).
+     *
+     * **This is the basis `withdrawn_count` is drawn from, and it is why a zero
+     * beside it can be read honestly.** Copies claimed before messages carried
+     * their own link hold no token, so a withdrawal through one of them could
+     * never have been credited to this blast -- and a page showing such a blast
+     * `0` would be presenting an absence of evidence as evidence of absence.
+     * Zero here means *not recorded*; equal to `reached_count` means the count
+     * beside it is the whole answer; anything between means it is a floor.
+     *
+     * A copy whose message never went is not counted, even though it holds a
+     * token: the claim mints one before the mailer is called, so a refused copy
+     * carries a link that reached nobody.
+     */
+    attributable_count: number;
+
+    /**
+     * How many people used one of this blast's own links to leave (D-48).
+     *
+     * Acts of leaving rather than people, and rather than copies: one copy can
+     * be followed by more than one withdrawal, because somebody can leave, be
+     * put back by an operator, and leave again. Never a share of the campaign's
+     * unattributed withdrawals -- those name no message and belong to no blast.
+     */
+    withdrawn_count: number;
     created_at: string;
     updated_at: string;
 };
