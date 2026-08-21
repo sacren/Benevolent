@@ -272,6 +272,61 @@ test('leaving again after an operator put them back is a second withdrawal', fun
         ->and($supporter->fresh()->subscription_status)->toBe(SubscriptionStatus::Unsubscribed);
 });
 
+test('six messages to one person, each link used once, are one withdrawal and not six', function (): void {
+    // **This is the complement of the test above, and between them they fix
+    // what this table counts.** That one says an operator's re-subscription
+    // makes the next use of the link a second withdrawal. This one says the
+    // number of *messages* does not: somebody who leaves has left, and the
+    // five later links they click are asking for the state they already hold.
+    //
+    // **It is here because the quantity `unsubscribes` grows with is the whole
+    // of Phase 5 Step 5's answer, and nothing pinned it.** Both of the tests
+    // that look as though they cover this use the supporter's own token, so the
+    // copy the writer resolves is null in each and neither can see a writer
+    // that deduplicates per copy instead of per act. Measured: rewritten that
+    // way -- one row per recipient row that has not yet been recorded -- the
+    // whole suite outside Browser stayed green at 690 of 690, while this
+    // campaign's table grew with recipients x blasts instead of with the number
+    // of people who have left.
+    //
+    // **What that would cost if it went unnoticed**, which is why the guard is
+    // worth its place rather than being a restatement of the writer: counted
+    // per act, this table's ceiling is the supporter list, so at 75.0 bytes a
+    // row a quarter-million-supporter campaign tops out at 18.8 MB however long
+    // it runs. Counted per copy it would grow with every send instead, without
+    // limit -- a different table with the same name, arriving silently.
+    $supporter = Supporter::factory()->create();
+
+    $tokens = collect(range(1, 6))->map(function () use ($supporter): string {
+        $copy = BlastRecipient::factory()
+            ->ofBlast(Blast::factory()->sent()->create())
+            ->forSupporter($supporter)
+            ->sent()
+            ->create();
+
+        return (string) DB::connection('tenant')->table('blast_recipients')
+            ->where('id', $copy->getKey())->value('link_token');
+    });
+
+    $tokens->each(fn (string $token) => $this->post($this->campaignUrl('unsubscribe/'.$token))->assertRedirect());
+
+    // Six copies really were made and really did carry six different links, so
+    // the one row below is the writer's doing rather than the fixture's. A
+    // fixture that quietly produced one copy would satisfy the assertion that
+    // matters while testing nothing, which is the failure this phase has made
+    // three times.
+    expect(BlastRecipient::query()->count())->toBe(6)
+        ->and($tokens->unique()->count())->toBe(6)
+        ->and(Unsubscribe::query()->count())->toBe(1)
+        ->and($supporter->fresh()->subscription_status)->toBe(SubscriptionStatus::Unsubscribed);
+
+    // And the one row names the message whose link was used first, which is the
+    // only message that can honestly claim it: the five that followed asked
+    // somebody who had already gone.
+    expect(Unsubscribe::query()->sole()->blast_recipient_id)
+        ->toBe(BlastRecipient::query()->orderBy('id')->value('id'));
+});
+
 test('somebody unsubscribed before withdrawals were recorded gains no record by using the link', function (): void {
     // **The §3 convention: nothing is back-filled.** The demo campaign's own
     // shape -- a supporter already unsubscribed with no row saying when or
