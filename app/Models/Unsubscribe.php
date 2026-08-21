@@ -32,13 +32,44 @@ use Illuminate\Support\Carbon;
  * sentence this model now corrects.** The blast list reads it, and the
  * measurement that sentence deferred has been taken: at 4,507 withdrawals over
  * 2.5M copies, a per-blast count costs 193.4 ms and no extra query, and adding
- * an index on `blast_recipient_id` changed the page by -3.2 ms. It is never
- * consulted, because PostgreSQL reads the whole of this table and looks each
- * row's copy up by primary key rather than searching this column. So the table
- * is still not indexed, now on evidence rather than for want of a reader, and
- * the question of whether it ever should be is D-51's at Step 5 -- decided by
- * how large this table grows, which is the quantity that moves (Blueprint
- * v0.28), and not by how many people a campaign writes to.
+ * an index on `blast_recipient_id` changed the page by -3.2 ms.
+ *
+ * **D-51 answers it at Step 5: still no index, and the reason written here at
+ * Step 4 was too strong.** That paragraph said the column "is never consulted".
+ * Re-measured at 1,000,000 copies with the same 4,507 withdrawals, it is: with
+ * an index present PostgreSQL *does* choose it, replacing a sequential read of
+ * this table with an index-only scan. It buys nothing -- 1,090.5 ms without,
+ * 1,098.9 ms with -- because the cost of the per-blast count is the ten probes
+ * into `blast_recipients` by primary key at 107.8 ms apiece, not the read of
+ * this table at 0.7 ms. So the verdict is firmer than its old reason and the
+ * reason has changed: not never consulted, but consulted and worth nothing.
+ *
+ * **What this table grows with, which is the quantity D-51 had to name
+ * (Blueprint v0.28) and which the plan had wrong.** Both the plan and this
+ * module's own decision entry said outcome rows grow with recipients x blasts.
+ * They do not. A row is written only when a request *changes* somebody's
+ * status, so a person who has left produces no more rows however many further
+ * messages reach them: measured, one supporter reached by six blasts, each copy
+ * carrying its own link and every link used once, wrote **one** row. The
+ * quantity is acts of leaving, whose ceiling over a campaign's life is its
+ * supporter list plus whatever an operator re-subscribes -- bounded by the
+ * list, not by the sending. `tests/Campaign/UnsubscribeTest.php` pins it.
+ *
+ * **And that is why there is no retention window (D-49's second half).** A row
+ * costs 75.0 bytes attributed and 66.8 unattributed, flat, so a campaign of a
+ * quarter of a million supporters who all leave tops out near 18.8 MB, once,
+ * rather than accumulating with every send -- against the 1.4 GB a year that
+ * Phase 2 Step 6 refused to prune off `blast_recipients`. There is nothing to
+ * bound, and D-49's first half already established there is nothing an erasure
+ * must reach here. Pruning would also make the blast list lie in the one way
+ * Step 4's four answers exist to prevent: measured by running it, removing the
+ * rows for a blast whose copies all carried links leaves `attributable_count`
+ * standing and takes `withdrawn_count` to zero, which that page renders as
+ * "Nobody" -- of people who did leave. Nothing else records that a link was
+ * used, so the page could only be made honest again by maintaining a retained
+ * count on `blasts`: a migration and a writer on the sending path, to preserve
+ * a number whose rows weigh 75 bytes. No window, and no fifth schedule
+ * declaration to sit on the scheduler nothing runs (deferral 17).
  *
  * **A row names the copy of the message its link came from, or nothing at
  * all.** A message sent since per-recipient links carries its own token and

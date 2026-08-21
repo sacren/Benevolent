@@ -100,6 +100,26 @@ class BlastController extends Controller
      * design that deserves its own step and its own approval. The measurement
      * is filed in the Phase 5 plan's Step 4 record for Step 5 to inherit.
      *
+     * **Step 5 inherited it, re-measured it independently, and left it
+     * standing.** On its own corpus of ten blasts of 100,000 copies the three
+     * shapes came back in the same order: 379.1 ms for the two counts this
+     * page carried before Step 4, 1,282.5 ms for the four it carries now, and
+     * 172.7 ms for the same four in two grouped passes. The folding hazard
+     * reproduced too -- a copy carrying two withdrawals made the folded shape
+     * report 99,501 reached where 99,500 was true.
+     *
+     * **So a measurement and a principle disagreed, and what gave way is
+     * written down (Blueprint §3): the measurement gave way to just-in-time.**
+     * The 1,282.5 ms is a cost nobody pays. Every campaign on this platform
+     * holds zero blasts and zero recipients, and nothing sends at all, because
+     * no worker runs anywhere (deferral 25). Taking the faster shape now would
+     * also spend a decision that is conditional on something this step does
+     * not control: it reads every recipient row whether or not that blast is
+     * on screen, so it is cheaper only while this page stays unpaginated, and
+     * pagination reverses the choice. The trigger below is unchanged, and when
+     * it fires the grouped shape is still the remedy to reach for first -- now
+     * measured twice, on two corpora, rather than once.
+     *
      * **Trigger to revisit, replacing the one above:** the first campaign whose
      * `blast_recipients` table passes roughly a million rows -- which is where
      * this page crossed half a second when it carried two counts, and which it
@@ -259,12 +279,31 @@ class BlastController extends Controller
                 // recipients** (Blueprint v0.28). Measured at 4,507
                 // withdrawals over 2.5M copies, this adds 193.4 ms and no
                 // extra query: PostgreSQL reads the whole of `unsubscribes`
-                // and looks each row's copy up by primary key, so it never
-                // consults `blast_recipient_id` as a search key at all. That
-                // is why an index on it changed this page by -3.2 ms and is
-                // not built here; whether one is ever owed is D-51's, and it
-                // is decided by how large `unsubscribes` grows rather than by
-                // how many people a campaign writes to.
+                // and looks each row's copy up by primary key. That is why an
+                // index on it changed this page by -3.2 ms and is not built
+                // here.
+                //
+                // **D-51 answered that at Step 5, and narrowed the reason
+                // written above.** This comment used to finish "so it never
+                // consults `blast_recipient_id` as a search key at all", which
+                // is not true at every size: re-measured at 1,000,000 copies
+                // with the same 4,507 withdrawals, an index on that column
+                // *is* chosen, as an index-only scan in place of the
+                // sequential read. It still buys nothing -- 1,090.5 ms
+                // without it against 1,098.9 ms with it -- because what this
+                // subselect costs is the ten primary-key probes into
+                // `blast_recipients` at 107.8 ms apiece, not the 0.7 ms spent
+                // reading `unsubscribes`. So: no index, on a firmer reason
+                // than the one it replaces.
+                //
+                // And the quantity that decides it is not recipients x blasts,
+                // which is what the plan said and what this module's own
+                // decision entry said. A withdrawal is written only when a
+                // request changes somebody's status, so `unsubscribes` grows
+                // with acts of leaving and is bounded by the supporter list --
+                // measured, and pinned by a test. `App\Models\Unsubscribe`
+                // carries the figures and the retention verdict that rests on
+                // them.
                 ->addSelect(['withdrawn_count' => DB::table('unsubscribes')
                     ->selectRaw('count(*)')
                     ->join('blast_recipients', 'blast_recipients.id', '=', 'unsubscribes.blast_recipient_id')

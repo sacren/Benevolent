@@ -324,11 +324,19 @@ test('one copy followed by two withdrawals counts twice without inflating what t
     // currently have, and no mutation available today can reach it.** Each
     // aggregate here is its own correlated subquery, so `unsubscribes` cannot
     // touch the reach count whatever is done to the withdrawal count. It is
-    // written for the grouped single-pass shape filed for Step 5, where the
-    // two counts share one GROUP BY and a doubled withdrawal multiplies the
-    // recipient row: measured on 4,000 supporters, that shape reported 3,981
-    // reached where 3,980 was the truth. Said here rather than left for a
-    // reader to assume it was measured (Blueprint v0.27).
+    // written for the grouped single-pass shape, where the two counts share one
+    // GROUP BY and a doubled withdrawal multiplies the recipient row: measured
+    // on 4,000 supporters, that shape reported 3,981 reached where 3,980 was
+    // the truth. Said here rather than left for a reader to assume it was
+    // measured (Blueprint v0.27).
+    //
+    // **Step 5 weighed that shape and did not take it**, so this assertion
+    // stays unreachable rather than becoming live as Step 4 expected. It is
+    // kept for the same reason it was written: the shape is the recorded
+    // remedy for the day this page's trigger fires, and the day somebody
+    // reaches for it is the day the hazard arrives. Re-measured there on ten
+    // blasts of 100,000 copies, the folded form reported 99,501 reached where
+    // 99,500 was true -- the same defect at the larger size.
     $blast = Blast::factory()->sent()->create(['subject' => 'Left twice']);
 
     $copy = BlastRecipient::factory()->ofBlast($blast)->sent()->create();
