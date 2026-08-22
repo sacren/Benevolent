@@ -196,12 +196,25 @@ test('a message\'s own link is refused by every campaign but the one that sent i
     tenancy()->initialize(Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail());
     $attributed = DB::table('unsubscribes')->pluck('blast_recipient_id')->all();
     $copy = DB::table('blast_recipients')->where('link_token', $harborLink)->value('id');
-    // The copy this supporter was sent *after* the one whose link they used.
+    $reader = DB::table('blast_recipients')->where('id', $copy)->value('supporter_id');
+    // The copy **this supporter** was sent after the one whose link they used.
     // Named rather than left implicit, the way the campaign-suite sibling of
     // this assertion names it: the row the writer must not have chosen has to
     // exist, or crediting "the latest copy" and crediting "the right copy"
     // are the same act and the assertion below cannot tell them apart.
-    $later = DB::table('blast_recipients')->where('id', '>', $copy)->max('id');
+    //
+    // **Scoped to the supporter rather than to the campaign, which is not a
+    // distinction this fixture can currently show.** One supporter per campaign
+    // means any later row is theirs, so a campaign-wide `max(id)` returns the
+    // same number today. It would stop doing so the moment a second supporter
+    // joined this fixture, and the assertion would then be satisfied by a copy
+    // addressed to somebody else -- a row the writer would never have reached
+    // for, standing in for the one it must not choose. That is the same fixture
+    // blind spot this test was rewritten to close, one level out.
+    $later = DB::table('blast_recipients')
+        ->where('supporter_id', $reader)
+        ->where('id', '>', $copy)
+        ->max('id');
     tenancy()->end();
 
     expect($attributed)->toBe([$copy])
