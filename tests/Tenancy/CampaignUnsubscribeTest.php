@@ -105,8 +105,19 @@ function withdrawalsIn(string $slug): int
 }
 
 /**
- * Put one supporter on one campaign's list, claim them a copy of a blast, and
- * hand back the token that copy's link carries.
+ * Put one supporter on one campaign's list, claim them two copies of a blast,
+ * and hand back the token the **earlier** copy's link carries.
+ *
+ * **Two copies rather than one, and that is the whole point of the helper.**
+ * With a single copy, "the copy whose link was used" and "any copy this
+ * supporter was sent" are the same row, so an assertion that a withdrawal
+ * names the right copy is satisfied by a writer that credits whichever copy
+ * it likes -- including the most recent, which is the one failure D-46 says
+ * no later change repairs. Measured at the Phase 5 exit: a writer changed to
+ * credit the supporter's latest sent copy reddened three tests in
+ * `tests/Campaign/UnsubscribeTest.php` and left this file green, because
+ * every supporter here held exactly one copy. The second copy is what makes
+ * the attribution assertion below able to fail.
  */
 function linkTokenIn(string $slug, string $email): string
 {
@@ -115,6 +126,11 @@ function linkTokenIn(string $slug, string $email): string
     $supporter = Supporter::factory()->create(['email' => $email]);
     $recipient = BlastRecipient::factory()->forSupporter($supporter)->sent()->create();
     $token = (string) DB::table('blast_recipients')->where('id', $recipient->getKey())->value('link_token');
+
+    // Claimed after the one whose link is returned, so the row a
+    // misattributing writer would reach for is the one this test must not see
+    // credited.
+    BlastRecipient::factory()->forSupporter($supporter)->sent()->create();
 
     tenancy()->end();
 
@@ -180,9 +196,16 @@ test('a message\'s own link is refused by every campaign but the one that sent i
     tenancy()->initialize(Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail());
     $attributed = DB::table('unsubscribes')->pluck('blast_recipient_id')->all();
     $copy = DB::table('blast_recipients')->where('link_token', $harborLink)->value('id');
+    // The copy this supporter was sent *after* the one whose link they used.
+    // Named rather than left implicit, the way the campaign-suite sibling of
+    // this assertion names it: the row the writer must not have chosen has to
+    // exist, or crediting "the latest copy" and crediting "the right copy"
+    // are the same act and the assertion below cannot tell them apart.
+    $later = DB::table('blast_recipients')->where('id', '>', $copy)->max('id');
     tenancy()->end();
 
     expect($attributed)->toBe([$copy])
+        ->and($later)->toBeGreaterThan($copy)
         ->and(withdrawalsIn('ridge-restoration'))->toBe(0);
 });
 
