@@ -48,10 +48,14 @@ test('URLs generated in campaign context use the campaign hostname', function ()
         ->and(Url::port(url('/')))->toBe(Url::port($appUrl));
 });
 
-test('queued password reset mail links to the campaign hostname', function (): void {
-    // The regression this all exists for. Reset and verification mail is queued,
-    // so it is composed outside any request; a link to the central host would
-    // send the operator somewhere their campaign's routes are unreachable.
+test('password reset mail links to the campaign hostname', function (): void {
+    // The regression this all exists for. This mail is *not* queued -- neither
+    // VerifyEmail nor ResetPassword implements ShouldQueue, measured at Phase 6
+    // Step 1 and recorded in the Phase 0 plan before that -- so what this pins
+    // is that the forced root reaches every link built in campaign context,
+    // rather than only the ones built with no request to take a root from. The
+    // job that genuinely composes a link outside a request is SendBlast, and
+    // CampaignBlastSendingTest is where that half is asserted.
     tenancy()->initialize(urlProbeCampaign());
 
     $operator = User::factory()->create();

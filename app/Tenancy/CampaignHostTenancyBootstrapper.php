@@ -18,9 +18,18 @@ use Stancl\Tenancy\Contracts\Tenant;
  * Generated URLs. Inside a web request Laravel already takes the root from the
  * incoming request, so there this only restates what was going to happen. It
  * earns its place when there is no request: a queued job falls back to APP_URL,
- * and verification and password-reset mail is queued, so operators would be
- * emailed links to a host where their own campaign's routes are deliberately
- * unreachable.
+ * so any link it composes points at a host where the campaign's own routes are
+ * deliberately unreachable. `SendBlast` is that job -- queued, and building a
+ * per-recipient unsubscribe link for every supporter it mails, which is the
+ * consumer SendBlast::unsubscribeUrlFor() names in its own docblock.
+ *
+ * Not Fortify's account mail, which this docblock cited until now. Neither
+ * Illuminate\Auth\Notifications\VerifyEmail nor ResetPassword implements
+ * ShouldQueue and nothing here overrides that, so that mail is composed inside
+ * the request, where the root already comes from the incoming one -- measured
+ * at Phase 6 Step 1 by sending one with the database queue connection active
+ * and finding no row in `jobs`, and recorded in the Phase 0 plan's own Step 6
+ * residuals before that. The class was always right; only this reason was not.
  *
  * Passkeys. A WebAuthn relying party id must be a registrable suffix of the
  * origin the ceremony runs on, and the allowed origins must contain that
