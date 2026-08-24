@@ -404,6 +404,19 @@ test('erasing a supporter takes their token with them', function (): void {
     // would be counting a table that was empty either way.
     BlastRecipient::factory()->forSupporter($supporter)->sent()->create();
 
+    // **A credential this deletion must not take, so that "it took the right
+    // ones" can be told from "it took all of them".** A third `uuid` home
+    // arrived with the invitation table, and it is held about somebody who is
+    // not a supporter -- so the enumeration below would be satisfied by an
+    // erasure that emptied every credential in the campaign, and this row is
+    // what makes it a question. Written straight to the table because nothing
+    // writes this one yet.
+    DB::connection('tenant')->table('operator_invitations')->insert([
+        'email' => 'invited@example.test',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
     expect(DB::connection('tenant')->table('supporters')->where('id', $id)->value('unsubscribe_token'))
         ->not->toBeEmpty()
         ->and(DB::connection('tenant')->table('blast_recipients')->whereNotNull('link_token')->count())->toBe(1);
@@ -435,16 +448,18 @@ test('erasing a supporter takes their token with them', function (): void {
     // beside it left that query returning `['supporters']` unchanged. Asked
     // here by what a token *is*: a link credential for somebody with no
     // account is a `uuid` the database generates, so a new one cannot arrive
-    // without appearing below. **There are two now**, and the list is extended
-    // rather than loosened, because a query that stopped naming its homes
-    // would go quiet on exactly the arrival it exists to catch.
+    // without appearing below. **There are three now**, and the list is
+    // extended rather than loosened, because a query that stopped naming its
+    // homes would go quiet on exactly the arrival it exists to catch -- which
+    // is what it did here: the third arrived and this assertion is how anybody
+    // found out.
     $credentials = DB::connection('tenant')->select(
         "select table_name || '.' || column_name as home from information_schema.columns "
         ."where table_schema = current_schema() and data_type = 'uuid' order by 1"
     );
 
     expect(array_column($credentials, 'home'))
-        ->toBe(['blast_recipients.link_token', 'supporters.unsubscribe_token']);
+        ->toBe(['blast_recipients.link_token', 'operator_invitations.token', 'supporters.unsubscribe_token']);
 
     // **The second home answers the erasure differently and has to, which is
     // why naming it is not enough on its own.** This one is not on a row the
@@ -453,4 +468,18 @@ test('erasing a supporter takes their token with them', function (): void {
     // column arrived with, and the assertion that it did is the one that makes
     // the list above a question rather than an inventory.
     expect(DB::connection('tenant')->table('blast_recipients')->whereNotNull('link_token')->count())->toBe(0);
+
+    // **The third home answers the erasure by not being reached by this one at
+    // all, and saying so is the point rather than a gap.** The two above are
+    // credentials held about a *supporter*, so a supporter's deletion is the
+    // deletion that has to reach them. `operator_invitations.token` is a
+    // credential held about somebody who is not a supporter and is not yet an
+    // operator, so this deletion has nothing to reach there and correctly
+    // leaves it alone -- and the question it does have to answer, what reaches
+    // a person who was invited and never became a row anywhere else, is a
+    // different deletion of a different subject. Asserted here rather than
+    // left implied, because "the list is extended" is satisfied by adding a
+    // name, and what this enumeration exists for is the sentence after the
+    // name.
+    expect(DB::connection('tenant')->table('operator_invitations')->whereNotNull('token')->count())->toBe(1);
 });
