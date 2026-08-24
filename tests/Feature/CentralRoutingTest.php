@@ -45,7 +45,6 @@ test('a central host asking for a campaign route is signposted, not refused', fu
     expect(tenancy()->initialized)->toBeFalse();
 })->with([
     'login' => '/login',
-    'register' => '/register',
     'dashboard' => '/dashboard',
     'password reset request' => '/forgot-password',
     'profile settings' => '/settings/profile',

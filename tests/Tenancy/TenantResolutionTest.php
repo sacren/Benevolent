@@ -83,7 +83,8 @@ test('a campaign route works under the database session driver', function (): vo
     // incidental. This guard was written in Step 5 against the `/campaign`
     // probe route, and when Step 6 removed that route it moved to `/login` —
     // where, measured, the hazard does not surface: unpin the connection and
-    // `/login` and `/register` still answer 200, while `/forgot-password` 500s.
+    // `/login` and `/register` (while it existed) still answered 200, while
+    // `/forgot-password` 500s.
     // So for several commits this request asserted nothing and only the
     // configuration assertion at the end of the test was still guarding. Why
     // those two routes are exempt is not understood; that they are was measured

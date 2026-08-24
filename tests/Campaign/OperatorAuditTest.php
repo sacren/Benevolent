@@ -6,18 +6,40 @@ use App\Audit\AuditEvent;
 use App\Audit\OperatorAuditObserver;
 use App\Authorization\OperatorRole;
 use App\Models\AuditEntry;
+use App\Models\OperatorInvitation;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 
-test('registering an operator records that they joined, and the authority they claimed', function (): void {
-    $this->post(route('register.store'), [
-        'name' => 'First Arrival',
-        'email' => 'first@example.test',
-        'password' => 'password',
-        'password_confirmation' => 'password',
-    ]);
+/**
+ * The path an invitation's own link opens, read from the column that minted it.
+ */
+function invitationPathOf(OperatorInvitation $invitation): string
+{
+    return 'invitation/'.DB::connection('tenant')->table('operator_invitations')
+        ->where('id', $invitation->getKey())->value('token');
+}
 
-    // sole() is doing work here: it fails if the registration wrote more than
+/**
+ * What the invitee fills in.
+ *
+ * @return array<string, string>
+ */
+function newcomerDetails(): array
+{
+    return [
+        'name' => 'Newcomer',
+        'password' => 'a-memorable-passphrase',
+        'password_confirmation' => 'a-memorable-passphrase',
+    ];
+}
+
+test('accepting an invitation records that they joined, and the authority they arrived with', function (): void {
+    $invitation = OperatorInvitation::factory()->owner()->create(['email' => 'first@example.test']);
+
+    $this->post($this->campaignUrl(invitationPathOf($invitation)), newcomerDetails());
+
+    // sole() is doing work here: it fails if the acceptance wrote more than
     // one entry, which is the "records everything" failure this trail is scoped
     // to avoid.
     $entry = AuditEntry::query()->sole();
@@ -30,10 +52,11 @@ test('registering an operator records that they joined, and the authority they c
         ->and($entry->changes)->toBe(['role' => ['from' => null, 'to' => 'owner']])
         ->and($entry->created_at)->not->toBeNull();
 
-    // And no actor, which is the honest answer rather than a gap. Registration
-    // is open on every campaign, so the first operator to reach a fresh one
-    // claims it as Owner on nobody's authority -- including someone who simply
-    // guessed the hostname. An entry naming a granter here would be a fiction.
+    // And no actor, which is the honest answer rather than a gap. The person
+    // accepting is not signed in when their account is created -- they cannot
+    // be, since it does not exist yet -- so an entry naming them as the actor
+    // would be a fiction. Who admitted them is the invitation's to say, which
+    // is why that row outlives its acceptance (D-54).
     expect($entry->actor_id)->toBeNull()
         ->and($entry->actor_label)->toBeNull();
 });
@@ -41,15 +64,12 @@ test('registering an operator records that they joined, and the authority they c
 test('the trail reports the authority actually granted rather than a constant', function (): void {
     // Guards the shape of the assertion above: an entry hardcoding "owner"
     // would satisfy that test forever. Here the same code path must produce a
-    // different answer, because the campaign already has an owner.
+    // different answer, because the invitation grants Staff.
     User::factory()->owner()->create(['email' => 'incumbent@example.test']);
 
-    $this->post(route('register.store'), [
-        'name' => 'Second Arrival',
-        'email' => 'second@example.test',
-        'password' => 'password',
-        'password_confirmation' => 'password',
-    ]);
+    $this->post($this->campaignUrl(invitationPathOf(
+        OperatorInvitation::factory()->create(['email' => 'second@example.test']),
+    )), newcomerDetails());
 
     $entries = AuditEntry::query()->orderBy('id')->get();
 

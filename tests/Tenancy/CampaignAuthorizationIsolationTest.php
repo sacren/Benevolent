@@ -9,7 +9,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Laravel\Fortify\Contracts\CreatesNewUsers;
+use Illuminate\Support\Facades\Mail;
 
 /**
  * The DEC-1 isolation guarantee, extended from data to authority.
@@ -44,36 +44,42 @@ test('each campaign grants ownership to its own first operator', function (): vo
     $harbor = Tenant::query()->where('slug', 'harbor-cleanup')->firstOrFail();
     $ridge = Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail();
 
-    // The registration rule asks whether the campaign has any operator yet. That
-    // question is answered by whichever database is connected, so each campaign
-    // gets its own first owner -- Ridge Restoration's founder is not demoted to
-    // Staff because Harbor Cleanup already has one. Were the check ever to
-    // consult the central database, every campaign after the first would be
-    // founded by someone who could not govern it.
-    $register = fn (string $email) => app(CreatesNewUsers::class)->create([
-        'name' => 'Founder',
-        'email' => $email,
-        'password' => 'password',
-        'password_confirmation' => 'password',
-    ]);
+    // A campaign's first Owner is invited by the platform, and only while the
+    // campaign has no operator at all (campaign:invite-owner, D-53 Axis 3).
+    // That question is answered by whichever database is connected, so each
+    // campaign gets its own first owner -- Ridge Restoration's founder is not
+    // refused because Harbor Cleanup already has one. Were the check ever to
+    // consult the central database, or the campaign served first, every
+    // campaign after the first could never be founded at all.
+    $found = function (Tenant $campaign, string $email): User {
+        expect(Artisan::call('campaign:invite-owner', ['slug' => $campaign->slug, 'email' => $email]))->toBe(0);
 
-    tenancy()->initialize($harbor);
-    expect(DB::connection('tenant')->getDatabaseName())->toBe($harbor->database()->getName());
-    $harborFounder = $register('founder@harbor-cleanup.test');
+        $token = (string) $campaign->run(fn () => DB::table('operator_invitations')->where('email', $email)->value('token'));
+        $domain = (string) $campaign->domains()->value('domain');
 
-    tenancy()->end();
+        $this->post('http://'.$domain.'/invitation/'.$token, [
+            'name' => 'Founder',
+            'password' => 'a-memorable-passphrase',
+            'password_confirmation' => 'a-memorable-passphrase',
+        ])->assertRedirect();
 
-    tenancy()->initialize($ridge);
-    expect(DB::connection('tenant')->getDatabaseName())->toBe($ridge->database()->getName());
-    $ridgeFounder = $register('founder@ridge-restoration.test');
+        auth()->logout();
+
+        return $campaign->run(fn () => User::query()->where('email', $email)->sole());
+    };
+
+    Mail::fake();
+
+    $harborFounder = $found($harbor, 'founder@harbor-cleanup.test');
+    $ridgeFounder = $found($ridge, 'founder@ridge-restoration.test');
 
     expect($harborFounder->role)->toBe(OperatorRole::Owner)
         ->and($ridgeFounder->role)->toBe(OperatorRole::Owner);
 
     // The control. Both campaigns holding exactly one operator is what proves
-    // the two registrations landed in different databases; had they pooled, the
-    // second would have been the campaign's second operator and joined as Staff,
-    // and the assertion above would already have failed for that reason rather
+    // the two founders landed in different databases; had they pooled, Ridge
+    // would already have had an operator and the platform would have been
+    // refused, so the assertion above would have failed for that reason rather
     // than the one it claims.
     expect($ridge->run(fn () => User::query()->count()))->toBe(1)
         ->and($harbor->run(fn () => User::query()->count()))->toBe(1)

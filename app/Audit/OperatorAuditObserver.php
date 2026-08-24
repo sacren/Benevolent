@@ -36,8 +36,8 @@ class OperatorAuditObserver
     public function created(User $operator): void
     {
         $this->record($operator, AuditEvent::OperatorRegistered, [
-            // The authority they arrived with, which on an open campaign is the
-            // whole point: the first operator to register claims it as Owner.
+            // The authority they arrived with, which is the invitation's to
+            // grant and the whole point of recording the arrival.
             'role' => ['from' => null, 'to' => $this->roleOf($operator)->value],
         ]);
     }

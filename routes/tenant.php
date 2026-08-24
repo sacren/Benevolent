@@ -23,8 +23,8 @@ use Illuminate\Support\Facades\Route;
 |
 | The `tenant` middleware group these sit behind is defined in
 | bootstrap/app.php, so that config/fortify.php can point at it by name and
-| Fortify's own login, registration, two-factor and passkey routes are served
-| here too. It refuses central hosts and then resolves the campaign; an
+| Fortify's own login, password-reset, two-factor and passkey routes are
+| served here too. It refuses central hosts and then resolves the campaign; an
 | unregistered host cannot reach these routes at all.
 |
 | Path convention: campaign routes never register a bare `/`. Laravel keys a

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Models\OperatorInvitation;
 use App\Models\User;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -52,15 +53,16 @@ use Laravel\Fortify\Features;
  * on is the deployment-side answer and is not application code.
  */
 test('an operator password never reaches the database as they typed it', function (): void {
-    $this->skipUnlessFortifyHas(Features::registration());
+    // Created through the real endpoint -- accepting an invitation, which is
+    // the only way an operator chooses a password on arrival -- so the hashing
+    // under test is the one that runs in production. Creating the operator
+    // with a factory would prove less: the factory hands the model an
+    // already-hashed value, so it would still look right with the cast removed.
+    $invitation = OperatorInvitation::factory()->create(['email' => 'ada@example.test']);
+    $token = (string) DB::table('operator_invitations')->where('id', $invitation->getKey())->value('token');
 
-    // Registered through the real endpoint, so the hashing under test is the
-    // one that runs in production. Creating the operator with a factory would
-    // prove less: the factory hands the model an already-hashed value, so it
-    // would still look right with the cast removed.
-    $this->post(route('register.store'), [
+    $this->post($this->campaignUrl('invitation/'.$token), [
         'name' => 'Ada Probe',
-        'email' => 'ada@example.test',
         'password' => 'a-memorable-passphrase',
         'password_confirmation' => 'a-memorable-passphrase',
     ]);

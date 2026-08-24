@@ -109,12 +109,14 @@ return [
     | The throttle beside it meters the write endpoints Fortify leaves open.
     | Fortify's own `limiters` key below reaches login, the two-factor
     | challenge, passkeys and email verification -- it offers no hook at all for
-    | registration or for either half of the password-reset flow, and all three
-    | of those accept unauthenticated POSTs. Listing a limiter here is what
-    | reaches them without taking ownership of Fortify's route registration,
-    | since Fortify applies this key to every route it registers. The limiter
-    | declines, explicitly, to limit anything already covered, so the routes
-    | Fortify does meter keep exactly the budgets they had.
+    | either half of the password-reset flow, and both accept unauthenticated
+    | POSTs. (Registration was the third such endpoint until it was removed
+    | from `features` below: operators join by invitation, D-53.) Listing a
+    | limiter here is what reaches them without taking ownership of Fortify's
+    | route registration, since Fortify applies this key to every route it
+    | registers. The limiter declines, explicitly, to limit anything already
+    | covered, so the routes Fortify does meter keep exactly the budgets they
+    | had.
     |
     */
 
@@ -178,7 +180,6 @@ return [
     */
 
     'features' => [
-        Features::registration(),
         Features::resetPasswords(),
         Features::emailVerification(),
         Features::twoFactorAuthentication([

@@ -31,11 +31,14 @@ enum AuditEvent: string
     /**
      * An operator came into existence inside this campaign.
      *
-     * The interesting half is the authority they arrived with. Registration is
-     * open on every campaign, and the first operator to reach a fresh one
-     * claims it as Owner — including someone who simply guessed the hostname.
-     * Nothing prevents that today, which is precisely why it is worth being
-     * able to see afterwards that it happened, and when.
+     * The interesting half is the authority they arrived with. Operators arrive
+     * by accepting an invitation (D-53) -- the first one from the platform, the
+     * rest from the campaign's Owners -- and the authority is the invitation's,
+     * so the entry records what that invitation granted. It names no actor,
+     * because the person accepting is not signed in until they exist; who
+     * admitted them is the invitation row's to say. The case keeps its name and
+     * its stored value from when operators registered themselves, because the
+     * value is what every existing entry holds.
      */
     case OperatorRegistered = 'operator-registered';
 

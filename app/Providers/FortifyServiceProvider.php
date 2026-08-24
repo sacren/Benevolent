@@ -2,7 +2,6 @@
 
 namespace App\Providers;
 
-use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\ResetUserPassword;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -42,7 +41,6 @@ class FortifyServiceProvider extends ServiceProvider
     private function configureActions(): void
     {
         Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
-        Fortify::createUsersUsing(CreateNewUser::class);
     }
 
     /**
@@ -67,10 +65,6 @@ class FortifyServiceProvider extends ServiceProvider
 
         Fortify::verifyEmailView(fn (Request $request) => Inertia::render('auth/VerifyEmail', [
             'status' => $request->session()->get('status'),
-        ]));
-
-        Fortify::registerView(fn () => Inertia::render('auth/Register', [
-            'passwordRules' => Password::defaults()->toPasswordRulesString(),
         ]));
 
         Fortify::twoFactorChallengeView(fn () => Inertia::render('auth/TwoFactorChallenge'));
@@ -150,29 +144,18 @@ class FortifyServiceProvider extends ServiceProvider
 
         // The endpoints Fortify itself gives no limiter hook for. `limiters`
         // below reaches login, the two-factor challenge, passkeys and email
-        // verification; registration and both halves of the password-reset flow
-        // accept unauthenticated POSTs and were entirely unmetered. This limiter
-        // is listed on Fortify's `middleware` key, so it sees every route
-        // Fortify registers and declines -- explicitly, by returning no limit at
-        // all -- to touch the ones already covered above.
+        // verification; both halves of the password-reset flow accept
+        // unauthenticated POSTs and were entirely unmetered. This limiter is
+        // listed on Fortify's `middleware` key, so it sees every route Fortify
+        // registers and declines -- explicitly, by returning no limit at all --
+        // to touch the ones already covered above.
+        //
+        // Registration was the third such endpoint and had an arm here, keyed
+        // on the caller alone. It went with the feature (D-53): a campaign's
+        // operators arrive by invitation, which answers the question metering
+        // only slowed down -- who wins the race to claim a fresh campaign.
         RateLimiter::for('auth-writes', function (Request $request) {
             return match ($request->route()?->getName()) {
-                // Registration has no prior identity to key on: the address
-                // being registered is by definition one nobody has claimed yet.
-                // So the caller is all there is to meter, and that key is
-                // deliberately platform-wide.
-                //
-                // A campaign-wide registration budget was considered and left
-                // out. It would cap a campaign's registrations however many
-                // callers they came from, which sounds stricter and is worse:
-                // one caller could then spend a campaign's whole budget and
-                // block every legitimate operator from joining it. Open
-                // registration's real answer is onboarding by invitation, which
-                // is a recorded deferral rather than something throttling fixes
-                // -- metering slows a hostname-guesser without changing who
-                // wins the race to claim a fresh campaign as Owner.
-                'register.store' => Limit::perMinute(5)->by($this->callerAddress($request, 'register')),
-
                 // Requesting a link is the tightest budget in this application,
                 // because it is the only unauthenticated endpoint that makes the
                 // platform *send*. Unmetered it is a way to have a campaign mail
@@ -240,9 +223,9 @@ class FortifyServiceProvider extends ServiceProvider
      *
      * The scope is not decoration. Laravel keys a throttled request by the
      * limiter's *name* plus the key, so two limits in two differently-named
-     * limiters cannot collide — but `auth-writes` covers three endpoint families
-     * under one name, and registration allows a different number of attempts per
-     * minute than a password-reset request does. Without the scope those three
+     * limiters cannot collide — but `auth-writes` covers two endpoint families
+     * under one name, and submitting a reset allows a different number of
+     * attempts per minute than requesting one does. Without the scope those two
      * would share a single counter measured against whichever ceiling the
      * current route happens to carry, which is not a limit anyone chose.
      *

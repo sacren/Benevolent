@@ -130,9 +130,9 @@ class TenancyServiceProvider extends ServiceProvider
         /*
          * A central host reaching a campaign route is almost always an operator
          * who followed a link to the wrong address -- the central Welcome page
-         * still offers "Log in" and "Register", and both now land here. The
-         * signpost is a central `web` route, so this guard never runs on it and
-         * the redirect cannot loop.
+         * still offers "Log in", and it now lands here. The signpost is a
+         * central `web` route, so this guard never runs on it and the redirect
+         * cannot loop.
          */
         Middleware\PreventAccessFromCentralDomains::$abortRequest =
             fn (): RedirectResponse => redirect()->route('campaign-sign-in');

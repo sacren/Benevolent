@@ -27,10 +27,11 @@ Route::inertia('/', 'Welcome')->name('home');
  * rather than returning a bare 404 (see TenancyServiceProvider).
  *
  * Deliberately static. Helping someone who does not know their campaign's
- * address means asking them for some identifier, and no operator has been
- * onboarded yet to tell us which one they actually know -- name, slug, email
- * domain, invite code. A static page is free to replace; a lookup on the wrong
- * key is rework plus retraining. The trigger to add one is the first real
- * operator onboarding.
+ * address means asking them for some identifier, and operators now arrive by
+ * an invitation whose link already names their campaign's host (D-53) -- the
+ * first one from the platform, the rest from the campaign -- so nobody joining
+ * is asked which campaign is theirs. A static page is free to replace; a
+ * lookup on the wrong key is rework plus retraining. The trigger to add one is
+ * the first operator who cannot find their campaign again (deferral 2).
  */
 Route::inertia('/campaign-sign-in', 'CampaignSignIn')->name('campaign-sign-in');

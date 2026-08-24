@@ -8,8 +8,8 @@ use App\Models\AuditEntry;
 use App\Models\User;
 
 test('changing an operator\'s authority records what changed and who did it', function (): void {
-    // The first entry in this trail that names an actor. Registration and
-    // self-removal both record none, for reasons of their own, so until a role
+    // The first entry in this trail that names an actor. Accepting an
+    // invitation and self-removal both record none, for reasons of their own, so until a role
     // could change there was no path through the recorder that answered the
     // "who" in "who changed what" with an operator.
     $owner = User::factory()->owner()->create(['email' => 'owner@example.test']);

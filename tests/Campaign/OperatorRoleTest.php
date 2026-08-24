@@ -75,10 +75,10 @@ test('the role round-trips through the database as an enum rather than a string'
 });
 
 test('a role cannot be granted by mass assignment', function (): void {
-    // Registration passes request input straight into User::create, so `role`
-    // is deliberately absent from the model's fillable list. Were it fillable,
-    // anyone reaching a campaign's open /register could post role=owner and
-    // grant themselves governance of the campaign.
+    // Any writer that passes request input into User::create would pass `role`
+    // along with it, so `role` is deliberately absent from the model's fillable
+    // list. Were it fillable, anybody whose request reached such a writer could
+    // post role=owner and grant themselves governance of the campaign.
     $operator = User::create([
         'name' => 'Mallory Vance',
         'email' => 'escalation@example.test',
