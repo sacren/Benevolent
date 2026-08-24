@@ -16,8 +16,10 @@ use Illuminate\Support\Facades\Auth;
  * and the difference matters more than it looks. A call site records what
  * whoever wrote it remembered to record; the next path that creates an operator
  * — an invitation flow, a promotion screen, a console command, a seeder —
- * records nothing, and nothing about the omission is visible. Every one of
- * those is a path this application does not have yet and will. Observing the
+ * records nothing, and nothing about the omission is visible. The invitation
+ * flow was the first of those to arrive (AcceptOperatorInvitation) and it
+ * wrote no recording call of its own: it saves through Eloquent and this
+ * observer answers for it. Observing the
  * model instead means the trail describes what happened to the operator table,
  * not what one author anticipated.
  *

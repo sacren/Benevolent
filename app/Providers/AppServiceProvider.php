@@ -35,8 +35,9 @@ class AppServiceProvider extends ServiceProvider
      * operators.
      *
      * Filed here rather than beside the four limiters in FortifyServiceProvider
-     * because those meter authentication, and this meters a supporter. The
-     * shared vocabulary is the *shape* of the key, not the concern.
+     * because those meter authentication, and these meter a supporter and
+     * somebody a campaign has invited. The shared vocabulary is the *shape* of
+     * the key, not the concern.
      */
     protected function configureRateLimiting(): void
     {
@@ -69,6 +70,21 @@ class AppServiceProvider extends ServiceProvider
             // one address, and the failure this endpoint must not produce is
             // somebody unable to get out.
             return Limit::perMinute(20)->by('unsubscribe:address:'.($request->ip() ?? 'unknown'));
+        });
+
+        RateLimiter::for('invitation', function (Request $request) {
+            // **The unsubscribe limiter's shape, for its reasons: the caller,
+            // platform-wide (L-24), and no person-keyed limit beside it.** The
+            // only identity here is the credential in the URL, and metering by
+            // it would let somebody spend an invitee's budget for them.
+            //
+            // Ten a minute rather than twenty, because the two endpoints are
+            // used differently. Many supporters behind one office address may
+            // each unsubscribe in the same minute; a campaign invites a handful
+            // of people, each opens one link and submits one form, and a second
+            // attempt is a mistyped password. Nobody legitimate needs more, and
+            // nothing walking the space of uuids gets anywhere at ten.
+            return Limit::perMinute(10)->by('invitation:address:'.($request->ip() ?? 'unknown'));
         });
     }
 

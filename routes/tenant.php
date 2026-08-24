@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\BlastController;
+use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\SegmentController;
 use App\Http\Controllers\SupporterController;
 use App\Http\Controllers\SupporterImportController;
@@ -114,12 +115,13 @@ Route::middleware('tenant')->group(function (): void {
      * for themselves.
      *
      * Deliberately OUTSIDE the ['auth', 'verified'] group above and inside the
-     * `tenant` group -- the only page-rendering route in this application that
-     * sits that way round. A supporter has no account and never will, so
-     * requiring one would make the opt-out reachable exactly by the people who
-     * do not need it. It stays inside `tenant` because the campaign is what
-     * identifies them: the same person on two campaigns' lists is two
-     * supporters in two databases, and the Host header is what says which.
+     * `tenant` group -- the first page-rendering route in this application to
+     * sit that way round, and the invitation routes below are the second. A
+     * supporter has no account and never will, so requiring one would make the
+     * opt-out reachable exactly by the people who do not need it. It stays
+     * inside `tenant` because the campaign is what identifies them: the same
+     * person on two campaigns' lists is two supporters in two databases, and
+     * the Host header is what says which.
      *
      * For the same reason this belongs here and never in routes/web.php. A
      * central unsubscribe route would have to be told which campaign it meant,
@@ -135,12 +137,39 @@ Route::middleware('tenant')->group(function (): void {
      * the router answer 404 before a query is ever built.
      *
      * Metered by a limiter keyed on the caller and never on the campaign
-     * (L-24), because this is the first endpoint in this application that
+     * (L-24), because this was the first endpoint in this application that
      * anybody at all can reach.
      */
     Route::middleware('throttle:unsubscribe')->whereUuid('token')->group(function (): void {
         Route::get('unsubscribe/{token}', [UnsubscribeController::class, 'show'])->name('unsubscribe.show');
         Route::post('unsubscribe/{token}', [UnsubscribeController::class, 'store'])->name('unsubscribe.store');
+    });
+
+    /*
+     * Becoming one of this campaign's operators, by the link it sent (D-53).
+     *
+     * The unsubscribe block's shape, for its reasons: outside the ['auth',
+     * 'verified'] group, because the person has no account until this
+     * succeeds; inside `tenant`, because the campaign is what the invitation
+     * belongs to and a link minted in one campaign must match no row in
+     * another; and never in routes/web.php, whose central surface stays at two
+     * routes (deferral 1).
+     *
+     * `{invitation:token}` binds the row by its credential, so an unknown or
+     * spent link is refused by the router before anything validates -- a spent
+     * invitation holds no token, so it is simply not findable. `whereUuid` is
+     * not decoration: `operator_invitations.token` is a `uuid` column, and a
+     * malformed value compared against it raises SQLSTATE 22P02 rather than
+     * matching nothing.
+     *
+     * `guest`, as Fortify gave its own registration route: accepting signs the
+     * new operator in, and doing that over somebody's existing session would
+     * swap one operator for another mid-work. Metered by a limiter keyed on the
+     * caller and never on the campaign (L-24), like the unsubscribe routes.
+     */
+    Route::middleware(['guest', 'throttle:invitation'])->whereUuid('invitation')->group(function (): void {
+        Route::get('invitation/{invitation:token}', [InvitationController::class, 'show'])->name('invitation.show');
+        Route::post('invitation/{invitation:token}', [InvitationController::class, 'store'])->name('invitation.accept');
     });
 
     require __DIR__.'/settings.php';

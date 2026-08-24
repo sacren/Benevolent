@@ -24,6 +24,13 @@ createInertiaApp({
             // surface rather than the platform's.
             case name === 'Unsubscribe':
                 return null;
+            // Served on a campaign's hostname to somebody that campaign invited,
+            // who has no account until they accept. The same reasoning as the
+            // arm above, arriving on the second public surface: the default arm
+            // would show a stranger the campaign's sidebar, and AuthLayout
+            // would head a campaign's page with the platform's logo.
+            case name === 'Invitation':
+                return null;
             // Served centrally rather than in campaign context, but it is a page
             // about signing in and wears the same card as the real thing.
             case name === 'CampaignSignIn':

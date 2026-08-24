@@ -14,8 +14,8 @@ use Illuminate\Support\Str;
  * reaches in it (D-55's first half).
  *
  * These assert properties of the *schema*, which is the whole of what Step 2
- * builds: nothing in the application writes this table yet, so every row below
- * is written straight to it. That is deliberate rather than a limitation --
+ * built, and every row below is written straight to the table rather than
+ * through any writer. That is deliberate rather than a limitation --
  * these claims are about what the database will hold whoever eventually writes
  * it, and a test driven through a writer would be satisfied by a writer that
  * happens to behave while the schema permits otherwise.
@@ -57,9 +57,9 @@ test('the campaign database carries the record of who it admitted', function ():
 test('the column mints the credential, so no writer can produce an invitation without one', function (): void {
     // D-16(a)'s measured finding applied to a third credential: a model
     // `creating` hook is bypassed by any writer that does not go through
-    // Eloquent, and this table has no model at all yet -- so a generator in
-    // application code would have nothing to live in and every row written
-    // before Step 3 would be a link nobody could use.
+    // Eloquent. This table had no model at all until Step 3, so a generator in
+    // application code would have had nothing to live in -- and a model that
+    // exists now is still bypassed by every row this file writes directly.
     DB::connection('tenant')->table('operator_invitations')->insert([
         ['email' => 'first@example.test', 'created_at' => now(), 'updated_at' => now()],
         ['email' => 'second@example.test', 'created_at' => now(), 'updated_at' => now()],

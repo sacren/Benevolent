@@ -16,7 +16,8 @@ use Illuminate\Support\Facades\Route;
  *
  * The first surface this product serves to somebody with no account, no session
  * and no operator behind them, so the property most of this file is about is
- * one no other page-rendering route in this application has: it answers at all.
+ * one only it and the invitation routes have among page-rendering routes: it
+ * answers at all.
  *
  * **The limiter is reset between tests, and the reason is worth stating because
  * it is a consequence of a deliberate design choice.** `unsubscribe` is keyed
@@ -39,9 +40,9 @@ beforeEach(function (): void {
 });
 
 test('somebody with no account at all can open the page', function (): void {
-    // **The property no other page-rendering route in this application has.**
-    // Every one of them sits behind `auth` and `verified`; the single prior
-    // exception returns JSON and renders nothing.
+    // **The property this route and the invitation routes alone have among
+    // page-rendering routes.** Every other one sits behind `auth` and
+    // `verified`; the single prior exception returns JSON and renders nothing.
     $supporter = Supporter::factory()->create(['email' => 'reader@example.test']);
 
     $this->assertGuest();

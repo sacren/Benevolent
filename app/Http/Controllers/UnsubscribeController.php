@@ -17,10 +17,11 @@ use Inertia\Response;
  * How somebody stops a campaign writing to them.
  *
  * **The first surface this product serves to a person with no account, no
- * session and no operator behind them**, and the only page-rendering campaign
+ * session and no operator behind them**, and the first page-rendering campaign
  * route outside the `auth` group. Every other one sits behind `auth` and
- * `verified`; the single prior exception is `.well-known/passkey-endpoints`,
- * which returns JSON and renders nothing.
+ * `verified` except InvitationController's, which followed this one's shape
+ * for this one's reasons; the single prior exception is
+ * `.well-known/passkey-endpoints`, which returns JSON and renders nothing.
  *
  * **Authority is the token, and its scope is the campaign's own database.**
  * There is no policy here and there is nothing for one to answer: a policy

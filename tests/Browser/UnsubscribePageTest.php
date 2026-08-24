@@ -33,7 +33,7 @@ use Tests\Support\LoopbackHost;
  * only thing that exercises what a supporter actually triggers.
  *
  * **No operator is signed in, and that is the subject rather than a shortcut.**
- * Every other campaign browser file begins by enrolling somebody; this page's
+ * Every campaign browser file before it began by enrolling somebody; this page's
  * whole claim is that it works for a person who has no account and never will.
  *
  * The campaign is provisioned because the page is served on a campaign
