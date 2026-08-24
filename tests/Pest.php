@@ -126,3 +126,45 @@ function refusalFrom(Closure $write): ?QueryException
 
     return null;
 }
+
+/**
+ * Every column in the active campaign's database whose text holds the needle,
+ * as `table.column`.
+ *
+ * Asks the schema rather than a list of columns somebody thought to name, so a
+ * column added later is searched without anybody remembering to add it.
+ *
+ * Declared here rather than in the file that first needed it because a global
+ * function cannot be declared twice: it was written inside
+ * tests/Tenancy/CampaignBlastSendingTest.php for the erasure of a supporter a
+ * district blast had reached, and tests/Campaign/OperatorInvitationStorageTest
+ * now asks the identical question of an *operator* and of somebody who was
+ * invited and never joined. A second consumer is this project's trigger for
+ * lifting a helper, the same trigger refusalFrom() above was lifted on, and
+ * the alternative -- a differently named copy -- would leave two spellings of
+ * one idea at exactly the moment the two are supposed to be the same
+ * instrument.
+ *
+ * @return list<string>
+ */
+function campaignColumnsHolding(string $needle): array
+{
+    $found = [];
+
+    $columns = DB::connection('tenant')->select(
+        "select table_name, column_name from information_schema.columns where table_schema = 'public' order by table_name, column_name"
+    );
+
+    foreach ($columns as $column) {
+        $holding = DB::connection('tenant')
+            ->table($column->table_name)
+            ->whereRaw('position(? in lower(cast('.DB::connection('tenant')->getQueryGrammar()->wrap($column->column_name).' as text))) > 0', [strtolower($needle)])
+            ->exists();
+
+        if ($holding) {
+            $found[] = $column->table_name.'.'.$column->column_name;
+        }
+    }
+
+    return $found;
+}

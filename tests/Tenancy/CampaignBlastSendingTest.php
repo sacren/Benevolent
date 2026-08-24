@@ -1124,36 +1124,9 @@ test('a send never opens the district relation, so a worker pays nothing for it'
     expect(Blast::query()->findOrFail($blastId)->status)->toBe(BlastStatus::Sent);
 });
 
-/**
- * Every column in the active campaign's database whose text holds the needle,
- * as `table.column`.
- *
- * Asks the schema rather than a list of columns somebody thought to name, so a
- * column added later is searched without anybody remembering to add it.
- *
- * @return list<string>
- */
-function campaignColumnsHolding(string $needle): array
-{
-    $found = [];
-
-    $columns = DB::connection('tenant')->select(
-        "select table_name, column_name from information_schema.columns where table_schema = 'public' order by table_name, column_name"
-    );
-
-    foreach ($columns as $column) {
-        $holding = DB::connection('tenant')
-            ->table($column->table_name)
-            ->whereRaw('position(? in lower(cast('.DB::connection('tenant')->getQueryGrammar()->wrap($column->column_name).' as text))) > 0', [strtolower($needle)])
-            ->exists();
-
-        if ($holding) {
-            $found[] = $column->table_name.'.'.$column->column_name;
-        }
-    }
-
-    return $found;
-}
+// campaignColumnsHolding() lives in tests/Pest.php, because a campaign-suite
+// file now asks the same question of an operator and a global function cannot
+// be declared twice.
 
 test('erasing a supporter a district blast reached leaves them nowhere in the campaign\'s database', function (): void {
     // **The seventh-home question, asked by running a deletion.** A district

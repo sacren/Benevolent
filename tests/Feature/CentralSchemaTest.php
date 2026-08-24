@@ -189,3 +189,26 @@ test('the central database does not carry a campaign\'s segments', function (): 
     // was made.
     expect(Schema::hasTable('segments'))->toBeFalse();
 });
+
+test('the central database does not carry who a campaign admitted', function (): void {
+    // The same claim once more, for the first table this platform holds about
+    // the people who *run* a campaign rather than the people it writes to. A
+    // central invitations table would pool every campaign's staff addresses
+    // into one place and, worse than the tables above, would put the
+    // credential that admits somebody to a campaign in a database shared with
+    // every other campaign -- which is the exact property D-53's Axis 1 chose a
+    // stored per-campaign row for, undone by a filing mistake.
+    //
+    // **This is the first of these lines that is the *first* catch rather than
+    // the second, and the difference is measured.** `blasts`, `blast_recipients`
+    // and `segments` each carry a foreign key to a table that exists only
+    // inside a campaign, so misfiling any of their migrations kills it
+    // centrally with `relation "users" does not exist` and errors every test in
+    // this file before an assertion runs -- which those three lines say about
+    // themselves. `operator_invitations` has no foreign key at all, by the
+    // argument its own migration makes: the record has to outlive the operator
+    // it names, so there is nothing to constrain it to. So a misfiling of this
+    // one migrates cleanly and is reported here, by name, alongside the
+    // difference in the first test's exact list.
+    expect(Schema::hasTable('operator_invitations'))->toBeFalse();
+});
