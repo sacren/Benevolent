@@ -27,9 +27,10 @@ test('new users can register', function () {
 });
 
 test('the first operator to register claims the campaign as its owner', function () {
-    // A campaign has to get its first Owner from somewhere, and provisioning
-    // does not supply one -- campaign:create makes a database and a domain, not
-    // an identity. So the first registration claims it.
+    // Provisioning does not supply a first Owner -- campaign:create makes a
+    // database and a domain, not an identity. The platform can invite one
+    // (campaign:invite-owner), but while registration is open, the first
+    // registration still claims it.
     expect(User::query()->count())->toBe(0);
 
     $this->post(route('register.store'), [

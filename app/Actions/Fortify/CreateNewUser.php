@@ -47,8 +47,9 @@ class CreateNewUser implements CreatesNewUsers
      *
      * A campaign has to get its first Owner from somewhere. Provisioning does
      * not create one — `campaign:create` makes the database and the domain, not
-     * an identity — so the first operator to register claims the campaign, and
-     * everyone after joins as Staff for an Owner to promote.
+     * an identity. The platform can now invite one (`campaign:invite-owner`),
+     * but while registration stays open the first operator to register still
+     * claims the campaign, and everyone after joins as Staff.
      *
      * The count and the insert are not atomic, so two registrations racing on
      * an empty campaign would both see zero and both become Owner. Left alone
