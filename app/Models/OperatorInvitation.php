@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Authorization\OperatorRole;
+use App\Operators\OperatorInvitationPolicy;
 use Database\Factories\OperatorInvitationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Attributes\UsePolicy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
@@ -41,6 +43,10 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
+// Named here rather than discovered: OperatorInvitationPolicy is filed with its
+// module, where path guessing will not reach it, so this line is the only
+// wiring there is and deleting it turns the allow tests red.
+#[UsePolicy(OperatorInvitationPolicy::class)]
 #[Fillable(['email'])]
 #[Hidden(['token'])]
 class OperatorInvitation extends Model

@@ -53,10 +53,12 @@ class OperatorAuditObserver
      * logs everything an operator ever does, and a test pairs it against a
      * rename to keep it that way.
      *
-     * No screen produces a role change yet; the permission that would govern
-     * one has no consumer. Recording it anyway costs a method and means the
-     * first screen to offer promotion arrives already audited, rather than
-     * shipping the surface and the record of it separately.
+     * No screen produces a role change yet. The permission that would govern
+     * one, ManageOperators, has one consumer -- inviting somebody -- and that
+     * sets an invitation's role, not an operator's. Recording it anyway costs a
+     * method and means the first screen to offer promotion arrives already
+     * audited, rather than shipping the surface and the record of it
+     * separately.
      */
     public function updated(User $operator): void
     {

@@ -6,8 +6,10 @@ import {
     Funnel,
     LayoutGrid,
     Send,
+    UserPlus,
     Users,
 } from '@lucide/vue';
+import { computed } from 'vue';
 import AppLogo from '@/components/AppLogo.vue';
 import NavFooter from '@/components/NavFooter.vue';
 import NavMain from '@/components/NavMain.vue';
@@ -21,13 +23,17 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
+import { usePermissions } from '@/composables/usePermissions';
 import { dashboard } from '@/routes';
 import { index as blasts } from '@/routes/blasts';
+import { create as inviteOperator } from '@/routes/operators/invitations';
 import { index as segments } from '@/routes/segments';
 import { index as supporters } from '@/routes/supporters';
 import type { NavItem } from '@/types';
 
-const mainNavItems: NavItem[] = [
+const { can } = usePermissions();
+
+const campaignNavItems: NavItem[] = [
     {
         title: 'Dashboard',
         href: dashboard(),
@@ -49,6 +55,25 @@ const mainNavItems: NavItem[] = [
         icon: Funnel,
     },
 ];
+
+/*
+ * Offered only to somebody who may act on it. Hiding it is a courtesy rather
+ * than the defence -- OperatorInvitationPolicy refuses the request whatever the
+ * sidebar rendered -- but a link that answers 403 to every Staff operator who
+ * clicks it is a control the product should not have shown them.
+ */
+const mainNavItems = computed<NavItem[]>(() =>
+    can('manage-operators')
+        ? [
+              ...campaignNavItems,
+              {
+                  title: 'Invite an operator',
+                  href: inviteOperator(),
+                  icon: UserPlus,
+              },
+          ]
+        : campaignNavItems,
+);
 
 const footerNavItems: NavItem[] = [
     {

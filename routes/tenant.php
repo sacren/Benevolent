@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\BlastController;
 use App\Http\Controllers\InvitationController;
+use App\Http\Controllers\OperatorInvitationController;
 use App\Http\Controllers\SegmentController;
 use App\Http\Controllers\SupporterController;
 use App\Http\Controllers\SupporterImportController;
@@ -108,6 +109,14 @@ Route::middleware('tenant')->group(function (): void {
         Route::get('segments/{segment}/edit', [SegmentController::class, 'edit'])->name('segments.edit');
         Route::patch('segments/{segment}', [SegmentController::class, 'update'])->name('segments.update');
         Route::delete('segments/{segment}', [SegmentController::class, 'destroy'])->name('segments.destroy');
+
+        // Admitting somebody to the campaign (D-53). Authority is settled by
+        // OperatorInvitationPolicy inside the controller, for the reason every
+        // route above carries no `can:` middleware. Under `operators/`, the
+        // noun this module is about, rather than `invitation/`, which is the
+        // public path the invitee's link opens.
+        Route::get('operators/invite', [OperatorInvitationController::class, 'create'])->name('operators.invitations.create');
+        Route::post('operators/invite', [OperatorInvitationController::class, 'store'])->name('operators.invitations.store');
     });
 
     /*

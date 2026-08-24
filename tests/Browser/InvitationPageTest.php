@@ -31,6 +31,13 @@ use Tests\Support\LoopbackHost;
  *
  * Two invitations in the fixture, per the phase's §3 convention, so the page
  * naming the right address is a claim the second one could falsify.
+ *
+ * **The inviting side has the same second class, and one more.** The Owner's
+ * form posts through a Wayfinder action built in the browser, and the sidebar
+ * link to it is computed on the client from the operator's permissions -- so
+ * whether Staff are offered a control that answers them 403 is decided where
+ * no server-side assertion reaches. Both operators are opened here, the one
+ * who may and the one who may not.
  */
 
 uses(RunsInCampaignContext::class);
@@ -93,4 +100,41 @@ test('somebody invited opens their link outside the application shell, joins, an
     expect(User::query()->sole())
         ->email->toBe('ama.boateng@example.test')
         ->role->toBe(OperatorRole::Owner);
+});
+
+test('an owner finds the invitation form in the sidebar and sends one; staff are not offered it', function (): void {
+    $owner = User::factory()->owner()->create(['email' => 'governor@example.test']);
+    $staff = User::factory()->create(['email' => 'helper@example.test']);
+
+    // **Staff first**, and the absence is paired with a presence on the same
+    // page: the sidebar demonstrably rendered its campaign links, so the
+    // missing one is missing rather than the whole menu being absent.
+    $this->actingAs($staff);
+
+    visit('/dashboard')
+        ->assertSee('Supporters')
+        ->assertDontSee('Invite an operator')
+        ->assertNoJavaScriptErrors();
+
+    $this->actingAs($owner);
+
+    $page = visit('/dashboard');
+
+    $page->assertSee('Invite an operator')
+        ->click('Invite an operator');
+
+    $page->assertPathIs('/operators/invite')
+        ->fill('email', 'newcomer@example.test')
+        ->click('[data-test="invite-as-owner"]')
+        ->click('[data-test="invite-button"]');
+
+    $page->assertSee('Invitation sent to newcomer@example.test.')
+        ->assertNoJavaScriptErrors();
+
+    // The click reached the writer, with the authority chosen on the page and
+    // the operator who chose it.
+    $row = DB::connection('tenant')->table('operator_invitations')->where('email', 'newcomer@example.test')->sole();
+
+    expect($row->role)->toBe('owner')
+        ->and($row->invited_by_label)->toBe('governor@example.test');
 });
