@@ -34,7 +34,11 @@ use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
  * (OperatorInvitationController), not the platform's. A campaign whose
  * operators have all left is empty again and can be given a first Owner the
  * same way. A campaign with operators and no Owner is a different problem,
- * the one D-57 owns, and this command does not reach into it.
+ * and the application no longer produces one: CampaignGovernance refuses the
+ * last governor's departure while anybody stays, and withdraws a departing
+ * operator's unused invitations so none can be accepted into an empty
+ * campaign afterwards. One left that way before Phase 6 Step 4 is not this
+ * command's to reach into either.
  *
  * **Addressed by slug**, for the reason `campaign:contact` gives. It serves a
  * campaign provisioned today and one provisioned before this command existed
