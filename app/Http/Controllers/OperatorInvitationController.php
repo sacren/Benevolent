@@ -18,10 +18,10 @@ use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 /**
  * A campaign inviting somebody to help run it (D-53 Axis 1 (i)).
  *
- * **The act and nothing around it.** There is no list of operators here, no
- * list of invitations, and no way to withdraw one: what an Owner sees and may
- * do about the roster is D-57's, at Step 4. This is the form that admits the
- * second operator, which is the whole of what this step builds.
+ * **The act and nothing around it.** The list of operators and of the
+ * invitations still waiting is the roster's (OperatorController); this is the
+ * form that admits somebody, and a sent invitation returns the Owner to the
+ * roster, where it now appears among the ones not yet used.
  */
 class OperatorInvitationController extends Controller
 {
@@ -71,6 +71,6 @@ class OperatorInvitationController extends Controller
         // can know (D-56); the page says what it cannot.
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Invitation sent to :email.', ['email' => $email])]);
 
-        return to_route('operators.invitations.create');
+        return to_route('operators.index');
     }
 }

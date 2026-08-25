@@ -22,9 +22,11 @@ use App\Models\User;
  * invite but not to remove -- has no consumer, and D-58 at Step 4 is where
  * the other two acts are asked the same question.
  *
- * No `view`, `update` or `delete`: this step ships no list of invitations and
- * no way to withdraw one, which are D-57's. A policy method with no call site
- * is the guess Blueprint §5 says a policy should not contain.
+ * No `viewAny`: the invitations still waiting are listed on the roster, and
+ * seeing it is OperatorPolicy's to answer, once, for the page as a whole. No
+ * `update` or `delete` either, since nothing yet changes or withdraws an
+ * invitation. A policy method with no call site is the guess Blueprint §5 says
+ * a policy should not contain.
  */
 class OperatorInvitationPolicy
 {

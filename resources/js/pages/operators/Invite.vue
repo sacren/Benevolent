@@ -6,6 +6,7 @@ import InputError from '@/components/InputError.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { index } from '@/routes/operators';
 import { create } from '@/routes/operators/invitations';
 
 /*
@@ -20,7 +21,10 @@ import { create } from '@/routes/operators/invitations';
  */
 defineOptions({
     layout: {
-        breadcrumbs: [{ title: 'Invite an operator', href: create() }],
+        breadcrumbs: [
+            { title: 'Operators', href: index() },
+            { title: 'Invite an operator', href: create() },
+        ],
     },
 });
 </script>

@@ -4,11 +4,13 @@ namespace App\Models;
 
 use App\Audit\OperatorAuditObserver;
 use App\Authorization\OperatorRole;
+use App\Operators\OperatorPolicy;
 use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
+use Illuminate\Database\Eloquent\Attributes\UsePolicy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -38,6 +40,10 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
 // the attachment is the kind of thing that has to be visible and asserted
 // rather than assumed.
 #[ObservedBy(OperatorAuditObserver::class)]
+// Named here rather than discovered, for the reason OperatorInvitation gives:
+// OperatorPolicy is filed with its module, so this line is the only wiring
+// there is, and deleting it turns the roster's allow tests red.
+#[UsePolicy(OperatorPolicy::class)]
 #[Fillable(['name', 'email', 'password'])]
 // `role` is hidden alongside the credentials, and for a different reason worth
 // stating. It is not a secret -- an operator may perfectly well be told what

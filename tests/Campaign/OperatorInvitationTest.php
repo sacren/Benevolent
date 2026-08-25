@@ -58,7 +58,7 @@ test('an owner invites somebody, and the row records who, with what authority, a
     $this->actingAs($owner)
         ->post($this->campaignUrl('operators/invite'), ['email' => 'Ama.Boateng@Example.test', 'role' => 'owner'])
         ->assertSessionHasNoErrors()
-        ->assertRedirect(route('operators.invitations.create'));
+        ->assertRedirect(route('operators.index'));
 
     // Found by the address exactly as the inviter typed it: the invitation
     // keeps it that way, and the fold happens when it becomes an operator's

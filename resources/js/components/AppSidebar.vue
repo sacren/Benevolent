@@ -6,7 +6,7 @@ import {
     Funnel,
     LayoutGrid,
     Send,
-    UserPlus,
+    UserCog,
     Users,
 } from '@lucide/vue';
 import { computed } from 'vue';
@@ -26,7 +26,7 @@ import {
 import { usePermissions } from '@/composables/usePermissions';
 import { dashboard } from '@/routes';
 import { index as blasts } from '@/routes/blasts';
-import { create as inviteOperator } from '@/routes/operators/invitations';
+import { index as operators } from '@/routes/operators';
 import { index as segments } from '@/routes/segments';
 import { index as supporters } from '@/routes/supporters';
 import type { NavItem } from '@/types';
@@ -58,18 +58,19 @@ const campaignNavItems: NavItem[] = [
 
 /*
  * Offered only to somebody who may act on it. Hiding it is a courtesy rather
- * than the defence -- OperatorInvitationPolicy refuses the request whatever the
- * sidebar rendered -- but a link that answers 403 to every Staff operator who
- * clicks it is a control the product should not have shown them.
+ * than the defence -- OperatorPolicy refuses the request whatever the sidebar
+ * rendered -- but a link that answers 403 to every Staff operator who clicks it
+ * is a control the product should not have shown them. The roster is where an
+ * Owner invites somebody from, so it replaces the invitation form's own link.
  */
 const mainNavItems = computed<NavItem[]>(() =>
     can('manage-operators')
         ? [
               ...campaignNavItems,
               {
-                  title: 'Invite an operator',
-                  href: inviteOperator(),
-                  icon: UserPlus,
+                  title: 'Operators',
+                  href: operators(),
+                  icon: UserCog,
               },
           ]
         : campaignNavItems,

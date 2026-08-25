@@ -2,6 +2,7 @@ export * from './auth';
 export * from './blasts';
 export * from './districts';
 export * from './navigation';
+export * from './operators';
 export * from './pagination';
 export * from './segments';
 export * from './supporters';

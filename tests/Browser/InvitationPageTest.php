@@ -34,10 +34,10 @@ use Tests\Support\LoopbackHost;
  *
  * **The inviting side has the same second class, and one more.** The Owner's
  * form posts through a Wayfinder action built in the browser, and the sidebar
- * link to it is computed on the client from the operator's permissions -- so
- * whether Staff are offered a control that answers them 403 is decided where
- * no server-side assertion reaches. Both operators are opened here, the one
- * who may and the one who may not.
+ * link to the roster the form is reached from is computed on the client from
+ * the operator's permissions -- so whether Staff are offered a control that
+ * answers them 403 is decided where no server-side assertion reaches. Both
+ * operators are opened here, the one who may and the one who may not.
  */
 
 uses(RunsInCampaignContext::class);
@@ -102,7 +102,7 @@ test('somebody invited opens their link outside the application shell, joins, an
         ->role->toBe(OperatorRole::Owner);
 });
 
-test('an owner finds the invitation form in the sidebar and sends one; staff are not offered it', function (): void {
+test('an owner reaches the invitation form from the roster in the sidebar and sends one; staff are not offered it', function (): void {
     $owner = User::factory()->owner()->create(['email' => 'governor@example.test']);
     $staff = User::factory()->create(['email' => 'helper@example.test']);
 
@@ -113,14 +113,19 @@ test('an owner finds the invitation form in the sidebar and sends one; staff are
 
     visit('/dashboard')
         ->assertSee('Supporters')
-        ->assertDontSee('Invite an operator')
+        ->assertDontSee('Operators')
         ->assertNoJavaScriptErrors();
 
     $this->actingAs($owner);
 
     $page = visit('/dashboard');
 
-    $page->assertSee('Invite an operator')
+    // Renamed at Phase 6 Step 4 from "Invite an operator": the sidebar now
+    // opens the roster, and the roster is where the form is reached from.
+    $page->assertSee('Operators')
+        ->click('Operators');
+
+    $page->assertPathIs('/operators')
         ->click('Invite an operator');
 
     $page->assertPathIs('/operators/invite')
@@ -128,7 +133,9 @@ test('an owner finds the invitation form in the sidebar and sends one; staff are
         ->click('[data-test="invite-as-owner"]')
         ->click('[data-test="invite-button"]');
 
-    $page->assertSee('Invitation sent to newcomer@example.test.')
+    // Back on the roster, where the invitation now waits among the unused.
+    $page->assertPathIs('/operators')
+        ->assertSee('Invitation sent to newcomer@example.test.')
         ->assertNoJavaScriptErrors();
 
     // The click reached the writer, with the authority chosen on the page and
@@ -137,4 +144,8 @@ test('an owner finds the invitation form in the sidebar and sends one; staff are
 
     expect($row->role)->toBe('owner')
         ->and($row->invited_by_label)->toBe('governor@example.test');
+
+    // And the roster lists it, in its own row rather than only in the toast
+    // that names the same address.
+    $page->assertSeeIn('[data-test="invitation-'.$row->id.'"]', 'newcomer@example.test');
 });

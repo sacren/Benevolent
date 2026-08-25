@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\BlastController;
 use App\Http\Controllers\InvitationController;
+use App\Http\Controllers\OperatorController;
 use App\Http\Controllers\OperatorInvitationController;
 use App\Http\Controllers\SegmentController;
 use App\Http\Controllers\SupporterController;
@@ -109,6 +110,12 @@ Route::middleware('tenant')->group(function (): void {
         Route::get('segments/{segment}/edit', [SegmentController::class, 'edit'])->name('segments.edit');
         Route::patch('segments/{segment}', [SegmentController::class, 'update'])->name('segments.update');
         Route::delete('segments/{segment}', [SegmentController::class, 'destroy'])->name('segments.destroy');
+
+        // The campaign's roster: who runs it and who has been invited to
+        // (D-57). Authority is settled by OperatorPolicy inside the
+        // controller, for the reason every route above carries no `can:`
+        // middleware.
+        Route::get('operators', [OperatorController::class, 'index'])->name('operators.index');
 
         // Admitting somebody to the campaign (D-53). Authority is settled by
         // OperatorInvitationPolicy inside the controller, for the reason every
