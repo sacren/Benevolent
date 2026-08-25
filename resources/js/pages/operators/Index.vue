@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Form, Head, Link, usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
+import OperatorController from '@/actions/App/Http/Controllers/OperatorController';
 import OperatorInvitationController from '@/actions/App/Http/Controllers/OperatorInvitationController';
 import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
@@ -54,6 +55,24 @@ const invitationError = computed(
     () => (page.props.errors as Record<string, string>).invitation,
 );
 
+/*
+ * Why a change of role was refused, when it was: the last operator who can
+ * govern the campaign may not step down and leave nobody who can
+ * (CampaignGovernance). Only that operator, acting on their own row, can reach
+ * it.
+ */
+const operatorError = computed(
+    () => (page.props.errors as Record<string, string>).operator,
+);
+
+/**
+ * The one other role a row's control offers. With two roles, "change it" has
+ * exactly one destination, and naming it on the button says what will happen.
+ */
+function otherRole(role: RosterOperator['role']): RosterOperator['role'] {
+    return role === 'owner' ? 'staff' : 'owner';
+}
+
 function sentBy(invitation: PendingInvitation): string {
     return invitation.invited_by === null
         ? 'the platform'
@@ -86,6 +105,8 @@ defineOptions({
             </Button>
         </div>
 
+        <InputError :message="operatorError" data-test="operator-refusal" />
+
         <div
             class="overflow-x-auto rounded-xl border border-sidebar-border/70 dark:border-sidebar-border"
         >
@@ -101,6 +122,9 @@ defineOptions({
                         <th scope="col" class="px-4 py-3 font-medium">Role</th>
                         <th scope="col" class="px-4 py-3 font-medium">
                             How they joined
+                        </th>
+                        <th scope="col" class="px-4 py-3">
+                            <span class="sr-only">Actions</span>
                         </th>
                     </tr>
                 </thead>
@@ -131,6 +155,33 @@ defineOptions({
                             :data-test="`operator-admitted-${operator.id}`"
                         >
                             {{ admittedBy(operator) }}
+                        </td>
+                        <td class="px-4 py-3 text-right">
+                            <Form
+                                v-bind="
+                                    OperatorController.update.form(operator.id)
+                                "
+                                v-slot="{ processing }"
+                                :options="{ preserveScroll: true }"
+                            >
+                                <input
+                                    type="hidden"
+                                    name="role"
+                                    :value="otherRole(operator.role)"
+                                />
+                                <button
+                                    type="submit"
+                                    :disabled="processing"
+                                    class="underline underline-offset-4 disabled:opacity-50"
+                                    :data-test="`change-role-${operator.id}`"
+                                >
+                                    {{
+                                        operator.role === 'owner'
+                                            ? 'Make Staff'
+                                            : 'Make an Owner'
+                                    }}
+                                </button>
+                            </Form>
                         </td>
                     </tr>
                 </tbody>

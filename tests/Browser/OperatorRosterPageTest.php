@@ -25,6 +25,12 @@ use Tests\Support\LoopbackHost;
  * or the wrong row. Clicking it, and watching that row -- and only that row --
  * leave the list, is the only thing that exercises what an Owner triggers.
  *
+ * **And a third: the role control**, built in the browser the same way, and
+ * the last Owner's refusal when they try to step down, which the server sends
+ * under a key only this page decides whether to show -- an Owner clicking
+ * "Make Staff" and seeing nothing happen would be the dialog defect
+ * LeavingACampaignPageTest guards, on the other surface that reaches the door.
+ *
  * The fixture is the demo campaign's shape -- one Owner nobody invited --
  * beside an operator somebody did invite and one the platform did, so "not
  * recorded" appearing on the right row is a claim the other two rows could
@@ -88,4 +94,32 @@ test('an owner withdraws one invitation from the roster, and the other stays lis
     // The click reached the writer, and the right row.
     expect($withdrawn->fresh()?->token)->toBeNull()
         ->and($staying->fresh()?->token)->not->toBeNull();
+});
+
+test('an owner makes somebody an owner from the roster, and the last owner is told why they cannot step down', function (): void {
+    $owner = User::factory()->owner()->create(['name' => 'Avery Governor', 'email' => 'governor@example.test']);
+    $staff = User::factory()->create(['name' => 'Blake Helper', 'email' => 'helper@example.test']);
+    $other = User::factory()->create(['name' => 'Casey Other', 'email' => 'other@example.test']);
+
+    $this->actingAs($owner);
+
+    $page = visit('/operators');
+
+    // **The refusal first**, while the Owner is the only one: their own row
+    // offers "Make Staff", and the page must say why nothing changed.
+    $page->click('[data-test="change-role-'.$owner->getKey().'"]');
+
+    $page->assertSeeIn('[data-test="operator-refusal"]', 'You are the last operator who can govern this campaign')
+        ->assertSeeIn('[data-test="operator-role-'.$owner->getKey().'"]', 'Owner');
+
+    // **Then the promotion**, on one Staff row of two.
+    $page->click('[data-test="change-role-'.$staff->getKey().'"]');
+
+    $page->assertSee('helper@example.test is now an Owner.')
+        ->assertSeeIn('[data-test="operator-role-'.$staff->getKey().'"]', 'Owner')
+        ->assertSeeIn('[data-test="operator-role-'.$other->getKey().'"]', 'Staff')
+        ->assertNoJavaScriptErrors();
+
+    expect($staff->fresh()?->role->value)->toBe('owner')
+        ->and($other->fresh()?->role->value)->toBe('staff');
 });

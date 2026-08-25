@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Authorization\OperatorRole;
 use App\Models\OperatorInvitation;
 use App\Models\Tenant;
 use App\Models\User;
@@ -123,4 +124,32 @@ test('a withdrawal addressed by an id both campaigns use takes back this campaig
     // Harbor's is withdrawn; Ridge's, which carries the same id, still works.
     expect($stillLive('harbor-cleanup'))->toBeFalse()
         ->and($stillLive('ridge-restoration'))->toBeTrue();
+});
+
+test('a role change addressed by an operator id both campaigns use changes this campaign\'s operator and never the other\'s', function (): void {
+    staffRosterIn('harbor-cleanup');
+    staffRosterIn('ridge-restoration');
+
+    $helper = function (string $slug): User {
+        tenancy()->initialize(Tenant::query()->where('slug', $slug)->firstOrFail());
+        $helper = User::query()->where('email', "helper@{$slug}.test")->sole();
+        tenancy()->end();
+
+        return $helper;
+    };
+
+    // The premise, stated rather than assumed: the two helpers share an id.
+    expect($helper('harbor-cleanup')->getKey())->toBe($helper('ridge-restoration')->getKey());
+
+    $this->post('http://harbor-cleanup.test/login', [
+        'email' => 'owner@harbor-cleanup.test',
+        'password' => 'password',
+    ])->assertRedirect();
+
+    $this->patch('http://harbor-cleanup.test/operators/'.$helper('harbor-cleanup')->getKey(), ['role' => 'owner'])
+        ->assertSessionHasNoErrors()
+        ->assertRedirect();
+
+    expect($helper('harbor-cleanup')->role)->toBe(OperatorRole::Owner)
+        ->and($helper('ridge-restoration')->role)->toBe(OperatorRole::Staff);
 });

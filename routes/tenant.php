@@ -117,6 +117,11 @@ Route::middleware('tenant')->group(function (): void {
         // middleware.
         Route::get('operators', [OperatorController::class, 'index'])->name('operators.index');
 
+        // Changing what somebody on the roster may do (D-57). `{operator}` is
+        // a user id, which restarts at 1 in every campaign, so which operator
+        // it names is the Host header's to say, exactly as for a blast.
+        Route::patch('operators/{operator}', [OperatorController::class, 'update'])->name('operators.update');
+
         // Admitting somebody to the campaign (D-53). Authority is settled by
         // OperatorInvitationPolicy inside the controller, for the reason every
         // route above carries no `can:` middleware. Under `operators/`, the

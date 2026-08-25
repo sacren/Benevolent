@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Authorization\OperatorRole;
+use App\Http\Requests\Operators\ChangeOperatorRoleRequest;
 use App\Models\OperatorInvitation;
 use App\Models\User;
+use App\Operators\ChangeOperatorRole;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -91,6 +95,34 @@ class OperatorController extends Controller
                     'invited_by' => $invitation->invited_by_label,
                 ])->all(),
         ]);
+    }
+
+    /**
+     * Give somebody on the roster a different role.
+     *
+     * **A step down that would leave nobody who may govern is refused in
+     * words on the roster** (§7 criterion 3). The only operator who can reach
+     * that refusal is the last Owner acting on their own row, since nobody
+     * else governs to act on them; the message is written to them.
+     */
+    public function update(ChangeOperatorRoleRequest $request, User $operator, ChangeOperatorRole $change): RedirectResponse
+    {
+        $this->authorize('update', $operator);
+
+        $role = OperatorRole::from((string) $request->validated('role'));
+
+        $change(
+            $operator,
+            $role,
+            __('You are the last operator who can govern this campaign. Make somebody else an Owner before stepping down.'),
+        );
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __(':email is now :role.', [
+            'email' => $operator->email,
+            'role' => $role === OperatorRole::Owner ? __('an Owner') : __('Staff'),
+        ])]);
+
+        return to_route('operators.index');
     }
 
     /**

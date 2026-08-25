@@ -23,10 +23,9 @@ use App\Models\User;
  * is not something to show somebody who may act on none of it, and a campaign
  * directory for everyone is the speculative surface this phase's scope refuses.
  *
- * **One ability, and only the one a surface asks for.** A policy denies an
- * ability it has no method for exactly as it denies one it refused (Blueprint
- * §5), so each act this module ships adds its method and its allow test in the
- * same edit.
+ * **Only the abilities a surface asks for.** A policy denies an ability it has
+ * no method for exactly as it denies one it refused (Blueprint §5), so each act
+ * this module ships adds its method and its allow test in the same edit.
  */
 class OperatorPolicy
 {
@@ -34,6 +33,17 @@ class OperatorPolicy
      * See the roster: who runs this campaign, and who has been invited to.
      */
     public function viewAny(User $operator): bool
+    {
+        return $operator->can(Permission::ManageOperators->value);
+    }
+
+    /**
+     * Change what somebody on the roster may do -- themselves included, since
+     * an Owner handing over the campaign steps down last. Whether the change
+     * would leave nobody who may govern is CampaignGovernance's question, not
+     * this one's: this asks only whether the viewer holds the authority.
+     */
+    public function update(User $operator, User $subject): bool
     {
         return $operator->can(Permission::ManageOperators->value);
     }

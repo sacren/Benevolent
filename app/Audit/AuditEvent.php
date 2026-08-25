@@ -45,12 +45,11 @@ enum AuditEvent: string
     /**
      * An operator's authority within this campaign changed.
      *
-     * The literal form of "who granted whom what". No surface in the
-     * application produces one yet — the permission that would govern it,
-     * ManageOperators, governs only inviting so far, and an invitation's role
-     * is granted by creating an operator rather than by changing one — so this
-     * records a change made by any means, and is already in place for the first
-     * screen that offers one.
+     * The literal form of "who granted whom what". The roster produces one
+     * when an Owner changes somebody's role (ChangeOperatorRole), and the entry
+     * names that Owner as the actor, since the request is theirs. It records a
+     * change made by any means, though, not only that one: a console command
+     * or a seeder assigning a role is recorded too, with no actor.
      */
     case OperatorRoleChanged = 'operator-role-changed';
 

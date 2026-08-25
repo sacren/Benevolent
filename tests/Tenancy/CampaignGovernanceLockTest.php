@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
+use App\Authorization\OperatorRole;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Operators\ChangeOperatorRole;
 use App\Operators\RemoveOperator;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Artisan;
@@ -74,4 +76,28 @@ test('a governor leaving waits for another governor\'s change to finish, and the
     app(RemoveOperator::class)($leaving, 'refused');
 
     expect(User::query()->pluck('email')->all())->toBe(['other@example.test']);
+});
+
+test('a governor stepping down waits for another governor\'s change to finish, and then steps down', function (): void {
+    // The same lock, asked through the other writer that can close the door.
+    $steppingDown = User::factory()->owner()->create(['email' => 'stepping.down@example.test']);
+    $other = User::factory()->owner()->create(['email' => 'other@example.test']);
+
+    DB::connection('rival')->beginTransaction();
+    DB::connection('rival')->table('users')->where('id', $other->getKey())->lockForUpdate()->first();
+
+    DB::connection('tenant')->statement("set lock_timeout = '300ms'");
+
+    expect(fn () => app(ChangeOperatorRole::class)($steppingDown, OperatorRole::Staff, 'refused'))
+        ->toThrow(function (QueryException $exception): void {
+            expect($exception->getCode())->toBe('55P03');
+        });
+
+    expect($steppingDown->fresh()?->role)->toBe(OperatorRole::Owner);
+
+    DB::connection('rival')->rollBack();
+
+    app(ChangeOperatorRole::class)($steppingDown->fresh(), OperatorRole::Staff, 'refused');
+
+    expect($steppingDown->fresh()?->role)->toBe(OperatorRole::Staff);
 });

@@ -15,14 +15,14 @@ use Illuminate\Validation\ValidationException;
  *
  * **The door this closes has two entrances, and both were measured before this
  * class was written.** The first is the one D-52 rests on: the last operator
- * who may govern leaves while somebody else stays -- and the campaign is then
- * run by people none of whom may admit, promote or remove anybody, which the
- * platform will not repair either, because `campaign:invite-owner` refuses a
- * campaign that has operators. The second needs nobody else present at all: a
- * sole Owner who leaves an empty campaign behind looks reclaimable, and then a
- * Staff invitation they sent before leaving is accepted, and the campaign has
- * one Staff operator and no Owner. Measured at Phase 6 Step 4 through the
- * shipped surfaces, both times.
+ * who may govern leaves, or steps down, while somebody else stays -- and the
+ * campaign is then run by people none of whom may admit, promote or remove
+ * anybody, which the platform will not repair either, because
+ * `campaign:invite-owner` refuses a campaign that has operators. The second
+ * needs nobody else present at all: a sole Owner who leaves an empty campaign
+ * behind looks reclaimable, and then a Staff invitation they sent before
+ * leaving is accepted, and the campaign has one Staff operator and no Owner.
+ * Measured at Phase 6 Step 4 through the shipped surfaces, both times.
  *
  * So there are two rules here and each answers one entrance. Nothing is asked
  * about Staff or Owner by name: the question is who holds ManageOperators,
@@ -57,18 +57,7 @@ final class CampaignGovernance
             return;
         }
 
-        // Every governor is locked, this one included, and in one order.
-        // Locking only the *others* would let two Owners stepping down at once
-        // each lock the other's row and deadlock; locking the whole set makes
-        // the second writer wait here, and then read the roster the first one
-        // left behind rather than the one it started with.
-        $governors = User::query()
-            ->whereIn('role', self::governingRoles())
-            ->orderBy('id')
-            ->lockForUpdate()
-            ->pluck('id');
-
-        if ($governors->contains(fn (int $id): bool => $id !== $operator->getKey())) {
+        if (self::somebodyElseGoverns($operator)) {
             return;
         }
 
@@ -78,24 +67,56 @@ final class CampaignGovernance
     }
 
     /**
+     * Whether giving this operator this role takes governing away from them.
+     *
+     * The one question that decides whether a change of role is a step down,
+     * asked once so the writer and the refusal cannot disagree about it. A
+     * promotion, or a change between two roles that both govern, is not.
+     */
+    public static function stepsDown(User $operator, OperatorRole $becoming): bool
+    {
+        return self::governs($operator->role) && ! self::governs($becoming);
+    }
+
+    /**
+     * Refuse a step down that would leave this campaign with nobody who may
+     * govern it. Call it only for a change stepsDown() says is one.
+     *
+     * The same door as a departure, reached by stepping down instead of
+     * leaving, and stricter for one reason: the operator stepping down stays,
+     * so there is always somebody left to be governed, and the "empty
+     * campaign" allowance a departure has does not arise.
+     *
+     * @throws ValidationException
+     */
+    public static function refuseToStepDownUngoverned(User $operator, string $message): void
+    {
+        if (! self::somebodyElseGoverns($operator)) {
+            throw ValidationException::withMessages(['operator' => $message]);
+        }
+    }
+
+    /**
      * Withdraw every invitation this operator sent that has not been used.
      *
      * **An invitation stands on the authority of whoever sent it**, and once
-     * they are gone it is no longer an act of the campaign (§7 criterion 2).
-     * The measured reason it cannot be left for somebody to tidy: a sole
-     * Owner's Staff invitation, accepted after they left, is the door's second
-     * entrance. Invitations the platform sent (`invited_by_id` null) are
-     * nobody's authority but the platform's and are untouched.
+     * they stop holding that authority -- removed, or no longer governing -- it
+     * is no longer an act of the campaign (§7 criterion 2). The measured reason
+     * it cannot be left for somebody to tidy: a sole Owner's Staff invitation,
+     * accepted after they left, is the door's second entrance. Invitations the
+     * platform sent (`invited_by_id` null) are nobody's authority but the
+     * platform's and are untouched.
      *
      * **A withdrawn invitation keeps its row** -- no credential and no
      * acceptance, the third state D-54's check constraint deliberately leaves
      * legal -- so the record of who invited whom, when and with what
      * authority survives it exactly as it survives acceptance.
      *
-     * Call it **before** refuseToLeaveUngoverned() in a removal. This update
-     * takes the row locks an acceptance's own claim needs, so an acceptance
-     * racing the departure either finishes first -- and is then counted as
-     * somebody who stays -- or finds its invitation already withdrawn.
+     * Call it **before** the refusal, in a removal and a step down alike. This
+     * update takes the row locks an acceptance's own claim needs, so an
+     * acceptance racing the departure either finishes first -- and is then
+     * counted as somebody who stays -- or finds its invitation already
+     * withdrawn.
      */
     public static function withdrawInvitationsSentBy(User $operator): int
     {
@@ -103,6 +124,26 @@ final class CampaignGovernance
             ->where('invited_by_id', $operator->getKey())
             ->whereNotNull('token')
             ->update(['token' => null]);
+    }
+
+    /**
+     * Whether anybody but this operator governs, read under a lock that holds
+     * until the caller's transaction commits.
+     *
+     * Every governor is locked, this one included, and in one order. Locking
+     * only the *others* would let two Owners stepping down at once each lock
+     * the other's row and deadlock; locking the whole set makes the second
+     * writer wait here, and then read the roster the first one left behind
+     * rather than the one it started with.
+     */
+    private static function somebodyElseGoverns(User $operator): bool
+    {
+        return User::query()
+            ->whereIn('role', self::governingRoles())
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->pluck('id')
+            ->contains(fn (int $id): bool => $id !== $operator->getKey());
     }
 
     /**
