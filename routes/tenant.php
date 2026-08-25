@@ -124,6 +124,13 @@ Route::middleware('tenant')->group(function (): void {
         // public path the invitee's link opens.
         Route::get('operators/invite', [OperatorInvitationController::class, 'create'])->name('operators.invitations.create');
         Route::post('operators/invite', [OperatorInvitationController::class, 'store'])->name('operators.invitations.store');
+
+        // Taking an unused invitation back (D-57). Addressed by the row's id
+        // rather than its credential: the Owner is not the invitee, and the
+        // credential never leaves the invitee's mail. The id restarts at 1 in
+        // every campaign, so which invitation it names is the Host header's to
+        // say, exactly as for a blast.
+        Route::delete('operators/invitations/{invitation}', [OperatorInvitationController::class, 'destroy'])->name('operators.invitations.destroy');
     });
 
     /*

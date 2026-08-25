@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { Head, Link } from '@inertiajs/vue3';
+import { Form, Head, Link, usePage } from '@inertiajs/vue3';
+import { computed } from 'vue';
+import OperatorInvitationController from '@/actions/App/Http/Controllers/OperatorInvitationController';
 import Heading from '@/components/Heading.vue';
+import InputError from '@/components/InputError.vue';
 import { Button } from '@/components/ui/button';
 import { index } from '@/routes/operators';
 import { create as inviteOperator } from '@/routes/operators/invitations';
@@ -40,6 +43,16 @@ function admittedBy(operator: RosterOperator): string {
         ? 'Invited by the platform'
         : `Invited by ${operator.admitted.by}`;
 }
+
+/*
+ * Why a withdrawal changed nothing, when it did: the invitee used the link, or
+ * somebody else withdrew it, between the page loading and the click. It is
+ * shown once, above the list, rather than inside every row's form.
+ */
+const page = usePage();
+const invitationError = computed(
+    () => (page.props.errors as Record<string, string>).invitation,
+);
 
 function sentBy(invitation: PendingInvitation): string {
     return invitation.invited_by === null
@@ -134,7 +147,12 @@ defineOptions({
             <Heading
                 variant="small"
                 title="Invitations not yet used"
-                description="Each link works once. Whether it reached their inbox is up to their mail provider, and this page cannot see that."
+                description="Each link works once. Whether it reached their inbox is up to their mail provider, and this page cannot see that. Withdrawing one stops its link working, and lets you send that person a fresh one."
+            />
+
+            <InputError
+                :message="invitationError"
+                data-test="invitation-refusal"
             />
 
             <p
@@ -165,6 +183,9 @@ defineOptions({
                             <th scope="col" class="px-4 py-3 font-medium">
                                 Sent by
                             </th>
+                            <th scope="col" class="px-4 py-3">
+                                <span class="sr-only">Actions</span>
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
@@ -180,6 +201,26 @@ defineOptions({
                             </td>
                             <td class="px-4 py-3 text-muted-foreground">
                                 {{ sentBy(invitation) }}
+                            </td>
+                            <td class="px-4 py-3 text-right">
+                                <Form
+                                    v-bind="
+                                        OperatorInvitationController.destroy.form(
+                                            invitation.id,
+                                        )
+                                    "
+                                    v-slot="{ processing }"
+                                    :options="{ preserveScroll: true }"
+                                >
+                                    <button
+                                        type="submit"
+                                        :disabled="processing"
+                                        class="text-destructive underline underline-offset-4 disabled:opacity-50"
+                                        :data-test="`withdraw-invitation-${invitation.id}`"
+                                    >
+                                        Withdraw
+                                    </button>
+                                </Form>
                             </td>
                         </tr>
                     </tbody>

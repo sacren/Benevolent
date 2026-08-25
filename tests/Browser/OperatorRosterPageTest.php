@@ -19,6 +19,12 @@ use Tests\Support\LoopbackHost;
  * server-side assertion, and the last of those is the fabrication the
  * criterion exists to refuse. Only rendering it shows which it says.
  *
+ * **And a second: the Withdraw control's action is built in the browser** by
+ * Wayfinder from the invitation's id, so the campaign tests, which issue the
+ * DELETE by hand, would stay green against a control wired to the wrong route
+ * or the wrong row. Clicking it, and watching that row -- and only that row --
+ * leave the list, is the only thing that exercises what an Owner triggers.
+ *
  * The fixture is the demo campaign's shape -- one Owner nobody invited --
  * beside an operator somebody did invite and one the platform did, so "not
  * recorded" appearing on the right row is a claim the other two rows could
@@ -59,4 +65,27 @@ test('the roster says who admitted each operator, and "not recorded" where nothi
         ->assertSeeIn('[data-test="operator-role-'.$invited->getKey().'"]', 'Staff')
         ->assertSeeIn('[data-test="invitation-'.$waiting->getKey().'"]', 'waiting@example.test')
         ->assertNoJavaScriptErrors();
+});
+
+test('an owner withdraws one invitation from the roster, and the other stays listed', function (): void {
+    $owner = User::factory()->owner()->create(['name' => 'Avery Governor', 'email' => 'governor@example.test']);
+
+    $staying = OperatorInvitation::factory()->invitedBy($owner)->create(['email' => 'staying@example.test']);
+    $withdrawn = OperatorInvitation::factory()->invitedBy($owner)->create(['email' => 'withdrawn@example.test']);
+
+    $this->actingAs($owner);
+
+    $page = visit('/operators');
+
+    $page->assertSeeIn('[data-test="invitation-'.$withdrawn->getKey().'"]', 'withdrawn@example.test')
+        ->click('[data-test="withdraw-invitation-'.$withdrawn->getKey().'"]');
+
+    $page->assertSee('The invitation to withdrawn@example.test is withdrawn.')
+        ->assertMissing('[data-test="invitation-'.$withdrawn->getKey().'"]')
+        ->assertSeeIn('[data-test="invitation-'.$staying->getKey().'"]', 'staying@example.test')
+        ->assertNoJavaScriptErrors();
+
+    // The click reached the writer, and the right row.
+    expect($withdrawn->fresh()?->token)->toBeNull()
+        ->and($staying->fresh()?->token)->not->toBeNull();
 });

@@ -216,9 +216,10 @@ test('an invitation that has been accepted may not still hold its credential', f
 
     // **And the third state is legal, deliberately.** The constraint forbids
     // the contradiction, not a row holding neither a credential nor an
-    // acceptance -- which is what a withdrawn invitation would be if Step 4
-    // chooses to leave one. A biconditional here would decide that question by
-    // accident, in the step that does not hold it.
+    // acceptance -- which is exactly what a withdrawn invitation is, since
+    // Phase 6 Step 4 chose to keep the row (WithdrawOperatorInvitation). A
+    // biconditional here would have decided that question by accident, in the
+    // step that did not hold it, and would now refuse every withdrawal.
     $neither = refusalFrom(fn () => DB::connection('tenant')->table('operator_invitations')
         ->where('email', 'waiting@example.test')
         ->update(['token' => null]));

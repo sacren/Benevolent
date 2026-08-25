@@ -20,6 +20,10 @@ use Illuminate\Support\Facades\Artisan;
  * an invitation still waiting, so every list on the page has a row from the
  * other campaign that it must not show.
  *
+ * **And the roster's acts address rows by id**, which restarts at 1 in every
+ * campaign, so an Owner acting on "invitation 2" must reach this campaign's
+ * invitation 2 and never the other's; the second test is that question.
+ *
  * **actingAs() cannot ask the identity question** (CampaignBlastHttpIsolationTest
  * says why), so this signs in through the login route on the campaign's own
  * hostname.
@@ -79,4 +83,44 @@ test('a signed-in owner is shown their own campaign\'s roster and never another 
         // And the negative against the rendered response, because a count of
         // two is also what a page showing the wrong two people has.
         ->assertDontSee('ridge-restoration.test');
+});
+
+test('a withdrawal addressed by an id both campaigns use takes back this campaign\'s invitation and never the other\'s', function (): void {
+    // The invitation is addressed by its row id, which restarts at 1 in every
+    // campaign, so the URL alone cannot say which campaign's invitation it
+    // names -- the Host header has to, the way it does for a blast.
+    staffRosterIn('harbor-cleanup');
+    staffRosterIn('ridge-restoration');
+
+    $waitingId = function (string $slug): int {
+        tenancy()->initialize(Tenant::query()->where('slug', $slug)->firstOrFail());
+        $id = (int) OperatorInvitation::query()->where('email', "waiting@{$slug}.test")->value('id');
+        tenancy()->end();
+
+        return $id;
+    };
+
+    $stillLive = function (string $slug): bool {
+        tenancy()->initialize(Tenant::query()->where('slug', $slug)->firstOrFail());
+        $live = OperatorInvitation::query()->where('email', "waiting@{$slug}.test")->whereNotNull('token')->exists();
+        tenancy()->end();
+
+        return $live;
+    };
+
+    // The premise, stated rather than assumed: the two invitations share an id.
+    expect($waitingId('harbor-cleanup'))->toBe($waitingId('ridge-restoration'));
+
+    $this->post('http://harbor-cleanup.test/login', [
+        'email' => 'owner@harbor-cleanup.test',
+        'password' => 'password',
+    ])->assertRedirect();
+
+    $this->delete('http://harbor-cleanup.test/operators/invitations/'.$waitingId('harbor-cleanup'))
+        ->assertSessionHasNoErrors()
+        ->assertRedirect();
+
+    // Harbor's is withdrawn; Ridge's, which carries the same id, still works.
+    expect($stillLive('harbor-cleanup'))->toBeFalse()
+        ->and($stillLive('ridge-restoration'))->toBeTrue();
 });
