@@ -9,6 +9,7 @@ use App\Http\Requests\Operators\ChangeOperatorRoleRequest;
 use App\Models\OperatorInvitation;
 use App\Models\User;
 use App\Operators\ChangeOperatorRole;
+use App\Operators\RemoveOperator;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -121,6 +122,34 @@ class OperatorController extends Controller
             'email' => $operator->email,
             'role' => $role === OperatorRole::Owner ? __('an Owner') : __('Staff'),
         ])]);
+
+        return to_route('operators.index');
+    }
+
+    /**
+     * Remove somebody else from the roster.
+     *
+     * **An access change, not an erasure** (RemoveOperator), and recorded in
+     * the trail with this Owner as the actor, since the request stays
+     * authenticated throughout -- unlike leaving, which signs its operator
+     * out before the row goes and so names nobody. Their unused invitations
+     * are withdrawn with them.
+     *
+     * The refusal RemoveOperator can give is unreachable from here, since the
+     * Owner acting governs and stays; it is passed anyway, because the writer
+     * asks every caller the same question rather than trusting each to know
+     * which answers it cannot get.
+     */
+    public function destroy(User $operator, RemoveOperator $remove): RedirectResponse
+    {
+        $this->authorize('delete', $operator);
+
+        $remove(
+            $operator,
+            __('Removing :email would leave this campaign with nobody who can govern it.', ['email' => $operator->email]),
+        );
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __(':email is no longer an operator of this campaign.', ['email' => $operator->email])]);
 
         return to_route('operators.index');
     }

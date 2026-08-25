@@ -20,7 +20,7 @@ use App\Models\User;
  * permission's own docblock names inviting as the first of its three acts, so
  * an invitation needs no vocabulary of its own, and withdrawing one is the same
  * act undone. What would split them -- a role trusted to invite but not to
- * remove -- has no consumer; OperatorPolicy answers seeing the roster the
+ * remove -- has no consumer; OperatorPolicy answers the roster's own acts the
  * same way.
  *
  * No `viewAny`: the invitations still waiting are listed on the roster, and

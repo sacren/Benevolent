@@ -156,7 +156,9 @@ defineOptions({
                         >
                             {{ admittedBy(operator) }}
                         </td>
-                        <td class="px-4 py-3 text-right">
+                        <td
+                            class="flex items-center justify-end gap-3 px-4 py-3"
+                        >
                             <Form
                                 v-bind="
                                     OperatorController.update.form(operator.id)
@@ -180,6 +182,30 @@ defineOptions({
                                             ? 'Make Staff'
                                             : 'Make an Owner'
                                     }}
+                                </button>
+                            </Form>
+
+                            <!--
+                                Never on one's own row: leaving is the profile
+                                page's act, with its password check, and
+                                OperatorPolicy refuses it here whatever this
+                                page shows.
+                            -->
+                            <Form
+                                v-if="!operator.is_you"
+                                v-bind="
+                                    OperatorController.destroy.form(operator.id)
+                                "
+                                v-slot="{ processing }"
+                                :options="{ preserveScroll: true }"
+                            >
+                                <button
+                                    type="submit"
+                                    :disabled="processing"
+                                    class="text-destructive underline underline-offset-4 disabled:opacity-50"
+                                    :data-test="`remove-operator-${operator.id}`"
+                                >
+                                    Remove
                                 </button>
                             </Form>
                         </td>

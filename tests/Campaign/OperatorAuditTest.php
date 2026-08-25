@@ -161,9 +161,10 @@ test('a self-removal records no actor, because the operator is signed out before
     // the request set out to remove. The factory sets a remember_token, so this
     // is a live hazard rather than a theoretical one.
     //
-    // The gap closes on its own when an Owner can remove someone else: that
+    // The gap closes on its own when an Owner removes someone else: that
     // request stays authenticated throughout, so the actor is populated by the
-    // same code with no change. Only self-removal is reachable today.
+    // same code with no change -- tests/Campaign/OperatorRemovalTest.php asks
+    // it, and this file keeps the self-removal half.
     $operator = User::factory()->create(['email' => 'departing@example.test']);
 
     $this->actingAs($operator)

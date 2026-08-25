@@ -47,4 +47,20 @@ class OperatorPolicy
     {
         return $operator->can(Permission::ManageOperators->value);
     }
+
+    /**
+     * Remove somebody else from the roster.
+     *
+     * **Never oneself, and that is a choice about paths rather than about
+     * authority.** An operator leaving is the profile page's act, where the
+     * password is asked for and the sign-out happens before the row goes
+     * (RemoveOperator's `beforeDeleting`); a second way to leave, missing both,
+     * would be the path somebody forgot to guard. And it has a consequence
+     * worth stating: since whoever removes somebody governs and stays, removal
+     * from the roster can never take a campaign's last governor.
+     */
+    public function delete(User $operator, User $subject): bool
+    {
+        return $operator->can(Permission::ManageOperators->value) && ! $operator->is($subject);
+    }
 }

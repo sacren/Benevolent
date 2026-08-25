@@ -122,6 +122,10 @@ Route::middleware('tenant')->group(function (): void {
         // it names is the Host header's to say, exactly as for a blast.
         Route::patch('operators/{operator}', [OperatorController::class, 'update'])->name('operators.update');
 
+        // Removing somebody else from the roster (D-57). Leaving is the
+        // profile page's act, and OperatorPolicy refuses it here.
+        Route::delete('operators/{operator}', [OperatorController::class, 'destroy'])->name('operators.destroy');
+
         // Admitting somebody to the campaign (D-53). Authority is settled by
         // OperatorInvitationPolicy inside the controller, for the reason every
         // route above carries no `can:` middleware. Under `operators/`, the

@@ -31,6 +31,10 @@ use Tests\Support\LoopbackHost;
  * "Make Staff" and seeing nothing happen would be the dialog defect
  * LeavingACampaignPageTest guards, on the other surface that reaches the door.
  *
+ * **And a fourth: the Remove control**, built the same way, and absent from
+ * the viewer's own row -- a client-side choice, since the server refuses
+ * self-removal from the roster whatever the page shows.
+ *
  * The fixture is the demo campaign's shape -- one Owner nobody invited --
  * beside an operator somebody did invite and one the platform did, so "not
  * recorded" appearing on the right row is a claim the other two rows could
@@ -122,4 +126,28 @@ test('an owner makes somebody an owner from the roster, and the last owner is to
 
     expect($staff->fresh()?->role->value)->toBe('owner')
         ->and($other->fresh()?->role->value)->toBe('staff');
+});
+
+test('an owner removes one operator from the roster, the other stays, and their own row offers no removal', function (): void {
+    $owner = User::factory()->owner()->create(['name' => 'Avery Governor', 'email' => 'governor@example.test']);
+    $removed = User::factory()->create(['name' => 'Blake Removed', 'email' => 'removed@example.test']);
+    $staying = User::factory()->create(['name' => 'Casey Staying', 'email' => 'staying@example.test']);
+
+    $this->actingAs($owner);
+
+    $page = visit('/operators');
+
+    // The absence, paired with the presence of the same control on another
+    // row, so it cannot be a selector the page never renders anywhere.
+    $page->assertPresent('[data-test="remove-operator-'.$removed->getKey().'"]')
+        ->assertMissing('[data-test="remove-operator-'.$owner->getKey().'"]')
+        ->click('[data-test="remove-operator-'.$removed->getKey().'"]');
+
+    $page->assertSee('removed@example.test is no longer an operator of this campaign.')
+        ->assertMissing('[data-test="operator-'.$removed->getKey().'"]')
+        ->assertPresent('[data-test="operator-'.$staying->getKey().'"]')
+        ->assertNoJavaScriptErrors();
+
+    expect($removed->fresh())->toBeNull()
+        ->and($staying->fresh())->not->toBeNull();
 });

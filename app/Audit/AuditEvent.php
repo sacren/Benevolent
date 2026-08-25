@@ -56,9 +56,11 @@ enum AuditEvent: string
     /**
      * An operator ceased to exist inside this campaign.
      *
-     * Only self-removal is reachable today, through the profile settings page.
-     * The entry has to carry enough of the operator to stay readable, because
-     * by the time anyone looks, the row it describes is gone.
+     * Two paths reach it: an operator leaving through the profile settings
+     * page, which records no actor because they are signed out before their
+     * row goes, and an Owner removing somebody from the roster, which records
+     * that Owner. The entry has to carry enough of the operator to stay
+     * readable, because by the time anyone looks, the row it describes is gone.
      */
     case OperatorRemoved = 'operator-removed';
 }

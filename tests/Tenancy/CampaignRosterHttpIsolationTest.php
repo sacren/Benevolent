@@ -153,3 +153,33 @@ test('a role change addressed by an operator id both campaigns use changes this 
     expect($helper('harbor-cleanup')->role)->toBe(OperatorRole::Owner)
         ->and($helper('ridge-restoration')->role)->toBe(OperatorRole::Staff);
 });
+
+test('a removal addressed by an operator id both campaigns use removes this campaign\'s operator and never the other\'s', function (): void {
+    staffRosterIn('harbor-cleanup');
+    staffRosterIn('ridge-restoration');
+
+    $helperId = function (string $slug): ?int {
+        tenancy()->initialize(Tenant::query()->where('slug', $slug)->firstOrFail());
+        $id = User::query()->where('email', "helper@{$slug}.test")->value('id');
+        tenancy()->end();
+
+        return $id === null ? null : (int) $id;
+    };
+
+    $id = $helperId('harbor-cleanup');
+
+    // The premise, stated rather than assumed: the two helpers share an id.
+    expect($id)->not->toBeNull()->toBe($helperId('ridge-restoration'));
+
+    $this->post('http://harbor-cleanup.test/login', [
+        'email' => 'owner@harbor-cleanup.test',
+        'password' => 'password',
+    ])->assertRedirect();
+
+    $this->delete('http://harbor-cleanup.test/operators/'.$id)
+        ->assertSessionHasNoErrors()
+        ->assertRedirect();
+
+    expect($helperId('harbor-cleanup'))->toBeNull()
+        ->and($helperId('ridge-restoration'))->toBe($id);
+});

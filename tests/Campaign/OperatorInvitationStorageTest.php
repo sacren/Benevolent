@@ -349,8 +349,12 @@ test('removing an operator keeps the campaign\'s record of how they were admitte
     // **The credential half, which is the one that could have been a defect
     // rather than a decision.** The invitation that admitted them is spent, so
     // their departure leaves behind no link that would let them back in; the
-    // one still holding a credential belongs to somebody else and is correctly
-    // untouched.
+    // one still holding a credential belongs to somebody else and the schema
+    // leaves it untouched. **That is the schema's answer, asked by a bare
+    // delete, and the application's differs:** since Phase 6 Step 4 every
+    // departure the application performs goes through RemoveOperator, which
+    // withdraws the invitations the departing operator sent
+    // (tests/Campaign/OperatorGovernanceTest.php).
     expect(DB::connection('tenant')->table('operator_invitations')->whereNotNull('token')->pluck('email')->all())
         ->toBe(['newcomer@example.test']);
 });
