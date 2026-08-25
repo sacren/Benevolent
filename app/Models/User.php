@@ -2,10 +2,10 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Audit\OperatorAuditObserver;
 use App\Authorization\OperatorRole;
 use Database\Factories\UserFactory;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
@@ -48,7 +48,16 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
 // `$page.props.auth.user.role` undefined rather than merely inadvisable, which
 // is the difference between a convention and a constraint.
 #[Hidden(['password', 'role', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
-class User extends Authenticatable implements PasskeyUser
+// **MustVerifyEmail is what makes the `verified` middleware refuse anybody (D-60).**
+// Without it, EnsureEmailIsVerified passes every authenticated operator
+// through, and Phase 6 Step 1 measured exactly that: every campaign route sat
+// behind a check that refused nobody. An operator's address is verified the
+// moment they accept the invitation that reached it (AcceptOperatorInvitation),
+// so arriving costs no second mail; what this contract enforces is the other
+// case -- an operator who changes their address on the profile page is refused
+// the campaign until they prove the new one, since that is where a password
+// reset would be sent.
+class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable;
