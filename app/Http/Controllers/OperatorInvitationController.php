@@ -20,9 +20,10 @@ use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
  * A campaign inviting somebody to help run it (D-53 Axis 1 (i)).
  *
  * **The act and its undoing, and nothing around them.** The list of operators
- * and of the invitations still waiting is the roster's (OperatorController);
- * this is the form that admits somebody, and the withdrawal of an invitation
- * nobody has used. Both return the Owner to the roster, where the change shows.
+ * and of the invitations nobody has used or withdrawn is the roster's
+ * (OperatorController); this is the form that admits somebody, and the
+ * withdrawal of an invitation nobody has used. Both return the Owner to the
+ * roster, where the change shows.
  */
 class OperatorInvitationController extends Controller
 {
@@ -39,7 +40,11 @@ class OperatorInvitationController extends Controller
     {
         $this->authorize('create', OperatorInvitation::class);
 
-        return Inertia::render('operators/Invite');
+        // The lifetime is the model's (D-59), passed rather than written into
+        // the page, so the form cannot promise a different number of days.
+        return Inertia::render('operators/Invite', [
+            'lifetimeDays' => OperatorInvitation::LIFETIME_DAYS,
+        ]);
     }
 
     /**

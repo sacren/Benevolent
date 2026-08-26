@@ -48,12 +48,14 @@ final class OperatorInvitationMessage extends Mailable
      * @param  OperatorRole  $role  the authority the link will grant
      * @param  string  $acceptUrl  the link, carrying the credential
      * @param  string|null  $replyAddress  where an answer should go, if the campaign said
+     * @param  int  $lifetimeDays  how long the link opens anything (D-59)
      */
     public function __construct(
         private readonly string $campaignName,
         private readonly OperatorRole $role,
         private readonly string $acceptUrl,
         private readonly ?string $replyAddress,
+        private readonly int $lifetimeDays,
     ) {}
 
     /**
@@ -81,6 +83,7 @@ final class OperatorInvitationMessage extends Mailable
                 'asOwner' => $this->role === OperatorRole::Owner,
                 'acceptUrl' => $this->acceptUrl,
                 'replyTo' => $this->replyAddress,
+                'lifetimeDays' => $this->lifetimeDays,
             ],
         );
     }

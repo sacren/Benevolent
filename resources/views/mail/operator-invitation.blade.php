@@ -16,7 +16,7 @@
 To accept, open this link and choose a password:
 {{ $acceptUrl }}
 
-The link works once.
+The link works once, and only for {{ $lifetimeDays }} days from when this message was sent. After that, ask {{ $campaignName }} to invite you again.
 @if ($replyTo)
 If you have questions, reply to this message and it will reach {{ $campaignName }} at {{ $replyTo }}.
 @endif

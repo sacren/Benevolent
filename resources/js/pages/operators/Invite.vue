@@ -18,7 +18,14 @@ import { create } from '@/routes/operators/invitations';
  * in the only sense the product can know. Whether it arrived is not something
  * this platform can see (deferral 30), and the page says so rather than letting
  * a success message imply it.
+ *
+ * How long the link works is the model's lifetime (D-59), passed in rather
+ * than written here, so the form cannot promise a different number of days.
  */
+defineProps<{
+    lifetimeDays: number;
+}>();
+
 defineOptions({
     layout: {
         breadcrumbs: [
@@ -86,7 +93,8 @@ defineOptions({
                 The invitation is handed to the mail service as soon as you send
                 it; if that fails, nothing is recorded and you can try again.
                 Whether it reaches their inbox is up to their mail provider, and
-                this page cannot see that. The link works once.
+                this page cannot see that. The link works once, and only for
+                {{ lifetimeDays }} days.
             </p>
 
             <Button

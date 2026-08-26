@@ -255,3 +255,28 @@ test('a transport that refuses the message leaves no invitation, and the owner i
 
     $response->assertSessionHasErrors(['email' => 'The invitation to friend@example.test could not be sent, so none was recorded. Try again in a moment.']);
 });
+
+test('the form and the message both say how long the link works, and it is the model\'s lifetime', function (): void {
+    // D-59's lifetime, told to both people it affects: the Owner sending it,
+    // and the person who has to use it in time. Asserted against the number
+    // the link actually enforces rather than a literal, so a lifetime changed
+    // in one place cannot leave either sentence promising the old one.
+    Mail::fake();
+
+    $owner = User::factory()->owner()->create();
+
+    $this->actingAs($owner)->get($this->campaignUrl('operators/invite'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('operators/Invite')
+            ->where('lifetimeDays', OperatorInvitation::LIFETIME_DAYS));
+
+    $this->actingAs($owner)
+        ->post($this->campaignUrl('operators/invite'), ['email' => 'friend@example.test', 'role' => 'staff'])
+        ->assertSessionHasNoErrors();
+
+    [, $body] = sentInvitation();
+
+    expect($body)->toContain('The link works once, and only for '.OperatorInvitation::LIFETIME_DAYS.' days from when this message was sent.')
+        ->and($body)->toContain('ask '.$this->campaign->name.' to invite you again');
+});

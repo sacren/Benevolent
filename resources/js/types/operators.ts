@@ -30,4 +30,6 @@ export type PendingInvitation = {
     email: string;
     role: 'owner' | 'staff';
     invited_by: string | null;
+    /** Past its lifetime (D-59): it still holds a credential, and the link opens nothing. */
+    expired: boolean;
 };

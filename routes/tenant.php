@@ -190,10 +190,10 @@ Route::middleware('tenant')->group(function (): void {
      * `{invitation:token}` binds the row by its credential, so an unknown,
      * spent or expired link is refused by the router before anything validates
      * -- a spent invitation holds no token, and an expired one is bound to
-     * nothing because OperatorInvitation binds `token` to live rows only (D-59). `whereUuid` is
-     * not decoration: `operator_invitations.token` is a `uuid` column, and a
-     * malformed value compared against it raises SQLSTATE 22P02 rather than
-     * matching nothing.
+     * nothing because OperatorInvitation binds `token` to live rows only
+     * (D-59). `whereUuid` is not decoration: `operator_invitations.token` is a
+     * `uuid` column, and a malformed value compared against it raises SQLSTATE
+     * 22P02 rather than matching nothing.
      *
      * `guest`, as Fortify gave its own registration route: accepting signs the
      * new operator in, and doing that over somebody's existing session would

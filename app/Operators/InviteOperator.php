@@ -76,6 +76,7 @@ final class InviteOperator
                 role: $role,
                 acceptUrl: route('invitation.show', ['invitation' => $token]),
                 replyAddress: CampaignContact::address(),
+                lifetimeDays: OperatorInvitation::LIFETIME_DAYS,
             ));
 
             return $invitation;

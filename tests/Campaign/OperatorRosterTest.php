@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Models\OperatorInvitation;
 use App\Models\User;
+use Carbon\CarbonInterval;
 use Illuminate\Support\Facades\DB;
 
 /*
@@ -111,5 +112,31 @@ test('the invitations listed are the ones still waiting, whoever sent them', fun
             // has no business in a page's props.
             ->missing('invitations.0.token')
             ->missing('invitations.1.token')
+        );
+});
+
+test('the roster marks an invitation past its lifetime, and only that one', function (): void {
+    // **D-59 on the page**: an expired invitation still holds its credential,
+    // so it is listed -- it is still the campaign's to withdraw -- and marked,
+    // because its link opens nothing and "not yet used" alone would leave an
+    // Owner waiting on somebody who cannot arrive. One a minute inside the
+    // lifetime beside one a minute past it, so neither "every invitation is
+    // expired" nor "none is" can satisfy this.
+    $owner = User::factory()->owner()->create();
+
+    $inside = OperatorInvitation::factory()->invitedBy($owner)
+        ->sentAgo(CarbonInterval::minutes(OperatorInvitation::LIFETIME_DAYS * 24 * 60 - 1))
+        ->create(['email' => 'still-in-time@example.test']);
+    $past = OperatorInvitation::factory()->invitedBy($owner)->sentAgo()->create(['email' => 'too-late@example.test']);
+
+    $this->actingAs($owner)->get($this->campaignUrl('operators'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('lifetimeDays', OperatorInvitation::LIFETIME_DAYS)
+            ->has('invitations', 2)
+            ->where('invitations.0.id', $inside->getKey())
+            ->where('invitations.0.expired', false)
+            ->where('invitations.1.id', $past->getKey())
+            ->where('invitations.1.expired', true)
         );
 });

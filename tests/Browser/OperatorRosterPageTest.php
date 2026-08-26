@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Models\OperatorInvitation;
 use App\Models\User;
+use Carbon\CarbonInterval;
 use Tests\Concerns\RunsInCampaignContext;
 use Tests\Support\LoopbackHost;
 
@@ -34,6 +35,11 @@ use Tests\Support\LoopbackHost;
  * **And a fourth: the Remove control**, built the same way, and absent from
  * the viewer's own row -- a client-side choice, since the server refuses
  * self-removal from the roster whatever the page shows.
+ *
+ * **And a fifth: which words an expired invitation gets (D-59).** The server
+ * sends `expired` as a boolean and tests/Campaign/OperatorRosterTest.php pins
+ * it, but a page that ignored it, or read it the wrong way round, would tell
+ * an Owner a dead link still works -- and the server cannot see which.
  *
  * The fixture is the demo campaign's shape -- one Owner nobody invited --
  * beside an operator somebody did invite and one the platform did, so "not
@@ -150,4 +156,24 @@ test('an owner removes one operator from the roster, the other stays, and their 
 
     expect($removed->fresh())->toBeNull()
         ->and($staying->fresh())->not->toBeNull();
+});
+
+test('the roster says which invitation has expired, and that the other still works', function (): void {
+    $owner = User::factory()->owner()->create(['name' => 'Avery Governor', 'email' => 'governor@example.test']);
+
+    $inside = OperatorInvitation::factory()->invitedBy($owner)
+        ->sentAgo(CarbonInterval::minutes(OperatorInvitation::LIFETIME_DAYS * 24 * 60 - 1))
+        ->create(['email' => 'still-in-time@example.test']);
+    $past = OperatorInvitation::factory()->invitedBy($owner)->sentAgo()->create(['email' => 'too-late@example.test']);
+
+    $this->actingAs($owner);
+
+    visit('/operators')
+        // The absence first, so a page marking every row expired is caught
+        // here rather than hidden behind the presence below.
+        ->assertDontSeeIn('[data-test="invitation-link-'.$inside->getKey().'"]', 'Expired')
+        ->assertSeeIn('[data-test="invitation-link-'.$inside->getKey().'"]', 'Still works')
+        ->assertSeeIn('[data-test="invitation-link-'.$past->getKey().'"]', 'Expired: invite them again')
+        ->assertSee('only for '.OperatorInvitation::LIFETIME_DAYS.' days after it was sent')
+        ->assertNoJavaScriptErrors();
 });

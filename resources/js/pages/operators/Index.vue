@@ -13,6 +13,7 @@ import type { PendingInvitation, RosterOperator } from '@/types';
 defineProps<{
     operators: RosterOperator[];
     invitations: PendingInvitation[];
+    lifetimeDays: number;
 }>();
 
 /*
@@ -224,7 +225,7 @@ defineOptions({
             <Heading
                 variant="small"
                 title="Invitations not yet used"
-                description="Each link works once. Whether it reached their inbox is up to their mail provider, and this page cannot see that. Withdrawing one stops its link working, and lets you send that person a fresh one."
+                :description="`Each link works once, and only for ${lifetimeDays} days after it was sent. Whether it reached their inbox is up to their mail provider, and this page cannot see that. Withdrawing one stops its link working, and lets you send that person a fresh one; inviting somebody whose link has expired sends them a fresh one too.`"
             />
 
             <InputError
@@ -260,6 +261,9 @@ defineOptions({
                             <th scope="col" class="px-4 py-3 font-medium">
                                 Sent by
                             </th>
+                            <th scope="col" class="px-4 py-3 font-medium">
+                                Link
+                            </th>
                             <th scope="col" class="px-4 py-3">
                                 <span class="sr-only">Actions</span>
                             </th>
@@ -278,6 +282,20 @@ defineOptions({
                             </td>
                             <td class="px-4 py-3 text-muted-foreground">
                                 {{ sentBy(invitation) }}
+                            </td>
+                            <td
+                                class="px-4 py-3"
+                                :class="{
+                                    'text-muted-foreground':
+                                        !invitation.expired,
+                                }"
+                                :data-test="`invitation-link-${invitation.id}`"
+                            >
+                                {{
+                                    invitation.expired
+                                        ? 'Expired: invite them again'
+                                        : 'Still works'
+                                }}
                             </td>
                             <td class="px-4 py-3 text-right">
                                 <Form

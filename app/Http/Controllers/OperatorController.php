@@ -85,18 +85,11 @@ class OperatorController extends Controller
             // Unused and not withdrawn: an accepted invitation is an operator
             // above, and a withdrawn one is a record rather than something to
             // act on. One past its lifetime (D-59) is listed too, because it
-            // still holds its credential and is still the campaign's to withdraw.
-            'invitations' => OperatorInvitation::query()
-                ->whereNotNull('token')
-                ->orderByDesc('created_at')
-                ->orderByDesc('id')
-                ->get()
-                ->map(fn (OperatorInvitation $invitation): array => [
-                    'id' => $invitation->getKey(),
-                    'email' => $invitation->email,
-                    'role' => $invitation->role->value,
-                    'invited_by' => $invitation->invited_by_label,
-                ])->all(),
+            // still holds its credential and is still the campaign's to withdraw
+            // -- and it says so, since its link no longer opens anything and an
+            // Owner reading "not yet used" would otherwise wait on it.
+            'invitations' => $this->unusedInvitations(),
+            'lifetimeDays' => OperatorInvitation::LIFETIME_DAYS,
         ]);
     }
 
@@ -154,6 +147,35 @@ class OperatorController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __(':email is no longer an operator of this campaign.', ['email' => $operator->email])]);
 
         return to_route('operators.index');
+    }
+
+    /**
+     * Every invitation nobody has used or withdrawn, newest first, each saying
+     * whether its lifetime has run out.
+     *
+     * **Expired is asked of the model's own scope rather than compared here**,
+     * so the page and the link cannot disagree about which invitations still
+     * open: the ids the `expired` scope returns are the ones marked, and the
+     * comparison lives in one place (OperatorInvitation).
+     *
+     * @return array<int, array{id: int, email: string, role: string, invited_by: string|null, expired: bool}>
+     */
+    private function unusedInvitations(): array
+    {
+        $expired = OperatorInvitation::query()->expired()->pluck('id')->all();
+
+        return OperatorInvitation::query()
+            ->whereNotNull('token')
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->get()
+            ->map(fn (OperatorInvitation $invitation): array => [
+                'id' => $invitation->id,
+                'email' => $invitation->email,
+                'role' => $invitation->role->value,
+                'invited_by' => $invitation->invited_by_label,
+                'expired' => in_array($invitation->id, $expired, true),
+            ])->all();
     }
 
     /**

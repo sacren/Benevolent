@@ -23,8 +23,9 @@ use App\Models\User;
  * remove -- has no consumer; OperatorPolicy answers the roster's own acts the
  * same way.
  *
- * No `viewAny`: the invitations still waiting are listed on the roster, and
- * seeing it is OperatorPolicy's to answer, once, for the page as a whole. No
+ * No `viewAny`: the invitations nobody has used or withdrawn -- waiting, or
+ * past their lifetime and marked so -- are listed on the roster, and seeing it
+ * is OperatorPolicy's to answer, once, for the page as a whole. No
  * `update` either, since nothing changes an invitation once it is sent -- a
  * wrong one is withdrawn and sent again. A policy method with no call site is
  * the guess Blueprint §5 says a policy should not contain.
