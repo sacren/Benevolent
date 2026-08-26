@@ -82,8 +82,10 @@ class OperatorController extends Controller
                 'is_you' => $operator->is($request->user()),
                 'admitted' => $this->admission($admittedBy[Str::lower($operator->email)] ?? null),
             ])->all(),
-            // Live only: an accepted invitation is an operator above, and a
-            // withdrawn one is a record rather than something to act on.
+            // Unused and not withdrawn: an accepted invitation is an operator
+            // above, and a withdrawn one is a record rather than something to
+            // act on. One past its lifetime (D-59) is listed too, because it
+            // still holds its credential and is still the campaign's to withdraw.
             'invitations' => OperatorInvitation::query()
                 ->whereNotNull('token')
                 ->orderByDesc('created_at')

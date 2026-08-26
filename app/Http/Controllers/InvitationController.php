@@ -31,14 +31,17 @@ use Inertia\Response;
  * stored invitation over a signed URL (Axis 1 (i)); Step 1 re-ran the property
  * rather than inheriting it.
  *
- * **An unknown or spent link is a 404, and the binding answers it before
- * anything else runs.** The route binds `{invitation:token}`, so a link whose
- * token matches no row -- a stranger guessing, another campaign's link, one
- * already used -- is refused by the router before the form request validates
- * anything. A spent invitation holds no token (D-54), so "already used" needs
- * no status check: it is simply not findable by its link. A malformed token
- * never reaches the query at all; `whereUuid` answers 404 first, which matters
- * because the column is `uuid` and PostgreSQL raises 22P02 on anything else.
+ * **An unknown, spent or expired link is a 404, and the binding answers it
+ * before anything else runs.** The route binds `{invitation:token}`, so a link
+ * whose token matches no live row -- a stranger guessing, another campaign's
+ * link, one already used, one past its lifetime -- is refused by the router
+ * before the form request validates anything. A spent invitation holds no
+ * token (D-54), so "already used" needs no status check: it is simply not
+ * findable by its link. An expired one still holds its token, and the model
+ * binds `token` to live rows only (D-59), so it is not findable either. A
+ * malformed token never reaches the query at all; `whereUuid` answers 404
+ * first, which matters because the column is `uuid` and PostgreSQL raises
+ * 22P02 on anything else.
  */
 class InvitationController extends Controller
 {

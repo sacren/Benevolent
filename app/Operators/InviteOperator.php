@@ -43,6 +43,19 @@ final class InviteOperator
     public function __invoke(string $email, OperatorRole $role, ?User $inviter): OperatorInvitation
     {
         return DB::transaction(function () use ($email, $role, $inviter): OperatorInvitation {
+            // **An expired invitation to this address is withdrawn first, and
+            // that is what lets its lifetime be enforced at read (D-59).** It
+            // still holds its credential, so the partial live-invitation index
+            // -- which cannot compare against a time -- still counts it, and
+            // would refuse this insert at 23505 although its link opens
+            // nothing. Withdrawing it is exactly what an Owner would have had
+            // to do by hand, and it keeps the row, as every withdrawal does
+            // (D-57). Inside this transaction, so a refused send restores it.
+            OperatorInvitation::query()
+                ->expired()
+                ->whereRaw('lower(email) = ?', [Str::lower($email)])
+                ->update(['token' => null]);
+
             $invitation = new OperatorInvitation(['email' => $email]);
 
             // Named deliberately rather than filled: the authority an
@@ -83,7 +96,9 @@ final class InviteOperator
      * gives: two live links granting possibly different authority, where
      * whichever one is clicked decides what the person becomes. Asked here
      * first so the campaign is told in words rather than by an error page, and
-     * left to the index for the race.
+     * left to the index for the race. **An expired invitation is not open**
+     * (D-59): its link opens nothing, so it does not stand in the way, and the
+     * writer withdraws it before inviting again.
      */
     public static function refusalFor(string $email): ?string
     {
@@ -93,7 +108,7 @@ final class InviteOperator
             return __(':email is already an operator of this campaign.', ['email' => $email]);
         }
 
-        if (OperatorInvitation::query()->whereRaw('lower(email) = ?', [$folded])->whereNotNull('token')->exists()) {
+        if (OperatorInvitation::query()->whereRaw('lower(email) = ?', [$folded])->live()->exists()) {
             return __(':email already has an invitation to this campaign that has not been used.', ['email' => $email]);
         }
 

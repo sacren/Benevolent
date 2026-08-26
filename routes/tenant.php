@@ -187,9 +187,10 @@ Route::middleware('tenant')->group(function (): void {
      * another; and never in routes/web.php, whose central surface stays at two
      * routes (deferral 1).
      *
-     * `{invitation:token}` binds the row by its credential, so an unknown or
-     * spent link is refused by the router before anything validates -- a spent
-     * invitation holds no token, so it is simply not findable. `whereUuid` is
+     * `{invitation:token}` binds the row by its credential, so an unknown,
+     * spent or expired link is refused by the router before anything validates
+     * -- a spent invitation holds no token, and an expired one is bound to
+     * nothing because OperatorInvitation binds `token` to live rows only (D-59). `whereUuid` is
      * not decoration: `operator_invitations.token` is a `uuid` column, and a
      * malformed value compared against it raises SQLSTATE 22P02 rather than
      * matching nothing.

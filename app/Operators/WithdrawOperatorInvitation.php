@@ -19,8 +19,10 @@ use App\Models\OperatorInvitation;
  *
  * **Withdrawing is also how a lost invitation is sent again.** The inviting
  * writer refuses a second live invitation to one address (the partial unique
- * index says why), so an invitation that never arrived is stuck until it is
- * withdrawn; once it is, the address may be invited afresh.
+ * index says why), so an invitation that never arrived stands in the way until
+ * it is withdrawn -- or until its lifetime runs out (D-59), when inviting the
+ * address again withdraws it first. Either way the address may then be
+ * invited afresh.
  *
  * **Claimed by the write itself**, as an acceptance is: the update names the
  * credential's presence, so an Owner withdrawing an invitation at the moment

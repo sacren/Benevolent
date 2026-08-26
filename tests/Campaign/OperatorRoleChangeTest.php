@@ -19,7 +19,9 @@ use Illuminate\Support\Facades\DB;
  */
 
 /**
- * Whether an invitation's link would still open.
+ * Whether an invitation still holds its credential -- which, for the fixtures
+ * here, all sent just now and so inside their lifetime (D-59), is whether its
+ * link would still open.
  */
 function linkStillOpens(OperatorInvitation $invitation): bool
 {

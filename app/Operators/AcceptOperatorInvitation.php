@@ -74,10 +74,13 @@ final class AcceptOperatorInvitation
             // holding it and changes nothing. That is the claim-first shape
             // Blueprint §5 records for work that must happen once, and it spends
             // the token and records the acceptance in one statement, which is
-            // the only way the check constraint allows.
+            // the only way the check constraint allows. It asks for a *live*
+            // row, so an invitation whose lifetime ran out between the page
+            // opening and the form arriving is refused here too (D-59).
             $claimed = OperatorInvitation::query()
                 ->whereKey($invitation->getKey())
                 ->where('token', $invitation->token)
+                ->live()
                 ->update(['token' => null, 'accepted_at' => now()]);
 
             if ($claimed !== 1) {

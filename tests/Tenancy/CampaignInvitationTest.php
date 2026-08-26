@@ -63,7 +63,9 @@ function invitationTokenIn(string $slug, string $email, string $bystander): stri
 }
 
 /**
- * Who one campaign has as operators, and which of its invitations still open.
+ * Who one campaign has as operators, and which of its invitations still hold
+ * their credential -- all sent during the test, so inside their lifetime (D-59)
+ * and still open.
  *
  * @return array{operators: list<string>, live: list<string>}
  */

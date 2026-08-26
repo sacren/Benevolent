@@ -7,6 +7,7 @@ namespace Database\Factories;
 use App\Authorization\OperatorRole;
 use App\Models\OperatorInvitation;
 use App\Models\User;
+use Carbon\CarbonInterval;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -55,6 +56,21 @@ class OperatorInvitationFactory extends Factory
         return $this->state(fn (array $attributes) => [
             'invited_by_id' => $operator->getKey(),
             'invited_by_label' => $operator->email,
+        ]);
+    }
+
+    /**
+     * An invitation sent this long before now -- a minute past its lifetime by
+     * default, so it still holds a credential that no longer opens anything
+     * (D-59). Pass a shorter age for one still inside it.
+     */
+    public function sentAgo(?CarbonInterval $age = null): static
+    {
+        $sent = now()->sub($age ?? CarbonInterval::minutes(OperatorInvitation::LIFETIME_DAYS * 24 * 60 + 1));
+
+        return $this->state(fn (array $attributes) => [
+            'created_at' => $sent,
+            'updated_at' => $sent,
         ]);
     }
 

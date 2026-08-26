@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Authorization\OperatorRole;
+use App\Models\OperatorInvitation;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Operators\OperatorInvitationMessage;
@@ -165,4 +166,32 @@ test('an unknown campaign or an unusable address changes nothing anywhere', func
         ->and(invitationsIn('ridge-restoration'))->toBe([]);
 
     Mail::assertNothingOutgoing();
+});
+
+test('a first owner who never used their invitation in time can be sent another, and the first stops working', function (): void {
+    // **The case a lifetime (D-59) must not strand**: a campaign provisioned,
+    // its first Owner invited, and the link left unopened past its lifetime.
+    // Nobody inside the campaign can invite anybody, so the platform is the
+    // only one who can send a fresh link.
+    Artisan::call('campaign:invite-owner', ['slug' => 'ridge-restoration', 'email' => 'director@ridge-restoration.test']);
+
+    // Inside its lifetime the same command is refused, so what follows is
+    // the lifetime at work and not a command that never refused anything.
+    expect(Artisan::call('campaign:invite-owner', ['slug' => 'ridge-restoration', 'email' => 'director@ridge-restoration.test']))->toBe(1)
+        ->and(Artisan::output())->toContain('has not been used');
+
+    $this->travel(OperatorInvitation::LIFETIME_DAYS)->days();
+    $this->travel(1)->minutes();
+
+    // Harbor invites its own first Owner now, so it holds a live invitation
+    // that re-inviting Ridge's director must not have touched.
+    Artisan::call('campaign:invite-owner', ['slug' => 'harbor-cleanup', 'email' => 'director@harbor-cleanup.test']);
+
+    $exit = Artisan::call('campaign:invite-owner', ['slug' => 'ridge-restoration', 'email' => 'director@ridge-restoration.test']);
+
+    expect($exit)->toBe(0)
+        // The lapsed invitation is kept and withdrawn, and the fresh one is
+        // the only one whose link works.
+        ->and(array_column(invitationsIn('ridge-restoration'), 'live'))->toBe([false, true])
+        ->and(array_column(invitationsIn('harbor-cleanup'), 'live'))->toBe([true]);
 });
