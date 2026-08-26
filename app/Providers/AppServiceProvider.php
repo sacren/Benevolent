@@ -32,12 +32,14 @@ class AppServiceProvider extends ServiceProvider
 
     /**
      * Meter the endpoints this application serves to people who are not
-     * operators.
+     * operators, and the one act of an operator's that sends mail to an
+     * address of their choosing.
      *
      * Filed here rather than beside the four limiters in FortifyServiceProvider
-     * because those meter authentication, and these meter a supporter and
-     * somebody a campaign has invited. The shared vocabulary is the *shape* of
-     * the key, not the concern.
+     * because those meter authentication, and these meter a supporter,
+     * somebody a campaign has invited, and an Owner inviting them. The shared
+     * vocabulary is the *shape* of the key, not the concern -- and the key says
+     * which of the two it names, a caller or a person.
      */
     protected function configureRateLimiting(): void
     {
@@ -85,6 +87,39 @@ class AppServiceProvider extends ServiceProvider
             // attempt is a mistyped password. Nobody legitimate needs more, and
             // nothing walking the space of uuids gets anywhere at ten.
             return Limit::perMinute(10)->by('invitation:address:'.($request->ip() ?? 'unknown'));
+        });
+
+        RateLimiter::for('invite-operators', function (Request $request) {
+            // **Sending an invitation is the one act in this module that makes
+            // the platform mail an address the caller chooses**, from the
+            // platform's own address (D-15, deferral 18). Measured before this
+            // limiter existed: one Owner's session sent 60 invitations to 60
+            // addresses in one burst, and nothing refused any of them. So what
+            // this bounds is what a single Owner -- or a stolen session -- can
+            // make the platform send, not what a stranger can reach: the route
+            // is behind `auth` and ManageOperators already.
+            //
+            // **This key names a person, so it is campaign-scoped (L-24).**
+            // The caller here is always a signed-in operator, and an operator
+            // id restarts at 1 in every campaign's own database, so the id alone
+            // would make operator 1 of one campaign spend operator 1 of every
+            // other campaign's budget. The campaign in the key is what makes it
+            // one person. There is deliberately no caller-keyed limit beside
+            // it: nobody without an account reaches this route.
+            //
+            // Twenty an hour: a campaign bringing its whole staff aboard in one
+            // sitting fits inside it, and a burst like the one measured does
+            // not. Refused in words on the form rather than as a 429 page,
+            // like every other reason an invitation is not sent.
+            $operator = $request->user()?->getAuthIdentifier() ?? 'guest';
+
+            return Limit::perHour(20)
+                ->by('invite-operators:campaign:'.(tenant('id') ?? 'central').':operator:'.$operator)
+                ->response(fn (Request $request, array $headers) => back()->withInput()->withErrors([
+                    'email' => __('You have sent as many invitations as one person may in an hour. Try again in :minutes minutes.', [
+                        'minutes' => max(1, (int) ceil(((int) ($headers['Retry-After'] ?? 60)) / 60)),
+                    ]),
+                ]));
         });
     }
 

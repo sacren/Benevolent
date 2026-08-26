@@ -132,7 +132,12 @@ Route::middleware('tenant')->group(function (): void {
         // noun this module is about, rather than `invitation/`, which is the
         // public path the invitee's link opens.
         Route::get('operators/invite', [OperatorInvitationController::class, 'create'])->name('operators.invitations.create');
-        Route::post('operators/invite', [OperatorInvitationController::class, 'store'])->name('operators.invitations.store');
+        // Metered because it is the one route here that makes the platform
+        // mail an address the caller chooses; the key names the Owner, within
+        // this campaign (L-24). The form is not metered, only the sending.
+        Route::post('operators/invite', [OperatorInvitationController::class, 'store'])
+            ->middleware('throttle:invite-operators')
+            ->name('operators.invitations.store');
 
         // Taking an unused invitation back (D-57). Addressed by the row's id
         // rather than its credential: the Owner is not the invitee, and the

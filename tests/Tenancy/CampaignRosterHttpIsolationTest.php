@@ -7,6 +7,7 @@ use App\Models\OperatorInvitation;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Mail;
 
 /**
  * The roster's isolation guarantee, asked over HTTP by an Owner who is really
@@ -182,4 +183,49 @@ test('a removal addressed by an operator id both campaigns use removes this camp
 
     expect($helperId('harbor-cleanup'))->toBeNull()
         ->and($helperId('ridge-restoration'))->toBe($id);
+});
+
+test('an owner who spends their invitation budget in one campaign leaves the owner with the same id in another theirs', function (): void {
+    // **The invite-operators key names a person, and a person is an id within
+    // one campaign (L-24).** Both Owners below are operator 1 in their own
+    // campaign's database, so a key built from the id alone would let Harbor's
+    // Owner spend Ridge's Owner's budget -- a limit on one person that locks out
+    // a stranger somewhere else.
+    app('cache')->driver()->flush();
+    Mail::fake();
+
+    staffRosterIn('harbor-cleanup');
+    staffRosterIn('ridge-restoration');
+
+    $ownerId = function (string $slug): int {
+        tenancy()->initialize(Tenant::query()->where('slug', $slug)->firstOrFail());
+        $id = (int) User::query()->where('email', "owner@{$slug}.test")->value('id');
+        tenancy()->end();
+
+        return $id;
+    };
+
+    // The precondition the test rests on, asserted rather than assumed.
+    expect($ownerId('harbor-cleanup'))->toBe(1)
+        ->and($ownerId('ridge-restoration'))->toBe(1);
+
+    $this->post('http://harbor-cleanup.test/login', ['email' => 'owner@harbor-cleanup.test', 'password' => 'password'])->assertRedirect();
+
+    for ($i = 1; $i <= 20; $i++) {
+        $this->post('http://harbor-cleanup.test/operators/invite', ['email' => "harbor{$i}@example.test", 'role' => 'staff'])
+            ->assertSessionHasNoErrors();
+    }
+
+    $this->post('http://harbor-cleanup.test/operators/invite', ['email' => 'harbor-extra@example.test', 'role' => 'staff'])
+        ->assertSessionHasErrors('email');
+
+    $this->post('http://harbor-cleanup.test/logout')->assertRedirect();
+    $this->post('http://ridge-restoration.test/login', ['email' => 'owner@ridge-restoration.test', 'password' => 'password'])->assertRedirect();
+
+    $this->post('http://ridge-restoration.test/operators/invite', ['email' => 'ridge-first@example.test', 'role' => 'staff'])
+        ->assertSessionHasNoErrors();
+
+    tenancy()->initialize(Tenant::query()->where('slug', 'ridge-restoration')->firstOrFail());
+    expect(OperatorInvitation::query()->where('email', 'ridge-first@example.test')->exists())->toBeTrue();
+    tenancy()->end();
 });
