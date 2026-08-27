@@ -22,6 +22,13 @@ final class Url
         return is_string($host) ? $host : null;
     }
 
+    public static function scheme(string $url): ?string
+    {
+        $scheme = parse_url($url, PHP_URL_SCHEME);
+
+        return is_string($scheme) ? $scheme : null;
+    }
+
     public static function port(string $url): ?int
     {
         $port = parse_url($url, PHP_URL_PORT);
