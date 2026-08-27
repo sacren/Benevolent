@@ -70,11 +70,11 @@ class OperatorInvitation extends Model
      * already in flight, which is the direction a credential should fail in.
      *
      * Seven days, because the credential is somebody's authority over this
-     * campaign sitting in a mailbox -- and, under `.env.example`'s `log`
-     * mailer, in the application log, where a live invitation's link opens
-     * exactly as it does from the inbox (measured). The cost of too short is
-     * one withdrawal and one fresh invitation, which the inviting writer now
-     * performs itself.
+     * campaign sitting in a mailbox -- and, under a `log` mailer (which
+     * `.env.example` shipped until Phase 7 Step 2), in the application log,
+     * where a live invitation's link opens exactly as it does from the inbox
+     * (measured). The cost of too short is one withdrawal and one fresh
+     * invitation, which the inviting writer now performs itself.
      */
     public const int LIFETIME_DAYS = 7;
 

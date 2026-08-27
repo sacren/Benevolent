@@ -29,9 +29,11 @@ jobs:
     # This application is database-per-tenant (DEC-1): every campaign a test
     # provisions is a real database created with CREATE DATABASE, so the suite
     # cannot run without a PostgreSQL server. There was no services: block
-    # before, and .env.example sets DB_CONNECTION=sqlite -- measured rather than
-    # assumed, by pointing the application at sqlite and running the supporter
-    # isolation test, which fails outright.
+    # before, and .env.example then set DB_CONNECTION=sqlite -- measured rather
+    # than assumed, by pointing the application at sqlite and running the
+    # supporter isolation test, which fails outright. It now names pgsql at
+    # Sail's host `pgsql`, which a runner does not have, so the override below
+    # is still what points the suite at this service.
     #
     # Pinned to the same image the local environment runs (compose.yaml uses
     # postgres:18-alpine), so a green run here means the engine that passed is
@@ -55,7 +57,8 @@ jobs:
 
     # Real environment variables win over the .env file, because Laravel loads
     # it with Dotenv's immutable reader. That is what lets these override
-    # .env.example's sqlite without editing the file after copying it.
+    # .env.example's Sail database values without editing the file after
+    # copying it.
     #
     # The POSTGRES_USER above is a superuser, which the tenancy package needs:
     # provisioning a campaign issues CREATE DATABASE.

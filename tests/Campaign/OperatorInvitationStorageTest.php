@@ -193,9 +193,10 @@ test('an invitation that has been accepted may not still hold its credential', f
     ]);
 
     // The contradiction: a spent invitation whose link still resolves. It is
-    // not hypothetical -- `.env.example` ships MAIL_MAILER=log, which writes
-    // the whole message including the link into the application log, so a
-    // credential that outlives its use is a live key sitting in a log file.
+    // not hypothetical -- a `log` mailer, which `.env.example` shipped until
+    // Phase 7 Step 2, writes the whole message including the link into the
+    // application log, so a credential that outlives its use is a live key
+    // sitting in a log file.
     $refusal = refusalFrom(fn () => DB::connection('tenant')->table('operator_invitations')
         ->where('email', 'joining@example.test')
         ->update(['accepted_at' => now()]));
