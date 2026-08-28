@@ -162,8 +162,13 @@ return [
          * packages that use asset() calls inside the tenant app. To avoid such issues, you can
          * disable asset() helper tenancy and explicitly use tenant_asset() calls in places
          * where you want to use tenant-specific assets (product images, avatars, etc).
+         *
+         * Off here: Vite builds every script and stylesheet URL through asset(), so
+         * with this on, each campaign page asked for /tenancy/assets/build/... and
+         * rendered blank. No campaign has public assets of its own.
+         * Guarded by tests/Tenancy/CampaignAssetUrlTest.php.
          */
-        'asset_helper_tenancy' => true,
+        'asset_helper_tenancy' => false,
     ],
 
     /**
