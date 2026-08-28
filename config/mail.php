@@ -115,4 +115,18 @@ return [
         'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Blast Sending Rate
+    |--------------------------------------------------------------------------
+    |
+    | How many copies of a blast a worker may hand to the mailer each second,
+    | fractions allowed. Set it to the provider account's maximum sending rate
+    | (SES's sandbox allows 1): a copy sent faster is dropped, not delayed.
+    | Leave it empty to send unpaced. App\Blasts\SendPace reads it.
+    |
+    */
+
+    'send_rate' => env('MAIL_SEND_RATE'),
+
 ];

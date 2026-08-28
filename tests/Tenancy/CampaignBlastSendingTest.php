@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Blasts\BlastStatus;
 use App\Blasts\SendBlast;
+use App\Blasts\SendPace;
 use App\Districts\ZctaDistricts;
 use App\Models\Blast;
 use App\Models\Segment;
@@ -13,12 +14,14 @@ use App\Models\User;
 use App\Supporters\SubscriptionStatus;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
+use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Mail\Events\MessageSent;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Sleep;
 use Symfony\Component\Mime\Email;
 use Tests\Support\QueueWorker;
 
@@ -28,8 +31,9 @@ use Tests\Support\QueueWorker;
  * The campaign suite covers who may commit a blast and what the commit writes.
  * This file covers the part that cannot be seen from one request in one
  * campaign: that a send reaches only its own campaign's people, signs itself as
- * that campaign, is answerable to that campaign, and cannot write to anybody
- * twice however many workers take the job.
+ * that campaign, is answerable to that campaign, cannot write to anybody twice
+ * however many workers take the job, and hands copies to the mailer no faster
+ * than the provider's rate, however many campaigns' blasts one worker runs.
  *
  * **Two campaigns throughout, never one (L-21).** A worker is the canonical
  * multi-campaign process -- it takes successive jobs for different campaigns in
@@ -639,7 +643,7 @@ test('a refused claim says the SQLSTATE and never the credential it collided on'
     $thrown = null;
 
     try {
-        (new SendBlast($blast, (string) $harbor->getKey()))->handle();
+        (new SendBlast($blast, (string) $harbor->getKey()))->handle(app(SendPace::class));
     } catch (Throwable $exception) {
         $thrown = $exception;
     }
@@ -1222,3 +1226,152 @@ test('erasing a supporter who withdrew keeps the withdrawal and leaves nobody in
         ->and(DB::table('blast_recipients')->where('id', $copy)->value('supporter_id'))->toBeNull()
         ->and(DB::table('blast_recipients')->where('id', $copy)->value('sent_at'))->not->toBeNull();
 });
+
+/*
+ * The pace (D-71): copies handed to the mailer no faster than the provider
+ * accepts them, because SES drops a copy sent faster rather than delaying it
+ * (Phase 7 Step 4, measurement 1).
+ *
+ * Time is frozen and Sleep faked in step with it, so each pause is exactly the
+ * interval left after the time a send took, and a count of pauses is a count
+ * of handovers after the first.
+ */
+test('a paced send hands copies over one interval apart, across campaigns in one worker', function (): void {
+    $sent = messagesSent();
+
+    // A fractional rate, one copy every two seconds, because a provider's quota
+    // need not be whole and a cast to an integer would read this as zero.
+    config(['mail.send_rate' => '0.5']);
+
+    $this->freezeTime();
+    Sleep::fake(syncWithCarbon: true);
+
+    // Every handover takes 400 ms, so a pause that runs from one handover to
+    // the next is 1,600 ms, and one added after the send would be 2,000 ms.
+    Event::listen(MessageSending::class, fn () => $this->travel(400)->milliseconds());
+
+    $harbor = sendingCampaign('harbor-cleanup');
+    $ridge = sendingCampaign('ridge-restoration');
+
+    tenancy()->initialize($harbor);
+    $harborBlast = committedBlastFor(['ama@harbor.test', 'bo@harbor.test', 'cai@harbor.test']);
+    SendBlast::dispatch($harborBlast, (string) $harbor->getKey());
+
+    tenancy()->initialize($ridge);
+    $ridgeBlast = committedBlastFor(['dee@ridge.test', 'eli@ridge.test', 'fay@ridge.test']);
+    SendBlast::dispatch($ridgeBlast, (string) $ridge->getKey());
+
+    tenancy()->end();
+
+    QueueWorker::runNextJobs(2);
+
+    expect($sent)->toHaveCount(6);
+
+    // Five pauses for six copies, not four. **The rate is the account's, not a
+    // campaign's**, so Ridge's first copy waits on Harbor's last one: a pace
+    // kept per job would let the two leave milliseconds apart in one worker.
+    Sleep::assertSequence(array_map(fn (): Sleep => Sleep::for(1600)->milliseconds(), range(1, 5)));
+});
+
+test('a resumed paced send pauses per copy handed over, never per supporter skipped', function (): void {
+    $sent = messagesSent();
+
+    config(['mail.send_rate' => '1']);
+
+    $this->freezeTime();
+    Sleep::fake(syncWithCarbon: true);
+
+    $harbor = sendingCampaign('harbor-cleanup');
+
+    tenancy()->initialize($harbor);
+    $blast = committedBlastFor(['ama@harbor.test', 'bo@harbor.test', 'cai@harbor.test', 'dee@harbor.test']);
+
+    // Two of the four were reached by an earlier attempt, interleaved with the
+    // two still owed, so a pause per supporter and a pause per handover differ.
+    foreach (['ama@harbor.test', 'cai@harbor.test'] as $reached) {
+        DB::table('blast_recipients')->insert([
+            'blast_id' => $blast->getKey(),
+            'supporter_id' => Supporter::query()->where('email', $reached)->sole()->getKey(),
+            'sent_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    SendBlast::dispatch($blast, (string) $harbor->getKey());
+    tenancy()->end();
+
+    QueueWorker::runNextJob();
+
+    expect(array_map(fn (Email $m): string => $m->getTo()[0]->getAddress(), $sent->getArrayCopy()))
+        ->toBe(['bo@harbor.test', 'dee@harbor.test']);
+
+    Sleep::assertSequence([Sleep::for(1)->second()]);
+});
+
+test('a send with no rate set is unpaced', function (mixed $rate): void {
+    $sent = messagesSent();
+
+    config(['mail.send_rate' => $rate]);
+
+    Sleep::fake();
+
+    $harbor = sendingCampaign('harbor-cleanup');
+
+    tenancy()->initialize($harbor);
+    $blast = committedBlastFor(['ama@harbor.test', 'bo@harbor.test', 'cai@harbor.test']);
+    SendBlast::dispatch($blast, (string) $harbor->getKey());
+    tenancy()->end();
+
+    QueueWorker::runNextJob();
+
+    // Development and the suite send this way, and `.env.example` ships the
+    // variable empty.
+    expect($sent)->toHaveCount(3);
+
+    Sleep::assertNeverSlept();
+})->with([
+    'unset' => [null],
+    'empty' => [''],
+]);
+
+test('a rate that is not a positive number refuses the send before anybody is claimed', function (string $rate): void {
+    $sent = messagesSent();
+
+    config(['mail.send_rate' => $rate]);
+
+    Sleep::fake();
+
+    $harbor = sendingCampaign('harbor-cleanup');
+
+    tenancy()->initialize($harbor);
+    $blast = committedBlastFor(['ama@harbor.test', 'bo@harbor.test']);
+    $job = new SendBlast($blast, (string) $harbor->getKey());
+    dispatch($job);
+    tenancy()->end();
+
+    // Every attempt the job allows, because its own `$tries` outranks the
+    // worker's: a refused attempt is released for another, and only the last
+    // one fails the blast.
+    QueueWorker::runNextJobs($job->tries);
+
+    // Refused rather than read as unpaced: each value says somebody meant to
+    // set a pace, and sending unpaced would lose every copy past the
+    // provider's rate while the blast read Sent.
+    expect($sent)->toHaveCount(0);
+
+    Sleep::assertNeverSlept();
+
+    tenancy()->initialize($harbor);
+
+    $failed = Blast::query()->whereKey($blast->getKey())->sole();
+
+    expect($failed->status)->toBe(BlastStatus::Failed)
+        ->and($failed->failure_reason)->toContain('MAIL_SEND_RATE')
+        ->and(DB::table('blast_recipients')->count())->toBe(0);
+})->with([
+    'zero' => ['0'],
+    'negative' => ['-1'],
+    // Read as 1 by a cast, which is why the check is for a number first.
+    'not a number' => ['1/s'],
+]);

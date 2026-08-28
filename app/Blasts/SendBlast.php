@@ -63,6 +63,12 @@ use Throwable;
  * property rather than read from `tenant()` at middleware time, so the key does
  * not depend on which listener has run yet.
  *
+ * **Copies leave no faster than the provider accepts them (D-71).** A copy
+ * sent past the account's rate is dropped rather than delayed, and its refusal
+ * is final by the claim's design, so SendPace spaces the handovers instead of
+ * anything here retrying them. Why a pace and not a retry, and what it does not
+ * cover, are recorded there.
+ *
  * **This job carries identifiers, never rows.** A model property serializes as
  * a ModelIdentifier, so no supporter reaches the central payload; the campaign
  * id is a plain string and is written verbatim, which is exactly why it is a
@@ -98,7 +104,7 @@ final class SendBlast implements ShouldQueue
      * Bounds the memory a list of any size costs. Measured at Step 3: chunking
      * 225,000 recipients 500 at a time costs 986 ms at flat memory, and the
      * per-recipient write rather than the audience query is what dominates a
-     * real send.
+     * real send -- until a sending rate is set, when the pace dominates both.
      */
     private const int CHUNK = 500;
 
@@ -149,7 +155,7 @@ final class SendBlast implements ShouldQueue
         ];
     }
 
-    public function handle(): void
+    public function handle(SendPace $pace): void
     {
         $blast = $this->blast;
 
@@ -179,9 +185,9 @@ final class SendBlast implements ShouldQueue
         // written here would be the defect that class exists to prevent.
         BlastAudience::for($blast)->chunkById(
             self::CHUNK,
-            function ($supporters) use ($blast, $campaignName, $replyTo): void {
+            function ($supporters) use ($blast, $campaignName, $replyTo, $pace): void {
                 foreach ($supporters as $supporter) {
-                    $this->deliver($blast, $supporter, $campaignName, $replyTo);
+                    $this->deliver($blast, $supporter, $campaignName, $replyTo, $pace);
                 }
             }
         );
@@ -217,7 +223,7 @@ final class SendBlast implements ShouldQueue
     /**
      * Give one supporter their copy, unless they have already had it.
      */
-    private function deliver(Blast $blast, Supporter $supporter, string $campaignName, ?string $replyTo): void
+    private function deliver(Blast $blast, Supporter $supporter, string $campaignName, ?string $replyTo, SendPace $pace): void
     {
         $linkToken = $this->claim($blast, $supporter);
 
@@ -227,6 +233,12 @@ final class SendBlast implements ShouldQueue
             // is the mechanism working rather than anything to report.
             return;
         }
+
+        // Paced after the claim, so a supporter already reached costs no pause.
+        // The price is a longer window between a claim and its handover, in
+        // which a killed worker leaves a row with neither a `sent_at` nor a
+        // reason -- for a copy that never went, so never a duplicate.
+        $pace->awaitTurn();
 
         $failure = null;
 
