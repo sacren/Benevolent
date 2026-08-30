@@ -219,7 +219,12 @@ final class ImportSupporters implements ShouldQueue
             // The constraint as the index actually expresses it (D-8). A plain
             // `email` here would name no unique index at all and PostgreSQL
             // would refuse the statement.
-            [new Expression('lower(email)')],
+            //
+            // The framework declares `$uniqueBy` as strings, while its grammar
+            // accepts an Expression, and D-8's lower(email) index needs one.
+            // Larastan 3.13.1 adopted the declared type. Delete this ignore
+            // when PHPStan reports it unmatched.
+            [new Expression('lower(email)')], // @phpstan-ignore argument.type
             $this->updateList(),
         ));
 
