@@ -33,7 +33,7 @@
         "typescript": "^5.2.2",
         "typescript-eslint": "^8.23.0",
         "vite": "^8.1.6",
-        "vue-tsc": "^2.2.4"
+        "vue-tsc": "^3.3.14"
     },
     "dependencies": {
         "@inertiajs/vite": "^3.0.0",
