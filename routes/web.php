@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ProviderNoticeController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -35,3 +36,25 @@ Route::inertia('/', 'Welcome')->name('home');
  * the first operator who cannot find their campaign again (deferral 2).
  */
 Route::inertia('/campaign-sign-in', 'CampaignSignIn')->name('campaign-sign-in');
+
+/*
+ * Where SNS delivers the mail provider's notices (D-85) -- the third central
+ * route, and the one that fires deferral 1, so it is pinned to the central
+ * host from birth rather than added to the bill the comment above describes.
+ *
+ * **Once per central host, because `central_domains` is a list.** A campaign's
+ * host, and any host nobody registered, finds no route here and is answered
+ * 404, so a notice can only ever be processed as the platform. The routes
+ * carry no name: one name cannot belong to several routes, and nothing
+ * generates this URL -- it is typed into AWS when the subscription is made.
+ *
+ * **Outside the `web` group, not merely exempt from CSRF.** SNS sends no
+ * session, cookie or token, and under the group every notice would still
+ * start a session -- one more central `sessions` row per notice in production,
+ * where the driver is the database -- and set a cookie nobody reads.
+ */
+foreach (config('tenancy.central_domains') as $centralDomain) {
+    Route::domain($centralDomain)
+        ->post('/mail-outcomes/sns', ProviderNoticeController::class)
+        ->withoutMiddleware('web');
+}

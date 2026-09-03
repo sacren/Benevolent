@@ -1,0 +1,11 @@
+{
+  "Type" : "Notification",
+  "MessageId" : "fc09d3b4-5692-53d7-a933-b0d33e11f0d9",
+  "TopicArn" : "arn:aws:sns:us-west-2:123456789012:example-ses-notices",
+  "Message" : "{\"notificationType\":\"Delivery\",\"mail\":{\"timestamp\":\"2026-11-06T05:31:46.452Z\",\"source\":\"\\\"Benevolent\\\" <noreply@app.example.test>\",\"sourceArn\":\"arn:aws:ses:us-west-2:123456789012:identity/app.example.test\",\"sourceIp\":\"192.0.2.10\",\"callerIdentity\":\"example-ses-send\",\"sendingAccountId\":\"123456789012\",\"messageId\":\"010101a1af577394-7bb35501-2e47-448f-9648-9d8016484516-000000\",\"destination\":[\"success+p8@simulator.amazonses.com\"]},\"delivery\":{\"timestamp\":\"2026-11-06T05:31:47.070Z\",\"processingTimeMillis\":618,\"recipients\":[\"success+p8@simulator.amazonses.com\"],\"smtpResponse\":\"250 Ok\",\"remoteMtaIp\":\"32.201.134.7\",\"reportingMTA\":\"a27-35.smtp-out.us-west-2.amazonses.com\"}}",
+  "Timestamp" : "2026-11-06T05:31:47.151Z",
+  "SignatureVersion" : "1",
+  "Signature" : "QnJMLwz74fvaFhf++G9wHWs38U7uI3U8XFBeMQA3ayHkn8VsyO+yUG5wOwmkmY6yiTRxIHwmp0JQ3yFm8hrn17xSPuqoyrAJimH5xcWjuZ5cNiJpuEh34limyVmQCsKI6hH7k3ReD0tn9knHypkDtnZc+zIYG9Z3+bH0wbFv9X9UszIQEFpS75vwl13Mx2BPm2UCBaTZdHPT0eefM9by5EeezvRX+mCCTLMRGlInVyntx/odr4U/Df3OV2tItvp/jHMastbnH/ty2m1siuRe7K5mNGTV6wATfUz/5+3Sj4HN3FVObfAUEB6JVys4Y1bYRdzHitLuFeCGyb+89+bOnw==",
+  "SigningCertURL" : "https://sns.us-west-2.amazonaws.com/SimpleNotificationService-1e59c4574facfe41babdb2d652f8ebef.pem",
+  "UnsubscribeURL" : "https://sns.us-west-2.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=arn:aws:sns:us-west-2:123456789012:example-ses-notices:6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b"
+}

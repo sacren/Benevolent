@@ -1,0 +1,11 @@
+{
+  "Type" : "Notification",
+  "MessageId" : "757e9247-ee91-5779-b128-f1208612a7ca",
+  "TopicArn" : "arn:aws:sns:us-west-2:123456789012:example-ses-notices",
+  "Message" : "{\"notificationType\":\"Bounce\",\"bounce\":{\"feedbackId\":\"010101a1af577666-93031437-2a9d-4517-9d7d-2d7ef3b94cf3-000000\",\"bounceType\":\"Permanent\",\"bounceSubType\":\"General\",\"bouncedRecipients\":[{\"emailAddress\":\"bounce@simulator.amazonses.com\",\"action\":\"failed\",\"status\":\"5.1.1\",\"diagnosticCode\":\"smtp; 550 5.1.1 As requested: user unknown <bounce@simulator.amazonses.com>\"}],\"timestamp\":\"2026-11-06T05:31:47.000Z\",\"remoteMtaIp\":\"34.226.255.229\",\"reportingMTA\":\"dns; a27-34.smtp-out.us-west-2.amazonses.com\"},\"mail\":{\"timestamp\":\"2026-11-06T05:31:46.591Z\",\"source\":\"\\\"Benevolent\\\" <noreply@app.example.test>\",\"sourceArn\":\"arn:aws:ses:us-west-2:123456789012:identity/app.example.test\",\"sourceIp\":\"192.0.2.10\",\"callerIdentity\":\"example-ses-send\",\"sendingAccountId\":\"123456789012\",\"messageId\":\"010101a1af57741f-2cdc8ea8-eb51-4f9b-8a22-657b8c89347a-000000\",\"destination\":[\"bounce@simulator.amazonses.com\"]}}",
+  "Timestamp" : "2026-11-06T05:31:47.306Z",
+  "SignatureVersion" : "1",
+  "Signature" : "FmX8CICaLRYi/IAWhEOzZc7gVOgWCn7ieq9xcRoIuVWOhElx3dhs31WlsjtlnK8K0VLvmAUzWJ0aIl10gIOwrC6KAdl+je6GdliePJmOOAzsXNokC4dmh7ltHYqza1CIGaw6JuVQ2om9WK0j/AJ+1a5e8aCGpNuGS8TEe3c3b1UelIdqprgMe4w0MrprFjxdIJql16deMA5r71d4Exs7KAHEeNxcv3YzCaXsIWesogrgle0Eg9SvpB2Egr268ZzNwk0AZdyxdtoADHPqNxMc1GmFUBbHoZREOMP1MSb4t8Uju2SVBOBzyy5lsU4FZRByD/waG9pm2vBSwaNFL41X/w==",
+  "SigningCertURL" : "https://sns.us-west-2.amazonaws.com/SimpleNotificationService-1e59c4574facfe41babdb2d652f8ebef.pem",
+  "UnsubscribeURL" : "https://sns.us-west-2.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=arn:aws:sns:us-west-2:123456789012:example-ses-notices:6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b"
+}

@@ -1,0 +1,11 @@
+{
+  "Type" : "Notification",
+  "MessageId" : "58628bf4-48e1-5fce-89f7-e8932065835d",
+  "TopicArn" : "arn:aws:sns:us-west-2:123456789012:example-ses-notices",
+  "Message" : "{\"notificationType\":\"Complaint\",\"complaint\":{\"feedbackId\":\"010101a1af577a2f-c9468c0d-bbfb-4a9c-8d00-19cb806e6bbf-000000\",\"complaintSubType\":null,\"complainedRecipients\":[{\"emailAddress\":\"complaint@simulator.amazonses.com\"}],\"timestamp\":\"2026-11-06T05:31:48.000Z\",\"userAgent\":\"Amazon SES Mailbox Simulator\",\"complaintFeedbackType\":\"abuse\",\"arrivalDate\":\"2026-11-06T05:31:48.267Z\"},\"mail\":{\"timestamp\":\"2026-11-06T05:31:46.765Z\",\"source\":\"\\\"Benevolent\\\" <noreply@app.example.test>\",\"sourceArn\":\"arn:aws:ses:us-west-2:123456789012:identity/app.example.test\",\"sourceIp\":\"192.0.2.10\",\"callerIdentity\":\"example-ses-send\",\"sendingAccountId\":\"123456789012\",\"messageId\":\"010101a1af5774cd-573e676a-feb5-4d20-bcb2-46caff5e6105-000000\",\"destination\":[\"complaint@simulator.amazonses.com\"]}}",
+  "Timestamp" : "2026-11-06T05:31:48.275Z",
+  "SignatureVersion" : "1",
+  "Signature" : "NaJh1y01xS2TBNxSSPlXy66orBs0D01m4a2ZkpWqELappdf8eAOANLGtQM3tXSCHFoaz77HQBB8Dz5iUxEJ+nyiRmK0BW6ujB6HV31/XTI8+L4RFK+usdNKBkJmUPfFvr9MKZTASMKx2WIBsi67Krim6eSwz/B6YNKKnu+lBBCxVDDlW76J+hfxKjmpTUnYbgbbbBBCIgzTMDOFM8+thIDTBZIhDtXy4/eUS4lwl8xgaWYmyCbNZjW9cXHBA2L7TUjwWuSoYzLbVdRbL2vOCpKAYgAoP0c40+HpEyHPVsWR+MD8ZKNzrU/m+bWjLGu5RicVLcqDbNsRS0fJ0QmPnxQ==",
+  "SigningCertURL" : "https://sns.us-west-2.amazonaws.com/SimpleNotificationService-1e59c4574facfe41babdb2d652f8ebef.pem",
+  "UnsubscribeURL" : "https://sns.us-west-2.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=arn:aws:sns:us-west-2:123456789012:example-ses-notices:6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b"
+}

@@ -49,6 +49,12 @@ test('a recipient row holds no part of the person it names', function (): void {
         'updated_at',
         'link_token',
         'provider_message_id',
+        // What the provider reported (D-87): facts about the send, like
+        // `sent_at`, that name nobody once the id beside them is forgotten.
+        'delivered_at',
+        'bounced_at',
+        'bounce_type',
+        'complained_at',
     ]);
 });
 

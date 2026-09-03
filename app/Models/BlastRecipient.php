@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\MailOutcomes\BounceType;
 use Database\Factories\BlastRecipientFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -47,6 +48,10 @@ use Illuminate\Support\Carbon;
  * @property int|null $supporter_id
  * @property string|null $link_token
  * @property string|null $provider_message_id
+ * @property Carbon|null $delivered_at
+ * @property Carbon|null $bounced_at
+ * @property BounceType|null $bounce_type
+ * @property Carbon|null $complained_at
  * @property Carbon|null $sent_at
  * @property string|null $failure_reason
  * @property Carbon|null $created_at
@@ -94,6 +99,10 @@ class BlastRecipient extends Model
     {
         return [
             'sent_at' => 'datetime',
+            'delivered_at' => 'datetime',
+            'bounced_at' => 'datetime',
+            'bounce_type' => BounceType::class,
+            'complained_at' => 'datetime',
         ];
     }
 }

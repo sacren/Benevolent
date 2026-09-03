@@ -26,6 +26,14 @@ return [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
+
+        /*
+         * The one SNS topic whose notices the intake accepts (D-85). The
+         * validator proves AWS signed a message, not that it came from this
+         * account's topic, so the application compares the two itself. Unset
+         * refuses every message rather than accepting any topic's.
+         */
+        'notifications_topic_arn' => env('SES_NOTIFICATIONS_TOPIC_ARN'),
     ],
 
     'slack' => [

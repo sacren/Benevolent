@@ -10,6 +10,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "aws/aws-php-sns-message-validator": "^1.10",
         "aws/aws-sdk-php": "^3.398",
         "inertiajs/inertia-laravel": "^3.0",
         "laravel/chisel": "^0.1.0",
