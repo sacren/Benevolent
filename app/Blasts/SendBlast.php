@@ -5,19 +5,24 @@ declare(strict_types=1);
 namespace App\Blasts;
 
 use App\Models\Blast;
+use App\Models\ProviderMessage;
 use App\Models\Supporter;
 use App\Tenancy\CampaignContact;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Mail\SentMessage;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Symfony\Component\Mime\Message;
 use Throwable;
 
 /**
@@ -81,7 +86,10 @@ use Throwable;
  * query binds a status and either folded postcode prefixes or a district's ZIP
  * codes with the pattern that checks them -- a rule an operator wrote or ZIP
  * codes read from the shipped relation, never a value from a supporter's row --
- * and the claim and its resolution bind two integers and a timestamp. The one
+ * and the claim and its resolution bind two integers, a timestamp and the id
+ * the provider gave the copy, which the central key binds again beside the
+ * campaign id -- an id, never an address, and the central write's refusal is
+ * logged without it (D-89). The one
  * place an address exists in this file is the mail envelope, which is not a
  * database binding -- and the transport's *complaint* about it is scrubbed
  * below before it is stored.
@@ -241,9 +249,10 @@ final class SendBlast implements ShouldQueue
         $pace->awaitTurn();
 
         $failure = null;
+        $sent = null;
 
         try {
-            Mail::to($supporter->email)->send(new BlastMessage(
+            $sent = Mail::to($supporter->email)->send(new BlastMessage(
                 $blast,
                 $campaignName,
                 $replyTo,
@@ -253,13 +262,89 @@ final class SendBlast implements ShouldQueue
             $failure = $this->withoutNamingAnybody($exception, $supporter->email);
         }
 
+        $providerMessageId = $this->providerMessageIdOf($sent);
+
         // Resolved outside the try, so that a fault in *recording* the send
         // cannot be mistaken for a fault in the send. Writing the failure from
         // inside the catch would also let a message that went out be marked as
         // one that did not -- and the table's check constraint would refuse the
         // row rather than accept the contradiction, turning one bad record into
         // a failed send.
-        $this->resolve($blast, $supporter, $failure);
+        $this->resolve($blast, $supporter, $failure, $providerMessageId);
+
+        if ($providerMessageId !== null) {
+            $this->keyCentrally($blast, $providerMessageId);
+        }
+    }
+
+    /**
+     * What the provider calls the copy it just accepted, if it said (D-86).
+     *
+     * **Read from the sent message rather than from the `MessageSent` event
+     * (D-89).** Only blast copies are keyed: invitations and account mail go
+     * through the same mailer and raise the same event, and a listener there
+     * would give every password reset a central row that resolves to nothing.
+     * Here the id is in the hands of the one caller that has a copy to put it
+     * on.
+     *
+     * SES's transport stamps the id it was given on the original message as
+     * `X-SES-Message-ID`, the value every notice about that message carries as
+     * `mail.messageId` -- measured equal at Step 2 on the production path. A
+     * mailer that stamps nothing (`array`, `log`) and a send that failed both
+     * answer null, which is the true statement that no notice can name this
+     * copy.
+     */
+    private function providerMessageIdOf(?SentMessage $sent): ?string
+    {
+        $original = $sent?->getOriginalMessage();
+
+        // The transport stamps the header only on a Message, by the same test,
+        // so anything rawer than that carries no id to read.
+        $header = $original instanceof Message ? $original->getHeaders()->get('X-SES-Message-ID') : null;
+
+        if ($header === null) {
+            return null;
+        }
+
+        $providerMessageId = trim($header->getBodyAsString());
+
+        return $providerMessageId === '' ? null : $providerMessageId;
+    }
+
+    /**
+     * Tell the central database which campaign this provider id belongs to
+     * (D-86), and never let failing to do so stop the send.
+     *
+     * **Two databases, no shared transaction.** The provider has already
+     * accepted the copy by the time this runs, so nothing here can make the
+     * send not have happened -- and failing the job over it would leave the
+     * rest of the blast unsent for the sake of one copy's later notices. So a
+     * refused write is caught, and what it costs is said where an operator's
+     * logs can carry it (D-89): this copy's notices will match nothing, and the
+     * copy stays *not known*.
+     *
+     * **The log line names the campaign and the blast, and nothing else.** Not
+     * the id, which is a join key to an address in the provider's records and
+     * in every notice (D-89 refused logging one for that reason), and not the
+     * database's own words, which print the id in a unique violation's DETAIL.
+     * What survives is the SQLSTATE, which is what anybody debugs from -- the
+     * same shape claim() uses for the credential it can collide on.
+     */
+    private function keyCentrally(Blast $blast, string $providerMessageId): void
+    {
+        try {
+            ProviderMessage::query()->forceCreate([
+                'provider_message_id' => $providerMessageId,
+                'tenant_id' => $this->campaignId,
+            ]);
+        } catch (QueryException $exception) {
+            Log::warning(sprintf(
+                'A sent copy could not be keyed centrally, so its provider notices will match nothing: campaign %s, blast %d (SQLSTATE %s).',
+                $this->campaignId,
+                $blast->getKey(),
+                $exception->getCode(),
+            ));
+        }
     }
 
     /**
@@ -367,13 +452,13 @@ final class SendBlast implements ShouldQueue
     /**
      * Say what became of one claimed message.
      */
-    private function resolve(Blast $blast, Supporter $supporter, ?string $failure): void
+    private function resolve(Blast $blast, Supporter $supporter, ?string $failure, ?string $providerMessageId): void
     {
         DB::table('blast_recipients')
             ->where('blast_id', $blast->getKey())
             ->where('supporter_id', $supporter->getKey())
             ->update($failure === null
-                ? ['sent_at' => now(), 'updated_at' => now()]
+                ? ['sent_at' => now(), 'provider_message_id' => $providerMessageId, 'updated_at' => now()]
                 : ['failure_reason' => $failure, 'updated_at' => now()]);
     }
 

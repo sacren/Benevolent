@@ -7,11 +7,14 @@ use App\Blasts\SendBlast;
 use App\Blasts\SendPace;
 use App\Districts\ZctaDistricts;
 use App\Models\Blast;
+use App\Models\ProviderMessage;
 use App\Models\Segment;
 use App\Models\Supporter;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Supporters\SubscriptionStatus;
+use Aws\MockHandler;
+use Aws\Result;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Mail\Events\MessageSending;
@@ -21,6 +24,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Sleep;
 use Symfony\Component\Mime\Email;
 use Tests\Support\QueueWorker;
@@ -1375,3 +1379,243 @@ test('a rate that is not a positive number refuses the send before anybody is cl
     // Read as 1 by a cast, which is why the check is for a number first.
     'not a number' => ['1/s'],
 ]);
+
+/**
+ * Send this test's mail through SES's own transport, answered by a stand-in
+ * for AWS rather than by AWS.
+ *
+ * The mailer's config is merged into the SDK client's arguments, so a
+ * `handler` there replaces the HTTP layer and nothing leaves the container --
+ * the technique Step 2 measured outside a campaign. Credentials are
+ * placeholders so the SDK never goes looking for real ones. Each reply hands
+ * back one message id, in the order copies are handed over.
+ *
+ * @param  list<string>  $messageIds
+ */
+function sendThroughStandInSes(array $messageIds): MockHandler
+{
+    $handler = new MockHandler(array_map(
+        fn (string $messageId): Result => new Result(['MessageId' => $messageId]),
+        $messageIds,
+    ));
+
+    config([
+        'mail.default' => 'ses',
+        'mail.mailers.ses.handler' => $handler,
+        'services.ses.key' => 'stand-in-key',
+        'services.ses.secret' => 'stand-in-secret',
+        'services.ses.region' => 'us-west-2',
+    ]);
+
+    return $handler;
+}
+
+/**
+ * An id shaped like the ones SES returns: 60 characters, unique per message.
+ */
+function sesMessageId(int $n): string
+{
+    return sprintf('0101019a%08d-5f3c8e21-7a4b-4c2d-9e6f-1b2c3d4e5f60-000000', $n);
+}
+
+test('each copy keeps the id the provider gave it, and the central table names the campaign that sent it', function (): void {
+    // **Untested before this file, and the reason it is two campaigns.** Step
+    // 2 measured the id on SES's transport outside any campaign; tenancy
+    // forgets resolved mailers when it enters and leaves one, so a worker
+    // serving two campaigns is where a mailer or an id could be carried from
+    // one send into the next.
+    $handler = sendThroughStandInSes([sesMessageId(1), sesMessageId(2), sesMessageId(3)]);
+
+    $harbor = sendingCampaign('harbor-cleanup');
+    $ridge = sendingCampaign('ridge-restoration');
+
+    tenancy()->initialize($harbor);
+    $harborBlast = committedBlastFor(['ama@harbor.test', 'bo@harbor.test']);
+    SendBlast::dispatch($harborBlast, (string) $harbor->getKey());
+
+    tenancy()->initialize($ridge);
+    $ridgeBlast = committedBlastFor(['cai@ridge.test']);
+    SendBlast::dispatch($ridgeBlast, (string) $ridge->getKey());
+
+    tenancy()->end();
+
+    QueueWorker::runNextJobs(2);
+
+    // Every reply was asked for, so all three copies really went through the
+    // SES transport rather than a mailer that stamps nothing.
+    expect($handler->count())->toBe(0);
+
+    tenancy()->initialize($harbor);
+    $harborIds = DB::table('blast_recipients')
+        ->join('supporters', 'supporters.id', '=', 'blast_recipients.supporter_id')
+        ->pluck('blast_recipients.provider_message_id', 'supporters.email')
+        ->all();
+
+    tenancy()->initialize($ridge);
+    $ridgeIds = DB::table('blast_recipients')
+        ->join('supporters', 'supporters.id', '=', 'blast_recipients.supporter_id')
+        ->pluck('blast_recipients.provider_message_id', 'supporters.email')
+        ->all();
+
+    tenancy()->end();
+
+    // Each copy holds the id of its own handover, in the order the send walked
+    // the audience -- not one id shared by a blast, and not the first
+    // campaign's ids served to the second.
+    expect($harborIds)->toBe([
+        'ama@harbor.test' => sesMessageId(1),
+        'bo@harbor.test' => sesMessageId(2),
+    ])->and($ridgeIds)->toBe([
+        'cai@ridge.test' => sesMessageId(3),
+    ]);
+
+    // And the central table resolves each id to the campaign that sent it,
+    // which is all it holds.
+    expect(ProviderMessage::query()->orderBy('provider_message_id')->pluck('tenant_id', 'provider_message_id')->all())->toBe([
+        sesMessageId(1) => (string) $harbor->getKey(),
+        sesMessageId(2) => (string) $harbor->getKey(),
+        sesMessageId(3) => (string) $ridge->getKey(),
+    ]);
+});
+
+test('a mailer that names no id keys nothing, and the copy still counts as sent', function (): void {
+    // The suite's own `array` mailer, which is every send in development and
+    // every other test here. It stamps no `X-SES-Message-ID`, so there is
+    // nothing a notice could ever name, and saying so is a null rather than a
+    // central row or a complaint in the log.
+    Log::spy();
+
+    $harbor = sendingCampaign('harbor-cleanup');
+
+    tenancy()->initialize($harbor);
+    $blast = committedBlastFor(['ama@harbor.test']);
+    SendBlast::dispatch($blast, (string) $harbor->getKey());
+    tenancy()->end();
+
+    QueueWorker::runNextJob();
+
+    tenancy()->initialize($harbor);
+    $copy = DB::table('blast_recipients')->sole();
+    tenancy()->end();
+
+    expect($copy->sent_at)->not->toBeNull()
+        ->and($copy->provider_message_id)->toBeNull()
+        ->and(ProviderMessage::query()->count())->toBe(0);
+
+    Log::shouldNotHaveReceived('warning');
+});
+
+test('a copy the central table refuses still counts as sent, and the send goes on', function (): void {
+    // **Two databases and no transaction between them (D-86's accepted cost).**
+    // By the time the central row is written the provider has the message, so
+    // failing the job would leave the rest of the blast unsent for the sake of
+    // one copy's later notices. Forced here by an id the central table already
+    // holds for another campaign -- the cheapest refusal to produce, standing
+    // for any.
+    Log::spy();
+
+    sendThroughStandInSes([sesMessageId(1), sesMessageId(2)]);
+
+    $harbor = sendingCampaign('harbor-cleanup');
+    $ridge = sendingCampaign('ridge-restoration');
+
+    ProviderMessage::query()->forceCreate([
+        'provider_message_id' => sesMessageId(1),
+        'tenant_id' => (string) $ridge->getKey(),
+    ]);
+
+    tenancy()->initialize($harbor);
+    $blast = committedBlastFor(['ama@harbor.test', 'bo@harbor.test']);
+    SendBlast::dispatch($blast, (string) $harbor->getKey());
+    tenancy()->end();
+
+    QueueWorker::runNextJob();
+
+    tenancy()->initialize($harbor);
+
+    // The refused copy went and says so, keeping the id the provider gave it;
+    // the one after it was sent and keyed as if nothing had happened.
+    expect(DB::table('blast_recipients')->whereNotNull('sent_at')->orderBy('id')->pluck('provider_message_id')->all())
+        ->toBe([sesMessageId(1), sesMessageId(2)])
+        ->and(Blast::query()->whereKey($blast->getKey())->sole()->status)->toBe(BlastStatus::Sent);
+
+    tenancy()->end();
+
+    // The earlier campaign's row is untouched, and the later copy is keyed.
+    expect(ProviderMessage::query()->find(sesMessageId(1))?->tenant_id)->toBe((string) $ridge->getKey())
+        ->and(ProviderMessage::query()->find(sesMessageId(2))?->tenant_id)->toBe((string) $harbor->getKey());
+
+    // Said once, naming the campaign and the blast -- and never the id, which
+    // is a join key to an address in the provider's records, nor the address.
+    Log::shouldHaveReceived('warning')->once()->withArgs(function (string $message) use ($harbor, $blast): bool {
+        return str_contains($message, (string) $harbor->getKey())
+            && str_contains($message, 'blast '.$blast->getKey())
+            && str_contains($message, 'SQLSTATE 23505')
+            && ! str_contains($message, sesMessageId(1))
+            && ! str_contains($message, 'ama@harbor.test');
+    });
+});
+
+test('erasing a supporter forgets the id the provider gave their copy', function (): void {
+    // **D-87's cost, asked by running a deletion.** The id is not an address,
+    // but the provider's records and every notice it sends hold it beside the
+    // address it went to, so a copy that kept it after its supporter was
+    // erased would be a join key back to them -- the shape D-49 found in the
+    // link token.
+    sendThroughStandInSes([sesMessageId(1)]);
+
+    $harbor = sendingCampaign('harbor-cleanup');
+
+    tenancy()->initialize($harbor);
+    $blast = committedBlastFor(['ama@harbor.test']);
+    SendBlast::dispatch($blast, (string) $harbor->getKey());
+    tenancy()->end();
+
+    QueueWorker::runNextJob();
+
+    tenancy()->initialize($harbor);
+    User::factory()->owner()->create(['email' => 'operator@harbor-cleanup.test']);
+    $supporter = Supporter::query()->where('email', 'ama@harbor.test')->sole();
+
+    // Present before the deletion, so an empty result below is the deletion
+    // rather than a search that could find nothing.
+    expect(campaignColumnsHolding(sesMessageId(1)))->toBe(['blast_recipients.provider_message_id']);
+
+    tenancy()->end();
+
+    signInForSend('harbor-cleanup.test', 'operator@harbor-cleanup.test');
+
+    test()->delete('http://harbor-cleanup.test/supporters/'.$supporter->getKey())
+        ->assertRedirect();
+
+    tenancy()->initialize($harbor);
+
+    expect(campaignColumnsHolding(sesMessageId(1)))->toBe([])
+        ->and(DB::table('blast_recipients')->whereNull('supporter_id')->whereNotNull('sent_at')->count())->toBe(1);
+});
+
+test('deleting a campaign removes every id it keyed centrally', function (): void {
+    // A campaign's sending history must not outlive the campaign in the one
+    // database every campaign shares.
+    sendThroughStandInSes([sesMessageId(1), sesMessageId(2)]);
+
+    $harbor = sendingCampaign('harbor-cleanup');
+    $ridge = sendingCampaign('ridge-restoration');
+
+    tenancy()->initialize($harbor);
+    SendBlast::dispatch(committedBlastFor(['ama@harbor.test']), (string) $harbor->getKey());
+
+    tenancy()->initialize($ridge);
+    SendBlast::dispatch(committedBlastFor(['cai@ridge.test']), (string) $ridge->getKey());
+
+    tenancy()->end();
+
+    QueueWorker::runNextJobs(2);
+
+    expect(ProviderMessage::query()->count())->toBe(2);
+
+    $harbor->delete();
+
+    // Only the deleted campaign's row goes.
+    expect(ProviderMessage::query()->pluck('tenant_id')->all())->toBe([(string) $ridge->getKey()]);
+});

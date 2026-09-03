@@ -31,6 +31,20 @@ test('the central database carries the platform infrastructure tables and nothin
     // Schema-qualified and not filtered by schema, so a table filed into some
     // other schema shows up as well. The framework's listing leaves out
     // PostgreSQL's own schemas, which is also where temporary tables live.
+    //
+    // **`provider_messages` is the first table here that holds per-send data,
+    // and this is the commit where DEC-1's boundary moves (D-86).** A notice
+    // from the mail provider arrives on the central host naming one message by
+    // the provider's id and nothing else that joins, so which campaign sent it
+    // has to be answerable before any campaign is entered. The alternative is
+    // asking every campaign for every notice -- measured at about 18 ms a
+    // campaign against 0.5 ms for one lookup here, and paid in full by every
+    // notice that matches nothing -- which criterion 7 forbids because it
+    // enters every campaign each time. What makes it acceptable centrally is
+    // what it does not hold: a provider id and a campaign id, no address, no
+    // supporter and no blast, with the copy the id names kept inside the
+    // campaign where an erasure reaches it. Deleting a campaign cascades to
+    // its rows.
     expect(Schema::getTableListing())->toEqualCanonicalizing([
         'public.cache',
         'public.cache_locks',
@@ -39,6 +53,7 @@ test('the central database carries the platform infrastructure tables and nothin
         'public.job_batches',
         'public.jobs',
         'public.migrations',
+        'public.provider_messages',
         'public.sessions',
         'public.tenants',
     ]);

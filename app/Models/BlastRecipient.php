@@ -37,12 +37,16 @@ use Illuminate\Support\Carbon;
  * erasure would have to be taught about. The token is a credential rather than
  * a fact about anybody, but it resolves to a person while it exists and is a
  * join key back to an address in copies outside the schema, which is why it
- * does not outlive the key beside it (D-49).
+ * does not outlive the key beside it (D-49). `provider_message_id` is the
+ * same shape from the other side -- what the mail provider calls this copy,
+ * held beside the address in the provider's records and its notices -- so the
+ * same trigger forgets it in the same act (D-87).
  *
  * @property int $id
  * @property int $blast_id
  * @property int|null $supporter_id
  * @property string|null $link_token
+ * @property string|null $provider_message_id
  * @property Carbon|null $sent_at
  * @property string|null $failure_reason
  * @property Carbon|null $created_at

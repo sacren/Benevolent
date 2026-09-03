@@ -48,6 +48,7 @@ test('a recipient row holds no part of the person it names', function (): void {
         'created_at',
         'updated_at',
         'link_token',
+        'provider_message_id',
     ]);
 });
 
