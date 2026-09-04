@@ -398,6 +398,47 @@ test('a message SNS did not sign is refused and writes nothing', function (Closu
     'not JSON' => [fn (string $body): string => 'not an SNS message'],
 ]);
 
+/*
+ * Step 4's probe, kept (D-90): four unsigned forgeries that each named a
+ * certificate URL. Before D-90 the first three made the intake fetch that URL
+ * from AWS before any signature was read, then answered 503 and reported the
+ * failure -- about 9 KB of log a request, at the caller's choosing.
+ *
+ * Every URL is faked as AWS would answer it, so a fetch the intake should not
+ * make is *recorded* rather than refused as a stray request: a stray request
+ * throws a RuntimeException, which the intake answers 403, and the test would
+ * then pass for the wrong reason.
+ */
+test('a forged message is refused without a fetch it can avoid, and leaves nothing reported', function (bool $namesThisTopic, string $certificateUrl, Closure $awsAnswer, bool $fetchExpected): void {
+    $harbor = noticeCampaign('harbor-cleanup');
+    $copy = keyedCopy($harbor, 'ama@example.test', 'id-1');
+
+    Http::fake([$certificateUrl => $awsAnswer]);
+    Exceptions::fake();
+
+    // A notice that would write, if it were believed.
+    $envelope = json_decode(noticeBody('delivery', 'id-1'), true);
+    $envelope['TopicArn'] = $namesThisTopic ? $envelope['TopicArn'] : 'arn:aws:sns:us-west-2:123456789012:t';
+    $envelope['SigningCertURL'] = $certificateUrl;
+    $envelope['Signature'] = base64_encode('not a signature');
+
+    postToIntake(json_encode($envelope, JSON_UNESCAPED_SLASHES))->assertForbidden();
+
+    expect(outcomesOn($harbor, $copy))->toBe(noOutcomes());
+    Exceptions::assertNothingReported();
+
+    $fetched = fn ($request): bool => $request->url() === $certificateUrl;
+    $fetchExpected ? Http::assertSent($fetched) : Http::assertNotSent($fetched);
+})->with([
+    // Refused at the topic, before any fetch.
+    'another topic, on the pinned host' => [false, 'https://sns.us-west-2.amazonaws.com/SimpleNotificationService-probe-a.pem', fn () => Http::response('', 404), false],
+    // The cost D-90 accepts: the fetch still happens, but the 404 is a refusal, not a report.
+    'this topic, a path AWS does not serve' => [true, 'https://sns.us-west-2.amazonaws.com/SimpleNotificationService-probe-b.pem', fn () => Http::response('', 404), true],
+    // Refused at the pinned host, before any fetch.
+    'this topic, another region\'s host' => [true, 'https://sns.zzz-nowhere-9.amazonaws.com/x.pem', fn () => Http::failedConnection(), false],
+    'this topic, a host off AWS' => [true, 'https://example.com/x.pem', fn () => Http::response(SnsSigner::certificate()), false],
+]);
+
 test('a message from another topic is refused, and so is every message when no topic is set', function (?string $topic): void {
     $harbor = noticeCampaign('harbor-cleanup');
     $copy = keyedCopy($harbor, 'ama@example.test', 'id-1');

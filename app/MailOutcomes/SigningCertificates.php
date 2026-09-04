@@ -28,8 +28,10 @@ use Illuminate\Support\Facades\Http;
  * retry policy try later. The controller makes that distinction.
  *
  * The validator checks the URL before calling this -- `https`, a `.pem` path,
- * and a host matching `sns.<region>.amazonaws.com` -- so nothing here can be
- * pointed at another host by a message's sender.
+ * and a host the controller pins to `sns.<the topic's region>.amazonaws.com`
+ * (D-90) -- so nothing here can be pointed at another host by a message's
+ * sender. The path is still theirs to choose, so a 4xx thrown from here is
+ * the controller's to read as a forgery rather than as AWS failing.
  */
 final class SigningCertificates
 {
