@@ -139,6 +139,10 @@ defineOptions({
                         <SelectItem value="unsubscribed">
                             Unsubscribed — they asked not to be contacted
                         </SelectItem>
+                        <SelectItem value="bounced">
+                            Bounced — mail to this address came back as
+                            undeliverable
+                        </SelectItem>
                     </SelectContent>
                 </Select>
                 <InputError :message="errors.subscription_status" />

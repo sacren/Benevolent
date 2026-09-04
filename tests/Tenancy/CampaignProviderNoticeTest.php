@@ -7,6 +7,8 @@ use App\Models\BlastRecipient;
 use App\Models\ProviderMessage;
 use App\Models\Supporter;
 use App\Models\Tenant;
+use App\Models\Unsubscribe;
+use App\Supporters\SubscriptionStatus;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Http\Request;
 use Illuminate\Session\Middleware\StartSession;
@@ -179,6 +181,33 @@ function noticeCampaign(string $slug): Tenant
     return Tenant::query()->where('slug', $slug)->firstOrFail();
 }
 
+/**
+ * A supporter in $campaign with this status, before any copy is sent to them.
+ */
+function supporterWithStatus(Tenant $campaign, string $email, SubscriptionStatus $status): void
+{
+    tenancy()->initialize($campaign);
+    Supporter::factory()->create(['email' => $email, 'subscription_status' => $status]);
+    tenancy()->end();
+}
+
+/**
+ * The supporter's status now, and how many withdrawals the campaign records.
+ *
+ * @return array{status: SubscriptionStatus, withdrawals: int}
+ */
+function supporterNow(Tenant $campaign, string $email): array
+{
+    tenancy()->initialize($campaign);
+    $now = [
+        'status' => Supporter::query()->where('email', $email)->sole()->subscription_status,
+        'withdrawals' => Unsubscribe::query()->count(),
+    ];
+    tenancy()->end();
+
+    return $now;
+}
+
 test('a notice lands on the copy it names, in the campaign that sent it, and no other campaign is entered', function (): void {
     $harbor = noticeCampaign('harbor-cleanup');
     $ridge = noticeCampaign('ridge-restoration');
@@ -248,7 +277,7 @@ test('a notice delivered twice changes nothing the second time', function (): vo
     expect(copyNow($harbor, $copy)['delivered_at']->toIso8601ZuluString())->toBe('2026-09-03T10:00:00Z');
 });
 
-test('a permanent bounce replaces a transient one, and a transient one never replaces a permanent one', function (): void {
+test('a permanent bounce replaces a transient one, a transient one never replaces a permanent one, and the supporter is bounced either way', function (): void {
     $harbor = noticeCampaign('harbor-cleanup');
     $first = keyedCopy($harbor, 'ama@example.test', 'id-1');
     $second = keyedCopy($harbor, 'bo@example.test', 'id-2');
@@ -265,6 +294,75 @@ test('a permanent bounce replaces a transient one, and a transient one never rep
         ->and(copyNow($harbor, $first)['bounced_at']->toIso8601ZuluString())->toBe('2026-09-03T11:00:00Z')
         ->and(copyNow($harbor, $second)['bounce_type'])->toBe(BounceType::Permanent)
         ->and(copyNow($harbor, $second)['bounced_at']->toIso8601ZuluString())->toBe('2026-09-03T10:00:00Z');
+
+    // The Permanent that replaced a Transient changed the copy, so it reaches
+    // the supporter too: the copy having been bounced before is not the gate.
+    expect(supporterNow($harbor, 'ama@example.test')['status'])->toBe(SubscriptionStatus::Bounced)
+        ->and(supporterNow($harbor, 'bo@example.test')['status'])->toBe(SubscriptionStatus::Bounced);
+});
+
+test('a permanent bounce makes the supporter bounced and a complaint unsubscribes them, and nothing else changes them', function (string $fixture, SubscriptionStatus $becomes): void {
+    $harbor = noticeCampaign('harbor-cleanup');
+    keyedCopy($harbor, 'ama@example.test', 'id-1');
+
+    postToIntake(noticeBody($fixture, 'id-1'))->assertOk();
+
+    // No withdrawal row for a complaint: `unsubscribes` counts links used, and
+    // nobody used one (D-87).
+    expect(supporterNow($harbor, 'ama@example.test'))->toBe(['status' => $becomes, 'withdrawals' => 0]);
+})->with([
+    'delivery' => ['delivery', SubscriptionStatus::Subscribed],
+    'permanent bounce' => ['bounce-permanent', SubscriptionStatus::Bounced],
+    'transient bounce' => ['bounce-transient', SubscriptionStatus::Subscribed],
+    'complaint' => ['complaint', SubscriptionStatus::Unsubscribed],
+]);
+
+test('a notice moves a supporter only from subscribed', function (string $fixture, SubscriptionStatus $already): void {
+    $harbor = noticeCampaign('harbor-cleanup');
+    supporterWithStatus($harbor, 'ama@example.test', $already);
+    $copy = keyedCopy($harbor, 'ama@example.test', 'id-1');
+
+    postToIntake(noticeBody($fixture, 'id-1'))->assertOk();
+
+    // The copy still records what the provider said; only the person is left.
+    expect(outcomesOn($harbor, $copy))->not->toBe(noOutcomes())
+        ->and(supporterNow($harbor, 'ama@example.test')['status'])->toBe($already);
+})->with([
+    'a permanent bounce for somebody who asked to leave' => ['bounce-permanent', SubscriptionStatus::Unsubscribed],
+    'a complaint about an address already bounced' => ['complaint', SubscriptionStatus::Bounced],
+]);
+
+test('a notice delivered again after an operator put the supporter back leaves them subscribed', function (string $fixture): void {
+    $harbor = noticeCampaign('harbor-cleanup');
+    keyedCopy($harbor, 'ama@example.test', 'id-1');
+
+    postToIntake(noticeBody($fixture, 'id-1'))->assertOk();
+
+    tenancy()->initialize($harbor);
+    Supporter::query()->where('email', 'ama@example.test')->update(['subscription_status' => SubscriptionStatus::Subscribed->value]);
+    tenancy()->end();
+
+    // SNS's retry of the same notice: the copy already holds it, so the
+    // supporter is not moved a second time over the operator's decision.
+    postToIntake(noticeBody($fixture, 'id-1'))->assertOk();
+
+    expect(supporterNow($harbor, 'ama@example.test')['status'])->toBe(SubscriptionStatus::Subscribed);
+})->with(['bounce-permanent', 'complaint']);
+
+test('a supporter write that fails leaves the copy unwritten, so SNS\'s retry can still make both', function (): void {
+    $harbor = noticeCampaign('harbor-cleanup');
+    $copy = keyedCopy($harbor, 'ama@example.test', 'id-1');
+
+    // The copy's write succeeds and the supporter's is refused after it.
+    tenancy()->initialize($harbor);
+    DB::statement('alter table supporters drop column subscription_status');
+    tenancy()->end();
+
+    Exceptions::fake();
+
+    postToIntake(noticeBody('bounce-permanent', 'id-1'))->assertServerError();
+
+    expect(outcomesOn($harbor, $copy))->toBe(noOutcomes());
 });
 
 test('a message SNS did not sign is refused and writes nothing', function (Closure $forge): void {

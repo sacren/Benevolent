@@ -16,8 +16,8 @@ import { create } from '@/routes/operators/invitations';
  * invitation is handed to the mail transport before this page hears back, and
  * a transport that refuses it leaves no invitation at all -- so "sent" is true
  * in the only sense the product can know. Whether it arrived is not something
- * this platform can see (deferral 30), and the page says so rather than letting
- * a success message imply it.
+ * this platform can see: the provider's notices are kept for blast copies only
+ * (D-89), and the page says so rather than letting a success message imply it.
  *
  * How long the link works is the model's lifetime (D-59), passed in rather
  * than written here, so the form cannot promise a different number of days.

@@ -84,7 +84,8 @@ final class BlastMessage extends Mailable
      * **Nothing asserts that absence, deliberately (L-20).** A test that this
      * class holds no Supporter would go red on the exact change we would make
      * if D-20 were ever revisited, which is a tripwire rather than a guard --
-     * the same reason D-19's answer ships without one for `Bounced`. What
+     * the same reason D-19's first answer shipped without one for `Bounced`,
+     * whose case was then added by the change it would have fired on. What
      * carries the decision instead is this signature, which cannot be widened
      * without somebody editing the line they would have to argue for.
      *

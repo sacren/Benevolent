@@ -21,10 +21,11 @@ export type Supporter = {
 };
 
 /**
- * Mirrors App\Supporters\SubscriptionStatus. Two cases, deliberately: a third,
- * `Bounced`, waits for a sending path that could write it.
+ * Mirrors App\Supporters\SubscriptionStatus. `bounced` is written by a
+ * Permanent bounce from the provider (D-87), so a page that reads the status
+ * must name all three rather than treat "not subscribed" as "unsubscribed".
  */
-export type SubscriptionStatus = 'subscribed' | 'unsubscribed';
+export type SubscriptionStatus = 'subscribed' | 'unsubscribed' | 'bounced';
 
 /**
  * One attempt at getting an existing list into the campaign, as the server

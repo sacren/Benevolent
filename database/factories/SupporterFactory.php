@@ -78,4 +78,14 @@ class SupporterFactory extends Factory
             'subscription_status' => SubscriptionStatus::Unsubscribed,
         ]);
     }
+
+    /**
+     * Indicate that mail to the supporter's address came back for good.
+     */
+    public function bounced(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'subscription_status' => SubscriptionStatus::Bounced,
+        ]);
+    }
 }

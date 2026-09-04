@@ -26,8 +26,9 @@ use Illuminate\Support\Str;
  * put in the link until the row exists.
  *
  * What remains is the gap between "the transport accepted it" and "it
- * arrived", which no code here can close: a bounce comes back later and
- * somewhere this platform does not listen (deferral 30).
+ * arrived", which no code here can close: a bounce comes back later, and
+ * although the platform now hears the provider's notices, an invitation
+ * carries no key, so its notice is answered and written nowhere (D-89).
  *
  * **Both refusals live here, so every path that invites asks the same
  * question.** The form request and the console command both call

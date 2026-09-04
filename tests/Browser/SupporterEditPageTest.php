@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Models\Supporter;
 use App\Models\User;
+use App\Supporters\SubscriptionStatus;
 use Tests\Concerns\RunsInCampaignContext;
 use Tests\Support\LoopbackHost;
 
@@ -74,4 +75,25 @@ test('the edit form mounts, with the supporter in the fields and in the breadcru
     // appear in no markup assertion the server or the DOM text could make.
     $page->assertScript('document.getElementById("email").value === "ama.boateng@example.test"');
     $page->assertScript('document.getElementById("postcode").value === "90210"');
+});
+
+test('a bounced supporter\'s form shows them bounced, and saving another field keeps them so', function (): void {
+    // The form posts the status with every save, so a select that cannot hold
+    // `bounced` would either refuse the save or change the status nobody
+    // touched. Driven through the page because the select is what decides it.
+    $supporter = Supporter::factory()->bounced()->create(['name' => 'Ama Boateng']);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    $page = visit('/supporters/'.$supporter->getKey().'/edit');
+
+    $page->assertSeeIn('#subscription_status', 'Bounced')
+        ->fill('name', 'Ama B. Boateng')
+        ->click('[data-test="update-supporter-button"]');
+
+    $page->assertPathIs('/supporters')
+        ->assertNoJavaScriptErrors();
+
+    expect($supporter->fresh()->name)->toBe('Ama B. Boateng')
+        ->and($supporter->fresh()->subscription_status)->toBe(SubscriptionStatus::Bounced);
 });

@@ -13,6 +13,7 @@ import type {
     DistrictClaim,
     Paginated,
     Segment,
+    SubscriptionStatus,
     Supporter,
     SupporterDistricts,
 } from '@/types';
@@ -70,6 +71,18 @@ function whyNoDistrict(claim: DistrictClaim): string {
             return 'Not named';
     }
 }
+
+/**
+ * Each status by its own name. A record keyed by the type rather than a
+ * "subscribed or not" test, so a status added later fails the type check here
+ * instead of being shown as one of the others (a bounced supporter once would
+ * have read "Unsubscribed").
+ */
+const statusLabels: Record<SubscriptionStatus, string> = {
+    subscribed: 'Subscribed',
+    unsubscribed: 'Unsubscribed',
+    bounced: 'Bounced',
+};
 
 const { can } = usePermissions();
 
@@ -411,6 +424,7 @@ defineOptions({
                         </td>
                         <td class="px-4 py-3">
                             <Badge
+                                :data-test="`supporter-status-${supporter.id}`"
                                 :variant="
                                     supporter.subscription_status ===
                                     'subscribed'
@@ -419,10 +433,7 @@ defineOptions({
                                 "
                             >
                                 {{
-                                    supporter.subscription_status ===
-                                    'subscribed'
-                                        ? 'Subscribed'
-                                        : 'Unsubscribed'
+                                    statusLabels[supporter.subscription_status]
                                 }}
                             </Badge>
                         </td>

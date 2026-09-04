@@ -273,6 +273,18 @@ test('leaving again after an operator put them back is a second withdrawal', fun
         ->and($supporter->fresh()->subscription_status)->toBe(SubscriptionStatus::Unsubscribed);
 });
 
+test('somebody whose address bounced can still leave through the link, and it is a withdrawal', function (): void {
+    // The link records what the person asked for, which says more than their
+    // address failing; "only from Subscribed" is the provider's rule, not the
+    // link's (D-87).
+    $supporter = Supporter::factory()->bounced()->create();
+
+    $this->post($this->campaignUrl('unsubscribe/'.$supporter->fresh()->unsubscribe_token))->assertRedirect();
+
+    expect(Unsubscribe::query()->count())->toBe(1)
+        ->and($supporter->fresh()->subscription_status)->toBe(SubscriptionStatus::Unsubscribed);
+});
+
 test('six messages to one person, each link used once, are one withdrawal and not six', function (): void {
     // **This is the complement of the test above, and between them they fix
     // what this table counts.** That one says an operator's re-subscription

@@ -6,10 +6,13 @@ namespace App\MailOutcomes;
 
 use App\Models\BlastRecipient;
 use App\Models\ProviderMessage;
+use App\Models\Supporter;
 use App\Models\Tenant;
+use App\Supporters\SubscriptionStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 /**
@@ -34,6 +37,16 @@ use RuntimeException;
  * reader was erased, a duplicate, a notification type that is not one of the
  * three: each returns without a write and without a log line, since a logged
  * id is a join key to an address in the provider's records.
+ *
+ * **Two notices change the supporter as well, and only from Subscribed
+ * (D-87).** A Permanent bounce makes them Bounced, since the address is known
+ * not to take mail; a complaint makes them Unsubscribed, since it is the
+ * recipient asking for no more, and it writes no `unsubscribes` row, because
+ * that table counts links used. Somebody already Unsubscribed or Bounced stays
+ * as they are. The supporter changes only when the copy did, so a duplicate
+ * notice cannot undo an operator who has since put them back; and both writes
+ * share one transaction, so a refused supporter write leaves the copy unwritten
+ * for SNS's retry to find, rather than written and skipped for ever.
  *
  * **A refused write is rethrown without the database's words.** A
  * QueryException prints its SQL with the id inlined, and the exception
@@ -69,9 +82,20 @@ final class RecordNotice
         tenancy()->initialize($tenant);
 
         try {
-            $copy = BlastRecipient::query()->where('provider_message_id', $providerMessageId);
+            DB::transaction(function () use ($providerMessageId, $outcome): void {
+                $copy = BlastRecipient::query()->where('provider_message_id', $providerMessageId);
 
-            $outcome['onlyIf']($copy)->update($outcome['write']);
+                $changed = $outcome['onlyIf']($copy)->update($outcome['write']);
+
+                if ($changed === 0 || $outcome['supporterBecomes'] === null) {
+                    return;
+                }
+
+                Supporter::query()
+                    ->whereIn('id', BlastRecipient::query()->select('supporter_id')->where('provider_message_id', $providerMessageId))
+                    ->where('subscription_status', SubscriptionStatus::Subscribed)
+                    ->update(['subscription_status' => $outcome['supporterBecomes']->value]);
+            });
         } catch (QueryException $exception) {
             throw new RuntimeException(sprintf(
                 'A provider notice could not be recorded: the database refused the write (SQLSTATE %s).',
@@ -88,10 +112,11 @@ final class RecordNotice
      * A Permanent bounce may replace a Transient or Undetermined one, because
      * it is the only bounce that says something about the address; nothing
      * replaces a Permanent one, and every other column is written only while
-     * it is empty.
+     * it is empty. `supporterBecomes` is what a Subscribed supporter is moved to,
+     * or null where the notice says nothing about whether they may be written to.
      *
      * @param  array<string, mixed>  $notice
-     * @return array{write: array<string, mixed>, onlyIf: callable(Builder<BlastRecipient>): Builder<BlastRecipient>}|null
+     * @return array{write: array<string, mixed>, onlyIf: callable(Builder<BlastRecipient>): Builder<BlastRecipient>, supporterBecomes: ?SubscriptionStatus}|null
      */
     private function outcomeFrom(array $notice): ?array
     {
@@ -103,6 +128,7 @@ final class RecordNotice
             return $at === null ? null : [
                 'write' => ['delivered_at' => $at],
                 'onlyIf' => fn (Builder $copy): Builder => $copy->whereNull('delivered_at'),
+                'supporterBecomes' => null,
             ];
         }
 
@@ -112,6 +138,7 @@ final class RecordNotice
             return $at === null ? null : [
                 'write' => ['complained_at' => $at],
                 'onlyIf' => fn (Builder $copy): Builder => $copy->whereNull('complained_at'),
+                'supporterBecomes' => SubscriptionStatus::Unsubscribed,
             ];
         }
 
@@ -126,6 +153,7 @@ final class RecordNotice
                         ->whereNull('bounced_at')
                         ->orWhere('bounce_type', '!=', BounceType::Permanent->value))
                     : fn (Builder $copy): Builder => $copy->whereNull('bounced_at'),
+                'supporterBecomes' => $bounceType === BounceType::Permanent ? SubscriptionStatus::Bounced : null,
             ];
         }
 

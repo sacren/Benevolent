@@ -37,13 +37,15 @@ function supporterWithPostcode(?string $postcode, SubscriptionStatus $status = S
 test('a blast with no narrowing reaches everyone the campaign may contact, and nobody else', function (): void {
     $reachable = supporterWithPostcode('90210');
     supporterWithPostcode('90210', SubscriptionStatus::Unsubscribed);
+    supporterWithPostcode('90210', SubscriptionStatus::Bounced);
     $noPostcode = supporterWithPostcode(null);
 
     $blast = Blast::factory()->create();
 
     // Both directions in one assertion, so a later edit cannot drop the half
     // that does the work: everyone subscribed is in, including somebody with no
-    // postcode at all, and the unsubscribed supporter is out.
+    // postcode at all, and the unsubscribed and bounced supporters are out --
+    // the second is why the condition names who is in rather than who left.
     expect(BlastAudience::for($blast)->pluck('id')->all())
         ->toEqualCanonicalizing([$reachable->getKey(), $noPostcode->getKey()])
         ->and(BlastAudience::size($blast))->toBe(2);

@@ -17,11 +17,10 @@ namespace App\Supporters;
  * AuditEvent), and a string-backed enum gains its next case for free where a
  * boolean would need a migration and a data transform to grow one.
  *
- * The case that is deliberately absent is `Bounced`, which is what "reach decays
- * silently" actually points at. Nothing can write it until this platform sends
- * mail to supporters, and a state nothing writes is a guess at a future rather
- * than a description of the data — the shape L-20 names. Choosing the
- * representation that can hold it later is not the same as building it now.
+ * `Bounced` is what "reach decays silently" actually points at, and it was kept
+ * out until something could write it (D-19, L-20). The provider's notices now
+ * do (D-87), so the case exists, and the enum grew it without a migration, as
+ * the paragraph above said it would.
  */
 enum SubscriptionStatus: string
 {
@@ -46,6 +45,18 @@ enum SubscriptionStatus: string
      * is what stops a later import putting them straight back on the list.
      */
     case Unsubscribed = 'unsubscribed';
+
+    /**
+     * Mail to this supporter's address came back as undeliverable for good.
+     *
+     * Written by a Permanent bounce from the provider, and only from
+     * Subscribed (D-87): somebody who asked to leave stays Unsubscribed, since
+     * their request says more than their address failing. A Transient bounce
+     * writes nothing here, because an auto-reply or a full mailbox says nothing
+     * about the address. An operator can set it by hand, and setting the
+     * supporter back to Subscribed on the edit form is the way back (D-21).
+     */
+    case Bounced = 'bounced';
 
     /**
      * The status a supporter has when nothing says otherwise.

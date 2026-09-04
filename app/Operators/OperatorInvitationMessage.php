@@ -26,8 +26,9 @@ use Illuminate\Mail\Mailables\Envelope;
  * **What that lets the product claim, and no more.** Sent in the request means
  * the transport accepted it before the Owner was told anything, and a
  * transport that refuses it undoes the invitation (InviteOperator). It does not
- * mean it arrived: a bounce happens later and elsewhere, and this platform has
- * no bounce path (deferral 30). The page that sends it says exactly that.
+ * mean it arrived: a bounce happens later and elsewhere, and only blast copies
+ * are keyed, so an invitation's notice matches nothing and is written nowhere
+ * (D-89). The page that sends it says exactly that.
  *
  * **The envelope is D-15's, unchanged.** The from name is the campaign's,
  * applied by CampaignMailFromTenancyBootstrapper; the from address is the

@@ -166,6 +166,23 @@ test('an owner sees the list, and its two controls behave as different kinds of 
         ->assertNoJavaScriptErrors();
 });
 
+test('each status is shown by its own name, so a bounced supporter is not called unsubscribed', function (): void {
+    // The page decides the label, which is why this is a browser test: the
+    // server sends `bounced` either way, and a "subscribed or not" ternary
+    // turned it into "Unsubscribed" before D-87 gave it a case.
+    $subscribed = Supporter::factory()->create();
+    $unsubscribed = Supporter::factory()->unsubscribed()->create();
+    $bounced = Supporter::factory()->bounced()->create();
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    visit('/supporters')
+        ->assertSeeIn('[data-test="supporter-status-'.$subscribed->getKey().'"]', 'Subscribed')
+        ->assertSeeIn('[data-test="supporter-status-'.$unsubscribed->getKey().'"]', 'Unsubscribed')
+        ->assertSeeIn('[data-test="supporter-status-'.$bounced->getKey().'"]', 'Bounced')
+        ->assertNoJavaScriptErrors();
+});
+
 test('a ZIP code inside one district shows that district, and one crossing a boundary shows none as the supporter\'s', function (): void {
     // **The claim is made in the rendering, which is why this is a browser
     // test.** The server sends a split ZIP code's districts in `touching` and
