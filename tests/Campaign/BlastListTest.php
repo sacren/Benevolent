@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Authorization\Permission;
 use App\Blasts\BlastStatus;
+use App\MailOutcomes\BounceType;
 use App\Models\Blast;
 use App\Models\BlastRecipient;
 use App\Models\Segment;
@@ -237,7 +238,7 @@ test('the list says how many people left because of each message', function (): 
             // And the basis the count is drawn from: all three copies carried a
             // link, so the two is the whole answer rather than a floor.
             ->where('blasts.0.attributable_count', 3)
-            ->where('blasts.0.reached_count', 3)
+            ->where('blasts.0.sent_count', 3)
         );
 });
 
@@ -259,7 +260,7 @@ test('a blast whose copies carried no link reports no basis, which is not the sa
             // The send itself is untouched and still says what it did. Without
             // this the assertions above are satisfied by a blast that reached
             // nobody, which is a different fact entirely.
-            ->where('blasts.0.reached_count', 3)
+            ->where('blasts.0.sent_count', 3)
         );
 });
 
@@ -279,7 +280,7 @@ test('a blast whose copies are only partly attributable says how many could spea
     $this->actingAs(User::factory()->create())
         ->get($this->campaignUrl('/blasts'))
         ->assertInertia(fn (Assert $page) => $page
-            ->where('blasts.0.reached_count', 4)
+            ->where('blasts.0.sent_count', 4)
             // Two of the four copies could name themselves, so one withdrawal
             // is one out of two rather than one out of four.
             ->where('blasts.0.attributable_count', 2)
@@ -301,7 +302,7 @@ test('a link minted for a message that never went is not counted as a basis', fu
     $this->actingAs(User::factory()->create())
         ->get($this->campaignUrl('/blasts'))
         ->assertInertia(fn (Assert $page) => $page
-            ->where('blasts.0.reached_count', 1)
+            ->where('blasts.0.sent_count', 1)
             ->where('blasts.0.failed_count', 2)
             // One, not three: the two failed copies hold tokens the database
             // minted and no message ever carried anywhere.
@@ -320,7 +321,7 @@ test('one copy followed by two withdrawals counts twice without inflating what t
     // `count(distinct blast_recipient_id)` reports 1 where 2 is the truth,
     // confirmed by running it.
     //
-    // **The `reached_count` half is a tripwire for a shape this page does not
+    // **The `sent_count` half is a tripwire for a shape this page does not
     // currently have, and no mutation available today can reach it.** Each
     // aggregate here is its own correlated subquery, so `unsubscribes` cannot
     // touch the reach count whatever is done to the withdrawal count. It is
@@ -348,7 +349,7 @@ test('one copy followed by two withdrawals counts twice without inflating what t
         ->get($this->campaignUrl('/blasts'))
         ->assertInertia(fn (Assert $page) => $page
             ->where('blasts.0.withdrawn_count', 2)
-            ->where('blasts.0.reached_count', 1)
+            ->where('blasts.0.sent_count', 1)
             ->where('blasts.0.attributable_count', 1)
         );
 });
@@ -426,4 +427,47 @@ test('the withdrawal count does not add a query per blast', function (): void {
     // Written as an exact number rather than "fewer than four", because the
     // claim is that neither grows with the list.
     expect($unsubscribeQueries)->toBe(2);
+});
+
+test('each sent copy is counted as delivered, bounced or neither by what the provider reported', function (): void {
+    // **Phase 8 Step 4: the blast list stops inferring delivery from
+    // `sent_at`.** Every pairing a copy can hold is here once, because the
+    // precedence between them is a chosen rule and each arm of it can be
+    // broken on its own:
+    //
+    //   - a delivery alone, and a delivery with a complaint: delivered;
+    //   - a delivery with a `Transient` bounce, B8's out-of-office auto-reply:
+    //     delivered, because the mailbox did receive it;
+    //   - a delivery with a `Permanent` bounce, a pair never observed: bounced,
+    //     because the rule lets a `Permanent` bounce outrank a delivery;
+    //   - a `Permanent` bounce alone and a `Transient` bounce alone: bounced,
+    //     since no delivery says otherwise;
+    //   - a copy no notice reached: neither, which the page reports as
+    //     *not known* by subtraction.
+    //
+    // The refused copy is the control that the counts stay inside what was
+    // sent.
+    $blast = Blast::factory()->sent()->create(['subject' => 'Observed by the provider']);
+    $copies = BlastRecipient::factory()->ofBlast($blast)->sent();
+
+    $copies->delivered()->create();
+    $copies->delivered()->complained()->create();
+    $copies->delivered()->bounced(BounceType::Transient)->create();
+    $copies->delivered()->bounced(BounceType::Permanent)->create();
+    $copies->bounced(BounceType::Permanent)->create();
+    $copies->bounced(BounceType::Transient)->create();
+    $copies->create();
+    BlastRecipient::factory()->ofBlast($blast)->failed()->create();
+
+    $this->actingAs(User::factory()->create())
+        ->get($this->campaignUrl('/blasts'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('blasts.0.sent_count', 7)
+            ->where('blasts.0.failed_count', 1)
+            ->where('blasts.0.delivered_count', 3)
+            ->where('blasts.0.bounced_count', 3)
+            ->where('blasts.0.complained_count', 1)
+            // Withdrawals stay a count of links used, which a complaint is not.
+            ->where('blasts.0.withdrawn_count', 0)
+        );
 });

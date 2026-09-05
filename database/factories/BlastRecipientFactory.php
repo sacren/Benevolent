@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
+use App\MailOutcomes\BounceType;
 use App\Models\Blast;
 use App\Models\BlastRecipient;
 use App\Models\Supporter;
@@ -103,6 +104,45 @@ class BlastRecipientFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'link_token' => null,
+        ]);
+    }
+
+    /**
+     * Indicate that the mail provider reported this copy delivered (D-87).
+     *
+     * Combine with sent(): a notice reaches a copy only through the message id
+     * written beside `sent_at`, so an outcome on an unsent copy is a state the
+     * application cannot produce.
+     */
+    public function delivered(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'delivered_at' => now(),
+        ]);
+    }
+
+    /**
+     * Indicate that the mail provider reported this copy bounced, and how.
+     *
+     * The time and the type together, because RecordNotice writes them in one
+     * update and a copy holding one without the other is unreachable.
+     */
+    public function bounced(BounceType $type = BounceType::Permanent): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'bounced_at' => now(),
+            'bounce_type' => $type,
+        ]);
+    }
+
+    /**
+     * Indicate that the recipient marked this copy as spam, as the mail
+     * provider reported it.
+     */
+    public function complained(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'complained_at' => now(),
         ]);
     }
 }

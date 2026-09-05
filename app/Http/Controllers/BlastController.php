@@ -9,6 +9,7 @@ use App\Blasts\BlastStatus;
 use App\Blasts\SendBlast;
 use App\Districts\ZctaDistricts;
 use App\Http\Requests\Blasts\ComposeBlastRequest;
+use App\MailOutcomes\BounceType;
 use App\Models\Blast;
 use App\Models\Segment;
 use App\Models\Unsubscribe;
@@ -124,7 +125,9 @@ class BlastController extends Controller
      * `blast_recipients` table passes roughly a million rows -- which is where
      * this page crossed half a second when it carried two counts, and which it
      * now reaches sooner, because `attributable_count` scans each blast's whole
-     * recipient set a third time. The withdrawal count does not: it reads
+     * recipient set a third time, and Phase 8's three outcome counts a fourth,
+     * fifth and sixth (2,088.2 ms at 1,000,000 copies, measured beside them).
+     * The withdrawal count does not: it reads
      * `unsubscribes` and probes recipients by primary key, so it grows with
      * that table rather than with this one. The other half of the trigger is
      * the first thing that creates blasts other than an operator typing one,
@@ -210,7 +213,11 @@ class BlastController extends Controller
                 // where the planner correctly prefers a sequential scan in
                 // *both* orders and reports the two as identical.
                 ->withCount([
-                    'recipients as reached_count' => fn (Builder $query) => $query->whereNotNull('sent_at'),
+                    // **Sent, not reached** (Phase 8 Step 4): `sent_at` says
+                    // the mail provider accepted the copy, which is all this
+                    // application ever sees itself. What became of it is the
+                    // provider's report, counted below.
+                    'recipients as sent_count' => fn (Builder $query) => $query->whereNotNull('sent_at'),
                     'recipients as failed_count' => fn (Builder $query) => $query->whereNotNull('failure_reason'),
 
                     // **How many of this blast's copies could have said which
@@ -254,6 +261,59 @@ class BlastController extends Controller
                     'recipients as attributable_count' => fn (Builder $query) => $query
                         ->whereNotNull('link_token')
                         ->whereNotNull('sent_at'),
+
+                    // **What the mail provider reported for each copy (D-87),
+                    // as one of three answers, so the page can say "not known"
+                    // for the rest by subtraction.** A copy is *delivered* when
+                    // a delivery was reported and no `Permanent` bounce was;
+                    // *bounced* on a `Permanent` bounce, or on any bounce with
+                    // no delivery; and *not known* when neither arrived. The
+                    // two predicates partition the copies that have either, so
+                    // `sent_count - delivered_count - bounced_count` is the
+                    // copies no notice reached -- including every copy sent
+                    // before the intake existed, which nothing back-fills.
+                    //
+                    // **A `Permanent` bounce outranks a delivery by a rule
+                    // chosen, not measured**: that pair on one copy has never
+                    // been observed. The pair that has, B8's out-of-office
+                    // auto-reply, is a delivery and a `Transient` bounce, and
+                    // the mailbox did receive the message, so it counts as
+                    // delivered.
+                    //
+                    // **No `sent_at` predicate, unlike the basis above, and
+                    // the difference is reachability.** A notice finds its copy
+                    // only through the provider's message id, which
+                    // SendBlast::deliver() writes in the same update as
+                    // `sent_at`, so an outcome on an unsent copy is a row the
+                    // application cannot produce.
+                    //
+                    // **Three more correlated counts, and their cost is
+                    // measured rather than assumed.** On ten blasts of 100,000
+                    // copies with 4,500 withdrawals, this page's four
+                    // aggregates cost 1,294.8 ms (Phase 5 Step 5 measured
+                    // 1,282.5 on the same shape) and these seven 2,088.2 ms;
+                    // the same seven as two grouped passes cost 373.9 ms and
+                    // agree on every blast. The grouped shape is still not
+                    // taken, for the reason the docblock records, and its
+                    // trigger now arrives sooner again.
+                    'recipients as delivered_count' => fn (Builder $query) => $query
+                        ->whereNotNull('delivered_at')
+                        ->where(fn (Builder $query) => $query
+                            ->whereNull('bounce_type')
+                            ->orWhere('bounce_type', '!=', BounceType::Permanent->value)),
+                    'recipients as bounced_count' => fn (Builder $query) => $query
+                        ->where(fn (Builder $query) => $query
+                            ->where('bounce_type', BounceType::Permanent->value)
+                            ->orWhere(fn (Builder $query) => $query
+                                ->whereNotNull('bounced_at')
+                                ->whereNull('delivered_at'))),
+
+                    // A complaint is a way of asking to stop (D-45), so it
+                    // joins the withdrawals in the Asked to stop column. It is
+                    // counted on its own rather than added to them, because it
+                    // writes no `unsubscribes` row (D-87) and "N by link" must
+                    // keep meaning a link used.
+                    'recipients as complained_count' => fn (Builder $query) => $query->whereNotNull('complained_at'),
                 ])
 
                 // **How many people used one of this blast's links to leave

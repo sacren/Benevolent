@@ -64,16 +64,54 @@ const statusVariants: Record<
 const progressSummaries: Record<BlastStatus, (blast: Blast) => string> = {
     draft: () => 'Not sent',
     queued: () => 'Waiting — no worker has picked this up yet',
-    sending: (blast) => `${blast.reached_count} sent so far`,
+    sending: (blast) =>
+        `${blast.sent_count} handed to the mail provider so far`,
     sent: (blast) =>
         blast.failed_count === 0
-            ? `${blast.reached_count} reached`
-            : `${blast.reached_count} reached, ${blast.failed_count} refused`,
-    failed: (blast) => `${blast.reached_count} reached before it stopped`,
+            ? `${blast.sent_count} handed to the mail provider`
+            : `${blast.sent_count} handed to the mail provider, ${blast.failed_count} refused`,
+    failed: (blast) =>
+        `${blast.sent_count} handed to the mail provider before it stopped`,
 };
 
 function progressSummary(blast: Blast): string {
     return progressSummaries[blast.status](blast);
+}
+
+/**
+ * What the mail provider reported for the copies it was handed, as the second
+ * line of the Sent column.
+ *
+ * **The line above says what this application did; this one says what the
+ * provider saw, and the two are kept apart on purpose.** A copy the provider
+ * accepted is not a copy that arrived, and the column used to call it
+ * "reached" — the inference Phase 8 exists to stop making.
+ *
+ * Each sent copy is delivered, bounced or not known, so the three always add up
+ * to the line above. Zero categories are left out. When no notice has reached
+ * any copy — every blast sent before the intake existed, or a stopped intake —
+ * the line says so in words rather than reading "0 delivered", which would be
+ * a claim the provider never made.
+ */
+function providerReport(blast: Blast): string {
+    const notKnown =
+        blast.sent_count - blast.delivered_count - blast.bounced_count;
+
+    if (notKnown === blast.sent_count) {
+        return 'Not known — the mail provider has reported nothing for these copies';
+    }
+
+    const answers: [number, string][] = [
+        [blast.delivered_count, 'delivered'],
+        [blast.bounced_count, 'bounced'],
+        [notKnown, 'not known'],
+    ];
+
+    const parts = answers
+        .filter(([count]) => count !== 0)
+        .map(([count, word]) => `${count} ${word}`);
+
+    return `Provider reports ${parts.join(', ')}`;
 }
 
 /**
@@ -111,21 +149,41 @@ const outcomeSummaries: Record<BlastStatus, (blast: Blast) => string> = {
  * and only some of the copies could speak -- and each one gets its own sentence
  * rather than a shared one.
  *
- * `reached_count === 0` comes first of all, because a send that reached nobody
+ * `sent_count === 0` comes first of all, because a send that went to nobody
  * has no basis for any of the three. A blast whose every copy was refused is
  * that case, and it is not "not recorded": nothing was mailed to be recorded
  * about.
+ *
+ * **A complaint is the other way of asking to stop (D-45), and it is added
+ * beside the link's answer rather than into it.** It writes no withdrawal and
+ * uses no link, so folding it into the count would make "2" mean two different
+ * acts. With none, the answers above are unchanged; with some, the link's
+ * answer is qualified — `Nobody by link · 1 marked it as spam` — so neither
+ * half is read as the whole.
  */
 function outcomeOf(blast: Blast): string {
-    if (blast.reached_count === 0) {
+    if (blast.sent_count === 0) {
         return '—';
     }
 
+    const byLink = linkOutcomeOf(blast);
+
+    if (blast.complained_count === 0) {
+        return byLink;
+    }
+
+    return `${byLink} · ${blast.complained_count} marked it as spam`;
+}
+
+/**
+ * The withdrawals made through this blast's own links, as D-48 answers them.
+ */
+function linkOutcomeOf(blast: Blast): string {
     if (blast.attributable_count === 0) {
         return 'Not recorded — these copies carried no per-message link';
     }
 
-    if (blast.attributable_count < blast.reached_count) {
+    if (blast.attributable_count < blast.sent_count) {
         // A floor rather than a total, so the basis is named beside it. This
         // arm exists because a send resumed across the release that added
         // per-message links holds copies of both kinds, which is a state the
@@ -138,7 +196,13 @@ function outcomeOf(blast: Blast): string {
         return `${blast.withdrawn_count} of ${basis}`;
     }
 
-    return blast.withdrawn_count === 0 ? 'Nobody' : `${blast.withdrawn_count}`;
+    // A bare count beside a complaint would read as the column's total, so it
+    // says which way of asking to stop it counts.
+    const qualifier = blast.complained_count === 0 ? '' : ' by link';
+
+    return blast.withdrawn_count === 0
+        ? `Nobody${qualifier}`
+        : `${blast.withdrawn_count}${qualifier}`;
 }
 
 function outcomeSummary(blast: Blast): string {
@@ -396,6 +460,17 @@ defineOptions({
                             <span :data-test="`blast-progress-${blast.id}`">{{
                                 progressSummary(blast)
                             }}</span>
+                            <!--
+                                What the mail provider reported, beneath what
+                                this application did, whenever a copy was
+                                handed over at all.
+                            -->
+                            <span
+                                v-if="blast.sent_count > 0"
+                                class="mt-1 block text-xs"
+                                :data-test="`blast-provider-${blast.id}`"
+                                >{{ providerReport(blast) }}</span
+                            >
                             <!--
                                 Why a send stopped, where the campaign can read
                                 it. Central failed_jobs has no campaign column

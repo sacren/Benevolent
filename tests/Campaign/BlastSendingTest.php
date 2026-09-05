@@ -278,7 +278,7 @@ test('the list says what a send has done, counted from the record rather than th
             $counts = collect($page->toArray()['props']['blasts'])
                 ->keyBy('id')
                 ->map(fn (array $blast): array => [
-                    'reached' => $blast['reached_count'],
+                    'sent' => $blast['sent_count'],
                     'failed' => $blast['failed_count'],
                 ]);
 
@@ -286,12 +286,12 @@ test('the list says what a send has done, counted from the record rather than th
             // than what the audience rule predicts -- which is the distinction
             // D-14 accepted and the reason a per-blast count is honest where a
             // recomputed audience size would not be.
-            expect($counts[$sentBlast->getKey()])->toBe(['reached' => 3, 'failed' => 1])
-                ->and($counts[$failedBlast->getKey()])->toBe(['reached' => 1, 'failed' => 0])
+            expect($counts[$sentBlast->getKey()])->toBe(['sent' => 3, 'failed' => 1])
+                ->and($counts[$failedBlast->getKey()])->toBe(['sent' => 1, 'failed' => 0])
                 // A blast nothing has picked up reads zero rather than absent,
                 // which is what lets the page say "waiting" rather than render
                 // an empty cell that looks like a broken column.
-                ->and($counts[$queuedBlast->getKey()])->toBe(['reached' => 0, 'failed' => 0]);
+                ->and($counts[$queuedBlast->getKey()])->toBe(['sent' => 0, 'failed' => 0]);
 
             return $page;
         });

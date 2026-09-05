@@ -80,13 +80,32 @@ export type Blast = {
     failure_reason: string | null;
 
     /**
-     * How many supporters this blast has actually been handed to the mailer
-     * for, and how many one-message failures it recorded. Counted from
-     * `blast_recipients` rather than from the audience rule: the audience is a
-     * prediction, and these two are what happened.
+     * How many supporters this blast has actually been handed to the mail
+     * provider for, and how many one-message failures it recorded. Counted
+     * from `blast_recipients` rather than from the audience rule: the audience
+     * is a prediction, and these two are what happened.
+     *
+     * **Sent, never "reached".** The provider accepting a copy says nothing
+     * about an inbox; what it reported afterwards is the three counts below.
      */
-    reached_count: number;
+    sent_count: number;
     failed_count: number;
+
+    /**
+     * What the mail provider reported for the sent copies (D-87): delivered,
+     * or bounced, with a `Permanent` bounce outranking a delivery. The two
+     * never overlap, so the copies no notice has reached — every copy sent
+     * before the intake existed among them — are `sent_count` minus both.
+     */
+    delivered_count: number;
+    bounced_count: number;
+
+    /**
+     * How many of this blast's copies the recipient marked as spam. A way of
+     * asking to stop (D-45), counted apart from `withdrawn_count` because a
+     * complaint writes no withdrawal and uses no link.
+     */
+    complained_count: number;
 
     /**
      * How many of this blast's copies went out carrying a link that could name
@@ -97,7 +116,7 @@ export type Blast = {
      * their own link hold no token, so a withdrawal through one of them could
      * never have been credited to this blast -- and a page showing such a blast
      * `0` would be presenting an absence of evidence as evidence of absence.
-     * Zero here means *not recorded*; equal to `reached_count` means the count
+     * Zero here means *not recorded*; equal to `sent_count` means the count
      * beside it is the whole answer; anything between means it is a floor.
      *
      * A copy whose message never went is not counted, even though it holds a

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\MailOutcomes\BounceType;
 use App\Models\Blast;
 use App\Models\BlastRecipient;
 use App\Models\Segment;
@@ -102,9 +103,10 @@ test('the list tells a campaign what each blast has done, in words rather than i
         // two words look equally final to somebody who has not read the enum.
         ->assertSee('Waiting — no worker has picked this up yet')
 
-        // What the send actually did, counted from the record. "2 reached, 1
-        // refused" is the answer only if both aggregates ran and both rendered.
-        ->assertSee('2 reached, 1 refused')
+        // What the send actually did, counted from the record. "2 handed to the
+        // mail provider, 1 refused" is the answer only if both aggregates ran
+        // and both rendered.
+        ->assertSee('2 handed to the mail provider, 1 refused')
 
         ->assertPresent('[data-test="blast-progress-'.$sent->getKey().'"]')
         ->assertPresent('[data-test="blast-progress-'.$queued->getKey().'"]')
@@ -131,7 +133,7 @@ test('a send that stopped says why, where the campaign can read it', function ()
     // reads it, so a reason written only there is one nobody in the campaign
     // can see. This is the page where it stops being invisible.
     visit('/blasts')
-        ->assertSee('1 reached before it stopped')
+        ->assertSee('1 handed to the mail provider before it stopped')
         ->assertSee('The list could not be read')
         ->assertPresent('[data-test="blast-failure-'.$failed->getKey().'"]')
         ->assertNoJavaScriptErrors();
@@ -423,7 +425,7 @@ test('a send that could only partly be recorded says so rather than reporting a 
 
         // The reach is still the whole send, in the cell beside it, so the two
         // numbers are readable together: four went, two could speak, one did.
-        ->assertSee('4 reached')
+        ->assertSee('4 handed to the mail provider')
         ->assertScript($outcomeOf($blast->getKey())." === '1 of 2 copies that carried a link'")
 
         ->assertNoJavaScriptErrors();
@@ -476,5 +478,108 @@ test('a campaign with nothing unattributed is not told about it', function (): v
         ->assertMissing('[data-test="unattributed-withdrawals"]')
         ->assertDontSee('could not say which message')
         ->assertSee('Everything here is attributed')
+        ->assertNoJavaScriptErrors();
+});
+
+test('the Sent column says what was handed over and what the provider reported, and never that a copy reached anyone', function (): void {
+    // **§7 criterion 5, on the surface it is written about.** The column used
+    // to read "N reached" for every copy the mail provider accepted, which is
+    // the inference Phase 8 exists to stop: at B8 two copies SES reported as
+    // `Permanent` bounces were counted as reached. The server sends the counts
+    // whichever way the page words them, so only the rendered sentences can
+    // say whether the page still claims more than it saw.
+    $observed = Blast::factory()->sent()->create(['subject' => 'Observed by the provider']);
+    $copies = BlastRecipient::factory()->ofBlast($observed)->sent();
+    $copies->count(2)->delivered()->create();
+    $copies->bounced(BounceType::Permanent)->create();
+    $copies->create();
+
+    // Every copy delivered, so the two other answers are zero and are left
+    // out rather than read as "0 bounced, 0 not known".
+    $delivered = Blast::factory()->sent()->create(['subject' => 'All delivered']);
+    BlastRecipient::factory()->count(2)->ofBlast($delivered)->sent()->delivered()->create();
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    $textOf = static fn (string $test): string => "document.querySelector('[data-test=\"{$test}\"]').textContent.trim()";
+
+    visit('/blasts')
+        ->assertSee('Observed by the provider')
+        ->assertSee('All delivered')
+
+        // Line 1: what this application did, in the words a copy the provider
+        // accepted has earned.
+        ->assertScript($textOf('blast-progress-'.$observed->getKey())." === '4 handed to the mail provider'")
+        ->assertScript($textOf('blast-progress-'.$delivered->getKey())." === '2 handed to the mail provider'")
+
+        // Line 2: what the provider reported, adding up to line 1.
+        ->assertScript($textOf('blast-provider-'.$observed->getKey())
+            ." === 'Provider reports 2 delivered, 1 bounced, 1 not known'")
+        ->assertScript($textOf('blast-provider-'.$delivered->getKey())." === 'Provider reports 2 delivered'")
+
+        // And the word itself is gone from the page, which the exact sentences
+        // above make an assertion rather than an empty page passing.
+        ->assertDontSee('reached')
+
+        ->assertNoJavaScriptErrors();
+});
+
+test('copies no notice has reached are said to be not known, and an unsent blast has no report at all', function (): void {
+    // **B8's case, and every blast sent before the intake existed (deferral
+    // 11).** Nothing back-fills an outcome, so these copies hold none, and
+    // the server sends three zeros beside `sent_count`. "Provider reports 3
+    // not known" would be true and misleading: the provider reported nothing,
+    // which is a different fact from reporting that it does not know.
+    $before = Blast::factory()->sent()->create(['subject' => 'Sent before the intake']);
+    BlastRecipient::factory()->count(3)->ofBlast($before)->sent()->create();
+
+    // The control: a blast nothing has picked up handed nothing over, so it
+    // gets no second line rather than one about copies that do not exist.
+    $queued = Blast::factory()->queued()->create(['subject' => 'Still waiting']);
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    $textOf = static fn (string $test): string => "document.querySelector('[data-test=\"{$test}\"]').textContent.trim()";
+
+    visit('/blasts')
+        ->assertSee('Sent before the intake')
+        ->assertSee('Still waiting')
+
+        ->assertScript($textOf('blast-provider-'.$before->getKey())
+            ." === 'Not known — the mail provider has reported nothing for these copies'")
+
+        ->assertPresent('[data-test="blast-progress-'.$queued->getKey().'"]')
+        ->assertMissing('[data-test="blast-provider-'.$queued->getKey().'"]')
+
+        ->assertNoJavaScriptErrors();
+});
+
+test('a complaint is shown beside the withdrawals, and neither is read as the whole', function (): void {
+    // **A complaint is a way of asking to stop (D-45), and it writes no
+    // withdrawal (D-87).** So the server sends it as its own count, and the
+    // page must say both without adding them together -- "2" for one link
+    // used and one spam report would be two different acts read as one.
+    // The link's answer is qualified only when a complaint stands beside it;
+    // the tests above keep the unqualified answers for the blasts with none.
+    $left = Blast::factory()->sent()->create(['subject' => 'One left, one complained']);
+    $copies = BlastRecipient::factory()->count(2)->ofBlast($left)->sent()->delivered()->create();
+    Unsubscribe::create(['blast_recipient_id' => $copies[0]->getKey()]);
+    BlastRecipient::factory()->ofBlast($left)->sent()->delivered()->complained()->create();
+
+    $quiet = Blast::factory()->sent()->create(['subject' => 'Only a complaint']);
+    BlastRecipient::factory()->ofBlast($quiet)->sent()->delivered()->complained()->create();
+    BlastRecipient::factory()->ofBlast($quiet)->sent()->delivered()->create();
+
+    $this->actingAs(User::factory()->owner()->create());
+
+    $outcomeOf = static fn (int $id): string => "document.querySelector('[data-test=\"blast-outcome-{$id}\"]').textContent.trim()";
+
+    visit('/blasts')
+        ->assertSee('One left, one complained')
+        ->assertSee('Only a complaint')
+
+        ->assertScript($outcomeOf($left->getKey())." === '1 by link · 1 marked it as spam'")
+        ->assertScript($outcomeOf($quiet->getKey())." === 'Nobody by link · 1 marked it as spam'")
+
         ->assertNoJavaScriptErrors();
 });

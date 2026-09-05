@@ -233,7 +233,7 @@ test('the outcome numbers on the list are drawn from the host campaign alone', f
             ->where('blasts.0.subject', 'Dredging starts Monday')
             // Harbor's own, every one of them. A leak in either direction moves
             // these off the values Harbor alone can account for.
-            ->where('blasts.0.reached_count', 1)
+            ->where('blasts.0.sent_count', 1)
             ->where('blasts.0.attributable_count', 1)
             ->where('blasts.0.withdrawn_count', 1)
             ->where('unattributedWithdrawals', 1)
@@ -277,7 +277,7 @@ test('a withdrawal recorded in one campaign is invisible in the other, counted f
         ->assertInertia(fn ($page) => $page
             ->has('blasts', 1)
             ->where('blasts.0.subject', 'The ridge path reopens')
-            ->where('blasts.0.reached_count', 4)
+            ->where('blasts.0.sent_count', 4)
             ->where('blasts.0.attributable_count', 4)
             ->where('blasts.0.withdrawn_count', 3)
             ->where('unattributedWithdrawals', 3)
