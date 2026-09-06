@@ -526,7 +526,9 @@ test('only a central host reaches the intake', function (): void {
         postToIntake(noticeBody('delivery', 'id-1'), $centralDomain)->assertOk();
     }
 
-    expect(config('tenancy.central_domains'))->toHaveCount(3)
+    // More than one, so the loop above proves a route on every host rather than on
+    // one; how many depends on APP_URL (CI's localhost folds into the fixed pair).
+    expect(count(config('tenancy.central_domains')))->toBeGreaterThan(1)
         ->and(outcomesOn($harbor, $copy)['delivered_at'])->not->toBeNull();
 });
 
