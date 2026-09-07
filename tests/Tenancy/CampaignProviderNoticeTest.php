@@ -466,7 +466,9 @@ test('a notice naming nothing the product kept is answered, writes nothing and s
 
     Log::spy();
 
-    postToIntake(noticeBody('complaint', 'id-of-an-invitation'))->assertOk();
+    // Addressed to the person both campaigns hold, as an invitation to a
+    // supporter would be -- the case a join by address would credit to a copy.
+    postToIntake(noticeBody('complaint', 'id-of-an-invitation', ['mail.destination' => ['ama@example.test']]))->assertOk();
 
     expect(outcomesOn($harbor, $harborCopy))->toBe(noOutcomes())
         ->and(outcomesOn($ridge, $ridgeCopy))->toBe(noOutcomes());
