@@ -48,8 +48,7 @@ defineProps<{
                     <span
                         class="font-medium text-foreground"
                         data-test="invitation-role"
-                        >{{ role === 'owner' ? 'an Owner' : 'Staff' }}</span
-                    >.
+                        >{{ role === 'owner' ? 'an Owner' : 'Staff' }}</span>.
                 </p>
             </div>
 
