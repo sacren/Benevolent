@@ -35,7 +35,6 @@
         "pestphp/pest-plugin-laravel": "^4.1"
     },
     "conflict": {
-        "brick/math": ">=0.18",
         "guzzlehttp/guzzle": ">=8.0",
         "guzzlehttp/promises": ">=3.0",
         "guzzlehttp/psr7": ">=3.0",
