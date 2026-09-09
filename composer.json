@@ -39,8 +39,7 @@
         "guzzlehttp/guzzle": ">=8.0",
         "guzzlehttp/promises": ">=3.0",
         "guzzlehttp/psr7": ">=3.0",
-        "guzzlehttp/uri-template": ">=2.0",
-        "hamcrest/hamcrest-php": ">=3.0"
+        "guzzlehttp/uri-template": ">=2.0"
     },
     "autoload": {
         "psr-4": {
